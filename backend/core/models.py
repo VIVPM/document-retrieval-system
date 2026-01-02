@@ -10,7 +10,6 @@ Defines all dataclasses used across the system:
 
 from __future__ import annotations
 
-import numpy as np
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional
 
@@ -20,12 +19,30 @@ from typing import List, Dict, Optional
 # ---------------------------------------------------------------------------
 
 @dataclass
+class Block:
+    """
+    One layout element as Docling found it, in reading order.
+
+    `kind` is the whole point: Docling already knows what is a table and what
+    is prose, and the chunker needs that to avoid severing a table from its
+    header row. Carrying `page_num` per block is what makes chunk citations
+    page-accurate instead of spanning the whole document's range.
+    """
+    kind: str        # "text" | "table"
+    content: str
+    page_num: int    # 0-indexed
+
+
+@dataclass
 class PageInfo:
     """Stores information about a single page extracted from a PDF."""
     page_num: int
     text: str
     doc_type: Optional[str] = None
     page_in_doc: int = 0
+    # Same content as `text`, but structured. `text` is kept for the
+    # classifier and boundary detector, which want a flat string.
+    blocks: List[Block] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -45,6 +62,9 @@ class LogicalDocument:
     text: str
     filename: Optional[str] = field(default=None)
     chunks: Optional[List[Dict]] = field(default=None)
+    # Blocks of every page in this document, in reading order. The chunker
+    # prefers these over `text`; it falls back to `text` when empty.
+    blocks: List[Block] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -65,7 +85,6 @@ class ChunkMetadata:
         page_start  : first PDF page this chunk originates from
         page_end    : last PDF page this chunk originates from
         text        : raw chunk text
-        embedding   : dense vector (set during index building)
     """
     chunk_id: str
     doc_id: str
@@ -75,7 +94,6 @@ class ChunkMetadata:
     page_start: int
     page_end: int
     text: str
-    embedding: Optional[np.ndarray] = field(default=None)
 
 
 # ---------------------------------------------------------------------------

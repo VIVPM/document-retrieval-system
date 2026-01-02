@@ -11,10 +11,15 @@ extract_and_analyze_pdf(pdf_file)
     → Tuple[List[PageInfo], List[LogicalDocument]]
 """
 
+import os
+from concurrent.futures import ThreadPoolExecutor
 from typing import List, Tuple
 
-from core.models import PageInfo, LogicalDocument
+from core.models import Block, PageInfo, LogicalDocument
 from core.document_classifier import classify_document_type, detect_document_boundary
+
+# Concurrent per-page LLM calls during structure analysis.
+PAGE_CONCURRENCY = int(os.getenv("PAGE_CONCURRENCY", "8"))
 
 
 def extract_and_analyze_pdf(
@@ -48,7 +53,11 @@ def extract_and_analyze_pdf(
             "  DOCLING_URL=https://<your-deployment>.modal.run/extract"
         )
 
-    print("☁️ Sending PDF to Modal Cloud for Docling Extractions (OCR + Tables)...")
+    # "classic" = layout model + TableFormer, "vlm" = granite-docling-258M.
+    DOCLING_PIPELINE = os.getenv("DOCLING_PIPELINE", "classic")
+
+    print(f"☁️ Sending PDF to Modal Cloud for Docling Extractions "
+          f"(pipeline={DOCLING_PIPELINE}, OCR + Tables)...")
 
     file_path = pdf_file
     is_temp = False
@@ -63,7 +72,12 @@ def extract_and_analyze_pdf(
     try:
         with open(file_path, "rb") as f:
             files = {"file": (os.path.basename(file_path), f, "application/pdf")}
-            response = requests.post(MODAL_DOCLING_URL, files=files, timeout=600)
+            # The VLM runs the model once per page, so it needs far longer.
+            response = requests.post(
+                MODAL_DOCLING_URL, files=files,
+                params={"pipeline": DOCLING_PIPELINE},
+                timeout=1800 if DOCLING_PIPELINE == "vlm" else 600,
+            )
             
         if response.status_code != 200:
             raise ValueError(f"Modal API Error: {response.text}")
@@ -81,13 +95,27 @@ def extract_and_analyze_pdf(
         for str_page_no in sorted(pages_data.keys(), key=int):
             page_no = int(str_page_no)
             items = sorted(pages_data[str_page_no], key=lambda x: x["y_pos"])
-            page_text = "\n\n".join(item["content"] for item in items)
-            
+
+            # Keep Docling's type tag; the chunker needs it to keep tables whole.
+            blocks = [
+                Block(
+                    kind=item.get("type", "text"),
+                    content=item["content"],
+                    page_num=page_no - 1,        # 0-indexed for downstream
+                )
+                for item in items
+                if item.get("content", "").strip()
+            ]
+            page_text = "\n\n".join(b.content for b in blocks)
+
             pages_info.append(PageInfo(
-                page_num=page_no - 1,   # 0-indexed for downstream
+                page_num=page_no - 1,
                 text=page_text,
+                blocks=blocks,
             ))
-            print(f"  Page {page_no}: {len(page_text)} chars")
+            n_tables = sum(1 for b in blocks if b.kind == "table")
+            print(f"  Page {page_no}: {len(page_text)} chars, "
+                  f"{len(blocks)} blocks ({n_tables} tables)")
 
         if not pages_info:
             raise ValueError("No text could be extracted from PDF")
@@ -100,57 +128,47 @@ def extract_and_analyze_pdf(
     # Document boundary detection → build LogicalDocument list
     # ------------------------------------------------------------------
     print("🧠 Analysing document structure...")
+
+    # The sequential version fed each boundary check the running document
+    # type, which is what made it sequential. Every page is classified up
+    # front instead, so the check can use the PREVIOUS page's own type and
+    # every pair becomes independent — two concurrent rounds instead of one
+    # round-trip per page.
+    #
+    # Dropping the hint entirely was tried first and is wrong: without it the
+    # Contract following a Pay Slip is not detected and the two merge.
+    with ThreadPoolExecutor(max_workers=PAGE_CONCURRENCY) as pool:
+        page_types = list(pool.map(
+            lambda p: classify_document_type(p.text), pages_info))
+
+        same_as_prev = list(pool.map(
+            lambda i: detect_document_boundary(
+                pages_info[i - 1].text, pages_info[i].text, page_types[i - 1]),
+            range(1, len(pages_info)),
+        ))
+
+    # A new logical document starts wherever the boundary check says "no".
+    starts = [0] + [i for i, same in enumerate(same_as_prev, start=1) if not same]
+    doc_types = [page_types[i] for i in starts]
+
     logical_docs: List[LogicalDocument] = []
-    current_doc_type: str = None
-    current_doc_pages: List[PageInfo] = []
-    doc_counter = 0
+    for doc_counter, (start, doc_type) in enumerate(zip(starts, doc_types)):
+        end = starts[doc_counter + 1] if doc_counter + 1 < len(starts) else len(pages_info)
+        doc_pages = pages_info[start:end]
+        for offset, page_info in enumerate(doc_pages):
+            page_info.doc_type = doc_type
+            page_info.page_in_doc = offset
+        print(f"  Page {start}: New document detected — {doc_type}")
 
-    for i, page_info in enumerate(pages_info):
-        if i == 0:
-            current_doc_type = classify_document_type(page_info.text)
-            page_info.doc_type = current_doc_type
-            page_info.page_in_doc = 0
-            current_doc_pages = [page_info]
-            print(f"  Page {i}: New document detected — {current_doc_type}")
-        else:
-            prev_text = pages_info[i - 1].text
-            is_same = detect_document_boundary(prev_text, page_info.text, current_doc_type)
-
-            if is_same:
-                page_info.doc_type = current_doc_type
-                page_info.page_in_doc = len(current_doc_pages)
-                current_doc_pages.append(page_info)
-            else:
-                # Save completed logical document
-                doc = LogicalDocument(
-                    doc_id=f"doc_{doc_counter}",
-                    doc_type=current_doc_type,
-                    page_start=current_doc_pages[0].page_num,
-                    page_end=current_doc_pages[-1].page_num,
-                    text="\n\n".join(p.text for p in current_doc_pages),
-                    filename=filename,
-                )
-                logical_docs.append(doc)
-                doc_counter += 1
-
-                # Start new logical document
-                current_doc_type = classify_document_type(page_info.text)
-                page_info.doc_type = current_doc_type
-                page_info.page_in_doc = 0
-                current_doc_pages = [page_info]
-                print(f"  Page {i}: New document detected — {current_doc_type}")
-
-    # Flush last document
-    if current_doc_pages:
-        doc = LogicalDocument(
+        logical_docs.append(LogicalDocument(
             doc_id=f"doc_{doc_counter}",
-            doc_type=current_doc_type,
-            page_start=current_doc_pages[0].page_num,
-            page_end=current_doc_pages[-1].page_num,
-            text="\n\n".join(p.text for p in current_doc_pages),
+            doc_type=doc_type,
+            page_start=doc_pages[0].page_num,
+            page_end=doc_pages[-1].page_num,
+            text="\n\n".join(p.text for p in doc_pages),
             filename=filename,
-        )
-        logical_docs.append(doc)
+            blocks=[b for p in doc_pages for b in p.blocks],
+        ))
 
     print(f"✅ Identified {len(logical_docs)} logical documents")
     for ld in logical_docs:

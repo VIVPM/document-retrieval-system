@@ -88,9 +88,10 @@ def classify_document_type(text: str, max_length: int = 1500) -> str:
     """
 
     try:
-        response = gemma_llm.complete(prompt, temperature=0)
+        # 32 tokens fits the longest label, "Preliminary Title Report".
+        response = gemma_llm.complete(prompt, temperature=0, fast=True,
+                                      thinking_budget=0, max_tokens=32)
         doc_type = response.text.strip()
-        print(doc_type)
 
         # Exact match (case-insensitive)
         for valid_type in VALID_DOC_TYPES:
@@ -159,7 +160,9 @@ def detect_document_boundary(
     """
 
     try:
-        response = gemma_llm.complete(prompt, temperature=0)
+        # Runs once per page, so it dominates ingest token cost.
+        response = gemma_llm.complete(prompt, temperature=0, fast=True,
+                                      thinking_budget=0, max_tokens=8)
         return response.text.strip().lower().startswith("yes")
     except Exception as e:
         print(f"Boundary detection error: {e}")

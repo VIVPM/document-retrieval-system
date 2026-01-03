@@ -91,7 +91,7 @@ def download_model():
 def serve():
     """
     Launch vLLM as an OpenAI-compatible background server.
-    llm_setup.py uses OpenAILike which works with this endpoint as-is.
+    llm/llm_router.py points an OpenAI client at this endpoint as-is.
     """
     cmd = [
         "vllm", "serve",

@@ -36,7 +36,9 @@ html, body, #root {
   background: var(--bg-primary);
   color: var(--text-primary);
   font-family: 'Inter', sans-serif;
-  font-size: 14px;
+  /* 16px root so rem-based sizes render at their intended scale. Was 14px,
+     which silently shrank every rem in the app by ~12%. */
+  font-size: 16px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
 }

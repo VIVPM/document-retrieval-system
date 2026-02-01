@@ -113,7 +113,7 @@ def _reap_stranded_ingests() -> None:
 
 _reap_stranded_ingests()
 
-MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "25"))
+MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "3"))
 MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 
 def _ns(db, user_id: int) -> str:
@@ -176,12 +176,13 @@ app = FastAPI(
     version="2.0.0",
 )
 
+# CORS — origins from env (comma-separated); default keeps the deployed frontend
+# and local dev working without a code change.
+_DEFAULT_ORIGINS = "https://document-retrieval-system-frontend.onrender.com,http://localhost:5173"
+ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", _DEFAULT_ORIGINS).split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://document-retrieval-system-frontend.onrender.com",
-        "http://localhost:5173",
-    ],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -640,7 +641,7 @@ async def upload_document(
                 namespace=_ns(db, chat.user_id), chat_id=chat_id
             ).retriever.delete_chat()
 
-        # Stream to disk with a running size check — never read a 25 MB upload
+        # Stream to disk with a running size check — never read the whole upload
         # into memory just to measure it.
         tmp_path = None
         total = 0
@@ -868,6 +869,13 @@ def delete_chat(chat_id: str, current_user: dict = Depends(get_current_user)):
         return {"success": True}
     finally:
         db.close()
+
+
+@app.get("/")
+def root():
+    # So hitting the bare domain returns 200, not FastAPI's default 404 — the
+    # real endpoints live under /api. Used as a cheap liveness ping too.
+    return {"status": "ok", "service": "document-retrieval-system-api", "version": app.version}
 
 
 @app.get("/api/health")

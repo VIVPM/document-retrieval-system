@@ -362,6 +362,7 @@
 .upload-zone input { display: none; }
 .upload-zone .upload-icon { font-size: 32px; margin-bottom: 8px; }
 .upload-zone p { color: var(--text-secondary); font-size: 0.82rem; }
+.upload-zone .upload-hint { color: var(--text-muted); font-size: 0.72rem; margin-top: 4px; }
 .upload-zone .filename {
   margin-top: 10px;
   font-size: 0.78rem;

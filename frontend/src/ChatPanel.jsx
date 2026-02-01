@@ -33,9 +33,14 @@ function UploadView({ chat, onUploaded, addToast }) {
   const [busy, setBusy] = useState(false)
   const inputRef = useRef(null)
 
+  // Mirror the backend cap (main.py MAX_UPLOAD_MB) so an oversized file is
+  // rejected instantly instead of after a full upload and a 413.
+  const MAX_MB = 3
+
   const pick = (f) => {
     if (!f) return
     if (!f.name.toLowerCase().endsWith('.pdf')) return addToast('Only PDF files are accepted.', 'error')
+    if (f.size > MAX_MB * 1024 * 1024) return addToast(`File is larger than the ${MAX_MB} MB limit.`, 'error')
     setFile(f)
   }
 
@@ -74,6 +79,7 @@ function UploadView({ chat, onUploaded, addToast }) {
         <input ref={inputRef} type="file" accept=".pdf" onChange={(e) => pick(e.target.files[0])} />
         <div className="upload-icon">📂</div>
         <p>{dragging ? 'Drop it' : 'Click or drag a PDF here'}</p>
+        <p className="upload-hint">PDF · up to {MAX_MB} MB</p>
         {file && <div className="filename">📄 {file.name}</div>}
       </div>
 

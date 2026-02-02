@@ -129,7 +129,8 @@ DATABASE_URL=postgresql://user:pass@ep-xxx-pooler.region.aws.neon.tech/dbname?ss
 JWT_SECRET=<python -c "import secrets; print(secrets.token_urlsafe(48))">
 
 # Optional
-MAX_UPLOAD_MB=25          # upload cap, enforced while streaming
+ALLOWED_ORIGINS=https://your-frontend.onrender.com,http://localhost:5173  # CORS allow-list (comma-separated)
+MAX_UPLOAD_MB=3           # upload cap (MB), enforced while streaming
 GEMINI_THINKING_BUDGET=2048  # fixed ceiling (default); 0 = off, -1 = dynamic
 GEMINI_FAST_MODEL=gemini-2.5-flash-lite   # classification + boundary detection
 DOCLING_PIPELINE=classic  # or "vlm" for granite-docling-258M (see below)

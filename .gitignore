@@ -1,5 +1,6 @@
 .venv
 backend/.env
+frontend/.env
 notebooks
 frontend/dist
 upgrade_roadmap.txt

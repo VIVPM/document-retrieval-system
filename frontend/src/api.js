@@ -1,7 +1,8 @@
 // API client. Owns the tokens and every call to the backend.
 //
-// Set VITE_API_URL at build time to point at the deployed backend.
-const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+// VITE_API_URL comes from frontend/.env (gitignored, local-only) → localhost.
+// On Render that file is absent, so this falls back to the deployed backend.
+const API = import.meta.env.VITE_API_URL || 'https://document-retrieval-system-5gqx.onrender.com'
 
 const TOKEN_KEY = 'drs_token'
 const REFRESH_KEY = 'drs_refresh'

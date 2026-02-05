@@ -1,0 +1,29 @@
+# Keep the build context small — the venv and node_modules are ~1GB.
+.git
+.github
+**/.venv
+**/venv
+**/node_modules
+**/__pycache__
+**/*.pyc
+frontend/dist
+
+# Secrets are injected at runtime via env_file, never baked into a layer.
+**/.env
+**/.env.*
+
+# Dev tooling and artifacts — not needed to serve the API.
+backend/eval
+backend/modal
+backend/load_test.py
+backend/load_test_results
+notebooks
+*.ipynb
+"Test Blob File.pdf"
+
+# Local-only notes and generated output
+upgrade_roadmap.txt
+migrations.sql
+.claude
+*.md
+!README.md

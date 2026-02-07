@@ -1,0 +1,29 @@
+# Local stack: API + frontend. Neon and Pinecone stay remote, so backend/.env
+# must point at a real project.
+#
+#   docker compose up --build
+#   frontend -> http://localhost:5173,  API -> http://localhost:8000
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file: backend/.env
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        # Vite bakes this in at build time, so changing it needs a rebuild.
+        # localhost resolves in the browser, not the container.
+        VITE_API_URL: "http://localhost:8000"
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
+    restart: unless-stopped

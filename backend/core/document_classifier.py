@@ -12,7 +12,6 @@ detect_document_boundary(prev_text, curr_text, current_doc_type)
     Decide whether two consecutive pages belong to the same logical document.
 """
 
-import re
 from llm.llm_router import llm as gemma_llm
 
 # ---------------------------------------------------------------------------

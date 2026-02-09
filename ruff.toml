@@ -1,0 +1,18 @@
+# Ruff config for CI (.github/workflows/ci.yml) and local runs: `ruff check backend/`
+line-length = 120
+
+# Notebooks are exploratory, not production code.
+extend-exclude = ["*.ipynb"]
+
+[lint]
+# Defaults only: real mistakes (unused imports, undefined names), no style bikeshed.
+ignore = [
+    # main.py and load_test.py must call load_dotenv() before importing app
+    # modules — database.py builds its engine at import and needs DATABASE_URL.
+    "E402",
+]
+
+[lint.per-file-ignores]
+# Harnesses print long measured-vs-expected lines; wrapping hurts readability.
+"backend/load_test.py" = ["E501"]
+"backend/eval/*.py" = ["E501"]

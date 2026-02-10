@@ -225,7 +225,7 @@ for i, (question, expect) in enumerate(QUESTIONS):
     for arm in ARMS:
         o = out[arm]
         tag = "" if o["hit"] is None else ("  ✓expect" if o["hit"] else "  ✗EXPECT")
-        sc = scores.get(next(l for l, a in slots.items() if a == arm)) or {}
+        sc = scores.get(next(lbl for lbl, a in slots.items() if a == arm)) or {}
         print(f"   {arm:16} {o['secs']:5.1f}s  "
               f"think={o['usage'].get('thinking_tokens',0):5}  "
               f"${cost(o['usage']):.5f}  "

@@ -12,7 +12,6 @@ import math
 import os
 import re
 import sys
-import time
 from collections import defaultdict
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")

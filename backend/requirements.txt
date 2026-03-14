@@ -1,0 +1,66 @@
+# Core ML and RAG libraries
+llama-index
+llama-index-llms-huggingface
+llama-index-embeddings-huggingface
+llama-index-vector-stores-faiss
+langchain
+langchain-huggingface
+langchain-google-genai
+sentence-transformers
+
+# Vector search & lexical search
+faiss-cpu
+rank-bm25
+
+# Document parsing and structure
+docling
+
+# Quantization and GPU acceleration
+bitsandbytes
+accelerate
+torch 
+
+# Model utilities
+huggingface_hub
+tiktoken
+# Core ML and RAG libraries
+llama-index
+llama-index-llms-huggingface
+llama-index-embeddings-huggingface
+llama-index-vector-stores-faiss
+langchain
+langchain-huggingface
+langchain-google-genai
+sentence-transformers
+
+# Vector search & lexical search
+faiss-cpu
+rank-bm25
+
+# Document parsing and structure
+docling
+
+# Quantization and GPU acceleration
+bitsandbytes
+accelerate
+torch 
+
+# Model utilities
+huggingface_hub
+tiktoken
+transformers
+
+# Evaluation
+ragas
+datasets
+
+# UI and data handling
+fastapi
+uvicorn[standard]
+python-multipart
+# Removed gradio as functionality migrated to React/FastAPI
+# gradio==4.x.x
+# ... previous contents ...
+pandas
+numpy
+python-dotenv

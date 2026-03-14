@@ -70,6 +70,7 @@ The system is optimized for cloud scale using **Modal** for heavy processing and
 #### A. Sarvam AI (API Setup)
 1.  Sign up at [sarvam.ai](https://www.sarvam.ai/).
 2.  Generate an API Key and add it to your `.env`:
+
     ```text
     SARVAM_API_KEY=your_sarvam_api_key
     ```
@@ -131,9 +132,36 @@ The system's performance is validated using the **Ragas** evaluation framework, 
 
 ## 📂 Project Structure
 
-*   **`frontend/`**: Vite + React application.
-    *   `src/App.jsx`: Main UI logic and chat interface.
-*   **`backend/`**: FastAPI server.
-    *   `main.py`: API endpoints and store orchestration.
-    *   `core/`: Core RAG logic (Retriever, Chunker, PDF Processor).
-*   **`notebooks/`**: Evaluation and experimentation notebooks.
+```text
+document-retrieval-system/
+├── backend/                 # FastAPI Backend & RAG Logic
+│   ├── core/                # Core Processing Engine
+│   │   ├── document_store.py  # Hybrid storage & management
+│   │   ├── retriever.py       # FAISS + BM25 + RRF logic
+│   │   ├── pdf_processor.py   # Docling integration
+│   │   ├── chunker.py         # Advanced text chunking
+│   │   └── query_router.py    # Semantic query routing
+│   ├── llm/                 # LLM & Embedding Configuration
+│   │   ├── llm_router.py      # Modal/Sarvam smart routing
+│   │   └── gemini_setup.py    # Legacy/Fallback config
+│   ├── modal/               # Cloud Deployment Scripts
+│   │   ├── modal_llm_server.py # vLLM hosting (Gemma-2)
+│   │   ├── modal_docling_worker.py # Serverless PDF extraction
+│   │   └── modal_reranker_server.py # Cross-Encoder hosting
+│   ├── main.py              # API Entry Point
+│   ├── requirements.txt     # Python dependencies
+│   └── .env                 # API Keys & Worker URLs
+├── frontend/                # Vite + React Frontend
+│   ├── src/                 # Application Source
+│   │   ├── App.jsx          # Main Chat Interface & Logic
+│   │   ├── App.css          # Premium Glassmorphism styling
+│   │   └── main.jsx         # React entry point
+│   ├── public/              # Static assets
+│   ├── package.json         # Frontend dependencies
+│   └── vite.config.js       # Vite proxy & build config
+├── notebooks/               # R&D and Evaluation
+│   └── evaluation.ipynb     # Ragas benchmarking pipeline
+├── results/                 # Metrics & Analysis outputs
+├── .gitignore               # Build & Secret exclusions
+└── README.md                # Project documentation
+```

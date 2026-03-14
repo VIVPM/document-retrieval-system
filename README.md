@@ -9,7 +9,7 @@ An intelligent, high-performance RAG (Retrieval-Augmented Generation) system for
 *   **Modern React UI**: A responsive, premium dashboard for document management and intelligent chat.
 *   **Open-Source Extraction**: Leverages **Docling** for high-fidelity, structure-aware PDF parsing.
 *   **Hybrid Search Engine**: Combines **FAISS** (Vector Search) and **BM25** (Lexical Search) with **Reciprocal Rank Fusion (RRF)** for superior retrieval precision.
-*   **Intelligent Reranking**: Optional **Cross-Encoder Reranker** (HuggingFace) to fine-tune results and maximize answer accuracy.
+*   **Advanced Reasoning**: Powering answers with **Sarvam-105B** (via Sarvam API or Modal vLLM) for superior reasoning and document understanding.
 *   **Semantic Routing**: Automatic query routing to specific document sections based on content type.
 *   **Detailed Analytics**: Real-time stats on processing time, chunk counts, and retrieval confidence.
 
@@ -35,7 +35,7 @@ graph TD
         Store -->|Retrieve| Hybrid["🔍 Hybrid Retriever<br>(FAISS + BM25)"]
         Hybrid -->|Fusion| RRF["⚖️ RRF Scoring"]
         RRF -->|Rank| Reranker["⭐ Cross-Encoder Rerank"]
-        Reranker -->|Context| LLM["🤖 Gemini LLM<br>(Answer Generation)"]
+        Reranker -->|Context| LLM["🤖 Sarvam LLM<br>(Answer Generation)"]
     end
 
     subgraph Data_Storage [Local Storage]
@@ -51,7 +51,7 @@ graph TD
 ### 1. Requirements
 * **Node.js**: For the React frontend.
 * **Python 3.10+**: For the FastAPI backend.
-* **Gemini API Key**: For answer generation.
+* **Sarvam API Key**: For answer generation (Sarvam-105B).
 
 ### 2. Backend Setup
 1.  Navigate to the backend directory:
@@ -62,16 +62,42 @@ graph TD
     ```bash
     pip install -r requirements.txt
     ```
-3.  Configure Environment: Create a `.env` file in the root or backend folder:
+
+### 3. Model & Worker Setup (Sarvam + Modal)
+
+The system is optimized for cloud scale using **Modal** for heavy processing and **Sarvam AI** for high-performance reasoning.
+
+#### A. Sarvam AI (API Setup)
+1.  Sign up at [sarvam.ai](https://www.sarvam.ai/).
+2.  Generate an API Key and add it to your `.env`:
     ```text
-    GOOGLE_API_KEY=your_gemini_api_key
-    ```
-4.  Run Backend:
-    ```bash
-    uvicorn main:app --port 8000
+    SARVAM_API_KEY=your_sarvam_api_key
     ```
 
-### 3. Frontend Setup
+#### B. Modal Deployment (LLM, Docling, Reranker)
+1.  **Initialize Modal**: `pip install modal && modal setup`.
+2.  **Create Secrets**: In the Modal dashboard, create a secret named `huggingface-secret` containing your `HF_TOKEN`.
+3.  **Deploy the Stack**:
+    ```bash
+    # 1. LLM Server (Gemma-2 9B)
+    modal run modal/modal_llm_server.py::download_model
+    modal deploy modal/modal_llm_server.py
+
+    # 2. Docling Worker (PDF Extraction)
+    modal deploy modal/modal_docling_worker.py
+
+    # 3. Reranker Server (BGE-M3)
+    modal run modal/modal_reranker_server.py::download_model
+    modal deploy modal/modal_reranker_server.py
+    ```
+4.  **Finalize .env**: Copy the deployment URLs into your backend `.env`:
+    ```text
+    LLM_URL=https://your-llm-server.modal.run
+    DOCLING_URL=https://your-docling-worker.modal.run
+    RERANKER_URL=https://your-reranker-server.modal.run
+    ```
+
+### 4. Running the Frontend
 1.  Navigate to the frontend directory:
     ```bash
     cd frontend

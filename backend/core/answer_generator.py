@@ -40,13 +40,14 @@ def generate_answer_with_sources(
 
     for chunk_meta, score in retrieved_chunks:
         context_parts.append(
-            f"[Source: {chunk_meta.doc_type} | "
+            f"[Source: {chunk_meta.filename} | {chunk_meta.doc_type} | "
             f"Pages: {chunk_meta.page_start}-{chunk_meta.page_end}]"
         )
         context_parts.append(chunk_meta.text)
         context_parts.append("")
 
         sources.append({
+            'filename': chunk_meta.filename,
             'doc_type': chunk_meta.doc_type,
             'pages': f"{chunk_meta.page_start}-{chunk_meta.page_end}",
             'relevance': f"{score:.2%}",

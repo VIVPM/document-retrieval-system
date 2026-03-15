@@ -9,10 +9,11 @@ Provides the HybridRetriever class, which handles:
   - Optional CrossEncoder reranking
 """
 
+import os
 import numpy as np
-import faiss
 from typing import List, Tuple, Optional, Dict, Union
 from rank_bm25 import BM25Okapi
+from pinecone import Pinecone
 
 from core.models import ChunkMetadata, SearchConfig
 
@@ -22,7 +23,7 @@ class HybridRetriever:
     Hybrid retrieval system using Reciprocal Rank Fusion (RRF).
 
     Combines:
-    1. FAISS vector search (semantic similarity)
+    1. Pinecone vector search (semantic similarity)
     2. BM25 keyword search (lexical matching)
     3. Embedding centroid classification for document-type routing (no LLM)
     4. Optional CrossEncoder reranking for improved relevance
@@ -63,14 +64,27 @@ class HybridRetriever:
         if self.use_rerank:
             self._load_reranker()
 
+        # Pinecone Setup
+        pinecone_api_key = os.getenv("PINECONE_API_KEY")
+        pinecone_index_name = os.getenv("PINECONE_INDEX_NAME")
+        pinecone_host = os.getenv("PINECONE_HOST")
+        self.namespace = "mortgage_namespace"
+        
+        if not all([pinecone_api_key, pinecone_index_name, pinecone_host]):
+            print("⚠️ PINECONE_API_KEY, PINECONE_INDEX_NAME, PINECONE_HOST must be set in .env for Pinecone retrieval.")
+            self.pc_index = None
+        else:
+            pc = Pinecone(api_key=pinecone_api_key)
+            self.pc_index = pc.Index(pinecone_index_name, host=pinecone_host)
+            print(f"✅ Pinecone index '{pinecone_index_name}' [namespace: {self.namespace}] configured successfully.")
+
         # Main indices
-        self.faiss_index = None
         self.bm25_index = None
         self.chunks_metadata: List[ChunkMetadata] = []
         self.tokenized_corpus: List[List[str]] = []
 
-        # Document type specific indices
-        self.doc_type_indices: Dict[str, Dict] = {}
+        # Document type specific info
+        self.doc_types_mapping: Dict[str, List[int]] = {}
 
         # Centroid vectors for document-type classification
         self.doc_type_centroids: Dict[str, np.ndarray] = {}
@@ -79,12 +93,12 @@ class HybridRetriever:
         self.embed_model = None
 
     def clear(self):
-        """Reset all indices and loaded data."""
-        self.faiss_index = None
+        """Reset local state. Persistence in Pinecone remains."""
+        print("🧹 Clearing local indices (Pinecone persistence remains).")
         self.bm25_index = None
         self.chunks_metadata = []
         self.tokenized_corpus = []
-        self.doc_type_indices = {}
+        self.doc_types_mapping = {}
         self.doc_type_centroids = {}
         self.embed_model = None
 
@@ -98,7 +112,7 @@ class HybridRetriever:
 
         Checks for RERANKER_URL env var first:
           - If set → use Modal HTTP endpoint (no local model loaded)
-          - Otherwise → load BAAI/bge-reranker-v2-m3 locally
+          - Otherwise → load cross-encoder/ms-marco-MiniLM-L-6-v2 locally
         """
         import os
         modal_url = os.getenv("RERANKER_URL", "").strip()
@@ -113,9 +127,9 @@ class HybridRetriever:
             try:
                 from sentence_transformers import CrossEncoder
                 import torch
-                print("🔄 Loading BAAI/bge-reranker-v2-m3 locally...")
+                print("🔄 Loading cross-encoder/ms-marco-MiniLM-L-6-v2 locally...")
                 self.reranker = CrossEncoder(
-                    "BAAI/bge-reranker-v2-m3",
+                    "cross-encoder/ms-marco-MiniLM-L-6-v2",
                     max_length=1024,
                     device="cuda" if torch.cuda.is_available() else "cpu"
                 )
@@ -146,12 +160,18 @@ class HybridRetriever:
     # -----------------------------------------------------------------------
 
     def build_indices(self, chunks_metadata: List[ChunkMetadata], embed_model):
-        """Build FAISS, BM25, and centroid indices."""
+        """Build Pinecone, BM25, and centroid indices."""
+        if not self.pc_index:
+            raise ValueError("Pinecone index not configured. Check .env variables.")
+
         rerank_status = "enabled" if self.use_rerank else "disabled"
-        print(f"🔨 Building hybrid indices (FAISS + BM25 + Centroids, rerank: {rerank_status})...")
+        print(f"🔨 Building hybrid indices (Pinecone + BM25 + Centroids, rerank: {rerank_status})...")
 
         self.chunks_metadata = chunks_metadata
         self.embed_model = embed_model
+        
+        # persistence: we do NOT call self.pc_index.delete(delete_all=True) anymore.
+        # Instead, we rely on unique chunk_ids to add/update documents.
 
         # === Compute Embeddings ===
         print("  📊 Computing embeddings...")
@@ -181,41 +201,47 @@ class HybridRetriever:
 
         print(f"  ✅ Built {len(self.doc_type_centroids)} document-type centroids")
 
-        # === FAISS Vector Index (normalize a COPY — do not mutate raw embeddings) ===
-        print("  📊 Building FAISS vector index...")
-        faiss_embeddings = embeddings.copy()
-        dim = faiss_embeddings.shape[1]
-        self.faiss_index = faiss.IndexFlatIP(dim)
-        faiss.normalize_L2(faiss_embeddings)
-        self.faiss_index.add(faiss_embeddings)
+        # === Pinecone Vector Index ===
+        print(f"  📊 Pushing vectors to Pinecone [namespace: {self.namespace}]...")
+        pinecone_vectors = []
+        for i, chunk in enumerate(chunks_metadata):
+            # Using unique chunk_id for persistence across multiple files
+            pinecone_vectors.append({
+                "id": chunk.chunk_id,
+                "values": embeddings[i].tolist(),
+                "metadata": {
+                    "text": chunk.text,      # Store text for server-side reconstruction
+                    "doc_id": chunk.doc_id,
+                    "doc_type": chunk.doc_type,
+                    "filename": chunk.filename,
+                    "page_start": chunk.page_start,
+                    "page_end": chunk.page_end,
+                    "original_idx": i
+                }
+            })
+            
+        # Upsert in batches of 100 max
+        batch_size = 100
+        for start in range(0, len(pinecone_vectors), batch_size):
+            self.pc_index.upsert(
+                vectors=pinecone_vectors[start:start + batch_size],
+                namespace=self.namespace
+            )
+        
+        print(f"  ✅ Pushed {len(pinecone_vectors)} vectors to Pinecone.")
 
         # === BM25 Keyword Index ===
         print("  📝 Building BM25 keyword index...")
         self.tokenized_corpus = [self._bm25_tokenize(chunk.text) for chunk in chunks_metadata]
         self.bm25_index = BM25Okapi(self.tokenized_corpus)
 
-        # === Document Type Specific Indices ===
-        print("  🏷️ Building document type specific indices...")
-
+        # === Document Type Specific Mapping ===
+        print("  🏷️ Mapping document types for BM25...")
         for doc_type in doc_types:
             type_indices = [i for i, chunk in enumerate(chunks_metadata)
                             if chunk.doc_type == doc_type]
             if type_indices:
-                # FAISS index for this type (use the already-normalized faiss_embeddings)
-                type_faiss_embeddings = faiss_embeddings[type_indices]
-                type_faiss_index = faiss.IndexFlatIP(dim)
-                type_faiss_index.add(type_faiss_embeddings)
-
-                # BM25 index for this type
-                type_tokenized = [self.tokenized_corpus[i] for i in type_indices]
-                type_bm25_index = BM25Okapi(type_tokenized)
-
-                self.doc_type_indices[doc_type] = {
-                    'faiss_index': type_faiss_index,
-                    'bm25_index': type_bm25_index,
-                    'mapping': type_indices,
-                    'tokenized': type_tokenized
-                }
+                self.doc_types_mapping[doc_type] = type_indices
 
         print(f"✅ Indexed {len(chunks_metadata)} chunks across {len(doc_types)} document types")
         print(f"   RRF k={self.rrf_k}, margin_threshold={self.margin_threshold}")
@@ -263,7 +289,7 @@ class HybridRetriever:
             return None, 0.0, {'method': 'no_centroids'}
 
         # Embed and normalize the query
-        query_embedding = self.embed_model.encode([query])[0].astype('float32')
+        query_embedding = np.array(self.embed_model.encode([query])[0]).astype('float32')
         query_norm = np.linalg.norm(query_embedding)
         if query_norm > 0:
             query_embedding = query_embedding / query_norm
@@ -328,7 +354,7 @@ class HybridRetriever:
         routing_info = {'method': 'full_search'}
 
         # Priority 1: Explicit filter from UI
-        if filter_doc_type and filter_doc_type in self.doc_type_indices:
+        if filter_doc_type and filter_doc_type in self.doc_types_mapping:
             use_filtered = True
             selected_type = filter_doc_type
             routing_info = {'method': 'filter', 'type': filter_doc_type}
@@ -339,7 +365,7 @@ class HybridRetriever:
             predicted_type, margin, centroid_info = self._classify_by_centroid(query)
             routing_info = centroid_info
 
-            if margin >= self.margin_threshold and predicted_type in self.doc_type_indices:
+            if margin >= self.margin_threshold and predicted_type in self.doc_types_mapping:
                 use_filtered = True
                 selected_type = predicted_type
                 print(f"✅ Centroid routing to: {predicted_type} (margin: {margin:.4f})")
@@ -347,7 +373,7 @@ class HybridRetriever:
                 print(f"⚠️ Low margin ({margin:.4f} < {self.margin_threshold}), "
                       f"searching all chunks")
 
-        total_chunks = (len(self.doc_type_indices[selected_type]['mapping'])
+        total_chunks = (len(self.doc_types_mapping[selected_type])
                         if use_filtered else len(self.chunks_metadata))
 
         return SearchConfig(
@@ -357,29 +383,50 @@ class HybridRetriever:
             routing_info=routing_info
         )
 
-    def _get_faiss_scores(self, query: str, k: int, faiss_index,
-                          chunk_indices: List[int] = None) -> Dict[int, float]:
-        """Get raw FAISS dot-product scores."""
-        query_embedding = self.embed_model.encode([query])
-        query_embedding = np.array(query_embedding).astype('float32')
-        faiss.normalize_L2(query_embedding)
-
-        actual_k = min(k, faiss_index.ntotal)
-        scores, indices = faiss_index.search(query_embedding, actual_k)
-
-        result = {}
-        for idx, score in zip(indices[0], scores[0]):
-            if idx == -1:
+    def _get_pinecone_scores(self, query: str, k: int, filter_doc_type: str = None) -> Dict[int, float]:
+        """Get vector scores from Pinecone index."""
+        query_embedding = np.array(self.embed_model.encode([query])[0]).astype('float32')
+        
+        # Request ample results to ensure find matches in currently indexed chunks
+        request_k = min(max(k * 2, 50), 1000) 
+        
+        metadata_filter = None
+        if filter_doc_type:
+            metadata_filter = {"doc_type": filter_doc_type}
+            
+        results = self.pc_index.query(
+            vector=query_embedding.tolist(),
+            top_k=request_k,
+            filter=metadata_filter,
+            include_metadata=True,
+            namespace=self.namespace
+        )
+        
+        score_dict = {}
+        for match in results.matches:
+            # Reconstruct original index from metadata if available in current session
+            # If not in current session, we will rely on the text stored in Pinecone
+            try:
+                original_idx = match.metadata.get("original_idx")
+                if original_idx is not None:
+                    score_dict[int(original_idx)] = float(match.score)
+            except (ValueError, TypeError):
                 continue
-            original_idx = chunk_indices[idx] if chunk_indices else idx
-            result[original_idx] = float(score)
-        return result
+                
+        return score_dict
 
-    def _get_bm25_scores(self, query: str, k: int, bm25_index,
-                         chunk_indices: List[int] = None) -> Dict[int, float]:
+    def _get_bm25_scores(self, query: str, k: int, filter_doc_type: str = None) -> Dict[int, float]:
         """Get raw BM25 token-match scores."""
         query_tokens = self._bm25_tokenize(query)
-        scores = bm25_index.get_scores(query_tokens)
+        scores = self.bm25_index.get_scores(query_tokens)
+
+        # Apply filtering masking if needed
+        if filter_doc_type and filter_doc_type in self.doc_types_mapping:
+            valid_indices = set(self.doc_types_mapping[filter_doc_type])
+            # Zero out scores for non-matching doc types
+            for i in range(len(scores)):
+                if i not in valid_indices:
+                    scores[i] = 0.0
 
         actual_k = min(k, len(scores))
         top_indices = np.argsort(scores)[::-1][:actual_k]
@@ -387,22 +434,20 @@ class HybridRetriever:
         result = {}
         for idx in top_indices:
             if scores[idx] > 0:
-                original_idx = chunk_indices[idx] if chunk_indices else idx
-                result[original_idx] = float(scores[idx])
+                result[idx] = float(scores[idx])
         return result
 
     def _get_all_scores(self, query: str, config: SearchConfig
                         ) -> Tuple[Dict[int, float], Dict[int, float]]:
-        """Run both FAISS and BM25 retrievals."""
-        if config.use_filtered:
-            tdata = self.doc_type_indices[config.selected_type]
-            faiss_s = self._get_faiss_scores(query, config.total_chunks,
-                                             tdata['faiss_index'], tdata['mapping'])
-            bm25_s = self._get_bm25_scores(query, config.total_chunks,
-                                            tdata['bm25_index'], tdata['mapping'])
-        else:
-            faiss_s = self._get_faiss_scores(query, config.total_chunks, self.faiss_index)
-            bm25_s = self._get_bm25_scores(query, config.total_chunks, self.bm25_index)
+        """Run both Pinecone and BM25 retrievals."""
+        faiss_s = self._get_pinecone_scores(
+            query, config.total_chunks, 
+            filter_doc_type=config.selected_type if config.use_filtered else None
+        )
+        bm25_s = self._get_bm25_scores(
+            query, config.total_chunks,
+            filter_doc_type=config.selected_type if config.use_filtered else None
+        )
         return faiss_s, bm25_s
 
     def _combine_scores_rrf(self, faiss_scores: Dict[int, float],
@@ -492,7 +537,7 @@ class HybridRetriever:
         confidence_threshold: float = 0.7, search_mode: str = "hybrid"
     ) -> Union[List[Tuple], Dict]:
         """Execute full retrieval pipeline and return top-k chunks."""
-        if self.faiss_index is None and self.bm25_index is None:
+        if self.pc_index is None and self.bm25_index is None:
             raise ValueError("No indices built. Call build_indices() first.")
 
         # === Step 1: Resolve search config via centroid routing ===
@@ -503,30 +548,18 @@ class HybridRetriever:
 
         # === Step 2: Get scores based on search mode ===
         if search_mode == "vector":
-            if config.use_filtered:
-                type_data = self.doc_type_indices[config.selected_type]
-                faiss_scores = self._get_faiss_scores(
-                    query, config.total_chunks,
-                    type_data['faiss_index'], type_data['mapping']
-                )
-            else:
-                faiss_scores = self._get_faiss_scores(
-                    query, config.total_chunks, self.faiss_index
-                )
+            faiss_scores = self._get_pinecone_scores(
+                query, config.total_chunks,
+                filter_doc_type=config.selected_type if config.use_filtered else None
+            )
             combined_scores = self._normalize_scores(faiss_scores)
             bm25_scores = {}
 
         elif search_mode == "bm25":
-            if config.use_filtered:
-                type_data = self.doc_type_indices[config.selected_type]
-                bm25_scores = self._get_bm25_scores(
-                    query, config.total_chunks,
-                    type_data['bm25_index'], type_data['mapping']
-                )
-            else:
-                bm25_scores = self._get_bm25_scores(
-                    query, config.total_chunks, self.bm25_index
-                )
+            bm25_scores = self._get_bm25_scores(
+                query, config.total_chunks,
+                filter_doc_type=config.selected_type if config.use_filtered else None
+            )
             combined_scores = self._normalize_scores(bm25_scores)
             faiss_scores = {}
 
@@ -553,14 +586,14 @@ class HybridRetriever:
                 )
 
                 if search_mode == "vector":
-                    faiss_scores = self._get_faiss_scores(
-                        query, config.total_chunks, self.faiss_index
+                    faiss_scores = self._get_pinecone_scores(
+                        query, config.total_chunks
                     )
                     combined_scores = self._normalize_scores(faiss_scores)
                     bm25_scores = {}
                 elif search_mode == "bm25":
                     bm25_scores = self._get_bm25_scores(
-                        query, config.total_chunks, self.bm25_index
+                        query, config.total_chunks
                     )
                     combined_scores = self._normalize_scores(bm25_scores)
                     faiss_scores = {}
@@ -606,10 +639,10 @@ class HybridRetriever:
                 'chunk': chunk,
                 'chunk_index': chunk_idx,
                 'final_score': final_score,
-                'faiss_score': faiss_scores.get(chunk_idx, 0.0),
+                'pinecone_score': faiss_scores.get(chunk_idx, 0.0),
                 'bm25_score': bm25_scores.get(chunk_idx, 0.0),
                 'rrf_score': combined_scores.get(chunk_idx, 0.0) if search_mode == "hybrid" else final_score,
-                'in_faiss_top': chunk_idx in faiss_scores,
+                'in_vector_top': chunk_idx in faiss_scores,
                 'in_bm25_top': chunk_idx in bm25_scores,
                 'doc_type': chunk.doc_type,
                 'pages': f"{chunk.page_start}-{chunk.page_end}",

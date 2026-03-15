@@ -60,10 +60,10 @@ async function apiStructure() {
 function buildAnswerText(data) {
   let txt = data.answer + '\n\n'
 
-  if (data.sources?.length) {
+    if (data.sources?.length) {
     txt += '📍 Sources:\n'
     data.sources.forEach(s => {
-      txt += `• ${s.doc_type} (Pages ${s.pages}) - Relevance: ${s.relevance}\n`
+      txt += `• ${s.filename} | ${s.doc_type} (Pages ${s.pages}) - Relevance: ${s.relevance}\n`
     })
   }
 
@@ -153,7 +153,7 @@ export default function App() {
   const handleRerankToggle = async val => {
     setUseRerank(val)
     try {
-      if (val) addToast('⏳ Connecting to BGE Reranker on Modal…')
+      if (val) addToast('⏳ Connecting to MiniLM Reranker on Modal…')
       await apiSetRerank(val)
       addToast(val ? '✅ Reranker enabled!' : '🔄 Reranking disabled.', 'success')
     } catch (err) {
@@ -328,7 +328,7 @@ export default function App() {
                   <span className="toggle-slider" />
                 </label>
               </div>
-              <span className="setting-hint">BGE Reranker v2-m3 via Modal (slower, more accurate)</span>
+              <span className="setting-hint">MiniLM-L-6 via Modal (fast & efficient reranking)</span>
             </div>
 
             <div className="setting-row">

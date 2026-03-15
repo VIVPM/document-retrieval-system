@@ -101,7 +101,7 @@ def serve():
         "--host", "0.0.0.0",
         "--port", "8000",
         "--gpu-memory-utilization", "0.90",
-        "--max-model-len", "8192",
+        "--max-model-len", "4096",
         "--tensor-parallel-size", str(N_GPU),
         "--dtype", "bfloat16",                      # Gemma-2 requires bfloat16 (float16 unsupported)
     ]

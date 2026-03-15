@@ -18,7 +18,7 @@ from core.answer_generator import generate_answer_with_sources
 class EnhancedDocumentStoreHybrid:
     """
     Manages the complete document processing and retrieval pipeline.
-    Uses hybrid search (FAISS + BM25) with RRF and optional reranking.
+    Uses hybrid search (Pinecone + BM25) with RRF and optional reranking.
     """
 
     def __init__(self, use_rerank: bool = False):
@@ -53,7 +53,7 @@ class EnhancedDocumentStoreHybrid:
         start_time = datetime.now()
 
         try:
-            self.pages_info, self.logical_docs = extract_and_analyze_pdf(pdf_file)
+            self.pages_info, self.logical_docs = extract_and_analyze_pdf(pdf_file, filename)
             self.chunks_metadata = process_all_documents(self.logical_docs)
             self.retriever.build_indices(self.chunks_metadata, embed_model)
 
@@ -96,13 +96,21 @@ class EnhancedDocumentStoreHybrid:
             auto_route=auto_route,
             return_details=return_details
         )
+        
+        # Determine how to unpack retriever output 
+        # Since retriever returns return_details dict or list format depending on args
+        if return_details:
+            retrieval_list = retrieval_result.get('results', [])
+        else:
+            retrieval_list = retrieval_result
+
+        retrieved = [(r['chunk'], r['final_score']) for r in retrieval_list]
 
         if return_details:
-            retrieved = [(r['chunk'], r['final_score']) for r in retrieval_result['results']]
             result = generate_answer_with_sources(question, retrieved)
             result['retrieval_details'] = retrieval_result
         else:
-            result = generate_answer_with_sources(question, retrieval_result)
+            result = generate_answer_with_sources(question, retrieved)
 
         result['filter_used'] = filter_type or ('auto' if auto_route else 'none')
         return result
@@ -132,7 +140,7 @@ class EnhancedDocumentStoreHybrid:
         ]
 
     def _get_search_type_label(self) -> str:
-        label = 'Hybrid (FAISS + BM25 with RRF)'
+        label = 'Hybrid (Pinecone + BM25 with RRF)'
         if self.use_rerank:
             label += ' + Rerank'
         return label

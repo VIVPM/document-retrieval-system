@@ -11,16 +11,19 @@ Fallback happens silently if a specific .complete() call fails.
 
 import os
 from dotenv import load_dotenv
-from sentence_transformers import SentenceTransformer
+from google import genai
+from google.genai import types
 
 load_dotenv()
 
-LLM_URL     = os.getenv("LLM_URL", "").strip()
-SARVAM_KEY  = os.getenv("SARVAM_API_KEY", "").strip()
-MODAL_KEY   = "modal-dummy-key"
-MODAL_MODEL = "google/gemma-2-9b-it"
-SARVAM_MODEL = "sarvam-105b"
-SARVAM_URL   = "https://api.sarvam.ai/v1"
+LLM_URL            = os.getenv("LLM_URL", "").strip()
+SARVAM_KEY         = os.getenv("SARVAM_API_KEY", "").strip()
+GEMINI_API_KEY     = os.getenv("GEMINI_API_KEY", "").strip()
+MODAL_KEY          = "modal-dummy-key"
+MODAL_MODEL        = "google/gemma-2-9b-it"
+SARVAM_MODEL       = "sarvam-105b"
+SARVAM_URL         = "https://api.sarvam.ai/v1"
+GEMINI_EMBED_MODEL = "models/gemini-embedding-001"
 
 
 class MockResponse:
@@ -99,12 +102,49 @@ class LLMRouter:
         return MockResponse("")
 
 
+class GeminiEmbeddingModel:
+    """Wrapper to make Gemini embeddings drop-in compatible with SentenceTransformers."""
+    def __init__(self, api_key: str):
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY must be set in .env for embeddings.")
+        self.client = genai.Client(api_key=api_key)
+
+    def encode(self, texts: list[str], show_progress_bar: bool = False) -> list[list[float]]:
+        # Handle single string
+        if isinstance(texts, str):
+            texts = [texts]
+            
+        embeddings = []
+        # Batching might be needed for very large lists, but Gemini handles 
+        # reasonable array inputs natively. For safety with large docs, we loop.
+        for text in texts:
+            try:
+                result = self.client.models.embed_content(
+                    model=GEMINI_EMBED_MODEL,
+                    contents=text,
+                    config=types.EmbedContentConfig(
+                        task_type="RETRIEVAL_DOCUMENT",
+                        output_dimensionality=1024
+                    )
+                )
+                embeddings.append(list(result.embeddings[0].values))
+            except Exception as e:
+                print(f"❌ Gemini embedding error: {e}")
+                # Fallback zero vector on failure to not break pipeline
+                embeddings.append([0.0] * 1024)
+        return embeddings
+
+
 # ── Module-level singletons (imported by all core modules) ──────────────────
 llm = LLMRouter()
 print(f"🟢 LLM Router ready: {llm.label}")
 
-# ── Embedding model (always local) ──────────────────────────────────────────
-EMBED_MODEL_NAME = "BAAI/bge-small-en-v1.5"
-print(f"🔄 Loading embedding model: {EMBED_MODEL_NAME}...")
-embed_model = SentenceTransformer(EMBED_MODEL_NAME)
-print("✅ Embedding model ready.")
+# ── Embedding model (Cloud) ─────────────────────────────────────────────────
+print(f"🔄 Loading cloud embedding model: {GEMINI_EMBED_MODEL}...")
+try:
+    embed_model = GeminiEmbeddingModel(api_key=GEMINI_API_KEY)
+    print("✅ Embedding model ready.")
+except ValueError as e:
+    print(f"⚠️ {e}")
+    embed_model = None
+

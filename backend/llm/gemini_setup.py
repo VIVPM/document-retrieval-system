@@ -11,7 +11,6 @@ To switch back to Gemini:
 
 import os
 from dotenv import load_dotenv
-from sentence_transformers import SentenceTransformer
 
 load_dotenv()
 
@@ -117,10 +116,8 @@ except Exception as e:
 
 
 # ===========================================================================
-# 2.  EMBEDDING MODEL  (always local — fast and free)
+# 2.  EMBEDDING MODEL (Legacy)
 # ===========================================================================
-EMBED_MODEL_NAME = "BAAI/bge-small-en-v1.5"
-
-print(f"🔄 Loading embedding model: {EMBED_MODEL_NAME}...")
-embed_model = SentenceTransformer(EMBED_MODEL_NAME)
-print("✅ Embedding model ready.")
+# Note: Use llm_router.py for Gemini Embeddings.
+embed_model = None
+print("🔄 Note: gemini_setup.py is legacy. Use llm_router.py.")

@@ -23,6 +23,7 @@ from core.document_classifier import classify_document_type, detect_document_bou
 
 def extract_and_analyze_pdf(
     pdf_file,
+    filename: str = "document.pdf",
 ) -> Tuple[List[PageInfo], List[LogicalDocument]]:
     """
     Extract text from a PDF with Docling and detect logical document
@@ -125,13 +126,15 @@ def extract_and_analyze_pdf(
                 current_doc_pages.append(page_info)
             else:
                 # Save completed logical document
-                logical_docs.append(LogicalDocument(
+                doc = LogicalDocument(
                     doc_id=f"doc_{doc_counter}",
                     doc_type=current_doc_type,
                     page_start=current_doc_pages[0].page_num,
                     page_end=current_doc_pages[-1].page_num,
                     text="\n\n".join(p.text for p in current_doc_pages),
-                ))
+                    filename=filename,
+                )
+                logical_docs.append(doc)
                 doc_counter += 1
 
                 # Start new logical document
@@ -143,13 +146,15 @@ def extract_and_analyze_pdf(
 
     # Flush last document
     if current_doc_pages:
-        logical_docs.append(LogicalDocument(
+        doc = LogicalDocument(
             doc_id=f"doc_{doc_counter}",
             doc_type=current_doc_type,
             page_start=current_doc_pages[0].page_num,
             page_end=current_doc_pages[-1].page_num,
             text="\n\n".join(p.text for p in current_doc_pages),
-        ))
+            filename=filename,
+        )
+        logical_docs.append(doc)
 
     print(f"✅ Identified {len(logical_docs)} logical documents")
     for ld in logical_docs:

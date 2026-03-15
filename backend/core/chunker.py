@@ -1,18 +1,15 @@
 """
 chunker.py — Text chunking strategies for logical documents.
 
-Provides three chunking methods and a unified dispatcher:
+Provides two chunking methods and a unified dispatcher:
 
   chunk_document_with_metadata()   — custom sliding-window (word-based)
-  chunk_with_llama_index()         — LlamaIndex SentenceSplitter
   chunk_with_recursive_splitter()  — LangChain RecursiveCharacterTextSplitter
                                      (tiktoken / token-aware)
   process_all_documents()          — iterate logical docs → chunks
 """
 
 from typing import List
-from llama_index.core import Document
-from llama_index.core.node_parser import SentenceSplitter
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from core.models import ChunkMetadata, LogicalDocument
 
@@ -50,6 +47,7 @@ def chunk_document_with_metadata(
             chunk_id=f"{logical_doc.doc_id}_chunk_0",
             doc_id=logical_doc.doc_id,
             doc_type=logical_doc.doc_type,
+            filename=getattr(logical_doc, 'filename', 'unknown'),
             chunk_index=0,
             page_start=logical_doc.page_start,
             page_end=logical_doc.page_end,
@@ -73,6 +71,7 @@ def chunk_document_with_metadata(
             chunk_id=f"{logical_doc.doc_id}_chunk_{i}",
             doc_id=logical_doc.doc_id,
             doc_type=logical_doc.doc_type,
+            filename=getattr(logical_doc, 'filename', 'unknown'),
             chunk_index=i,
             page_start=chunk_page_start,
             page_end=chunk_page_end,
@@ -86,65 +85,7 @@ def chunk_document_with_metadata(
 
 
 # ---------------------------------------------------------------------------
-# Method 2: LlamaIndex SentenceSplitter
-# ---------------------------------------------------------------------------
-
-def chunk_with_llama_index(
-    logical_doc: LogicalDocument,
-    chunk_size: int = 512,
-    chunk_overlap: int = 128,
-) -> List[ChunkMetadata]:
-    """
-    Chunk using LlamaIndex's SentenceSplitter.
-
-    Respects sentence boundaries and paragraph breaks, producing cleaner
-    chunks than a raw word-window approach.
-
-    Args:
-        logical_doc   : source LogicalDocument
-        chunk_size    : target tokens per chunk
-        chunk_overlap : token overlap between adjacent chunks
-
-    Returns:
-        List of ChunkMetadata objects.
-    """
-    doc = Document(
-        text=logical_doc.text,
-        metadata={
-            "doc_id": logical_doc.doc_id,
-            "doc_type": logical_doc.doc_type,
-            "page_start": logical_doc.page_start,
-            "page_end": logical_doc.page_end,
-            "source": f"{logical_doc.doc_type}_document",
-        },
-    )
-
-    splitter = SentenceSplitter(
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-        paragraph_separator="\n\n",
-        separator=" ",
-    )
-
-    nodes = splitter.get_nodes_from_documents([doc])
-
-    chunks_metadata: List[ChunkMetadata] = []
-    for i, node in enumerate(nodes):
-        chunks_metadata.append(ChunkMetadata(
-            chunk_id=f"{logical_doc.doc_id}_chunk_{i}",
-            doc_id=logical_doc.doc_id,
-            doc_type=logical_doc.doc_type,
-            chunk_index=i,
-            page_start=node.metadata.get("page_start", logical_doc.page_start),
-            page_end=node.metadata.get("page_end", logical_doc.page_end),
-            text=node.text,
-        ))
-
-    return chunks_metadata
-
-
-# ---------------------------------------------------------------------------
-# Method 3: LangChain RecursiveCharacterTextSplitter (token-aware)
+# Method 2: LangChain RecursiveCharacterTextSplitter (token-aware)
 # ---------------------------------------------------------------------------
 
 def chunk_with_recursive_splitter(
@@ -193,6 +134,7 @@ def chunk_with_recursive_splitter(
             chunk_id=f"{logical_doc.doc_id}_chunk_{i}",
             doc_id=logical_doc.doc_id,
             doc_type=logical_doc.doc_type,
+            filename=getattr(logical_doc, 'filename', 'unknown'),
             chunk_index=i,
             page_start=logical_doc.page_start,
             page_end=logical_doc.page_end,
@@ -208,7 +150,6 @@ def chunk_with_recursive_splitter(
 
 CHUNKING_METHODS = {
     "recursive":   chunk_with_recursive_splitter,
-    "llama_index": chunk_with_llama_index,
     "sliding":     chunk_document_with_metadata,
 }
 
@@ -222,7 +163,7 @@ def process_all_documents(
 
     Args:
         logical_docs    : list of LogicalDocument objects
-        chunking_method : one of 'recursive' | 'llama_index' | 'sliding'
+        chunking_method : one of 'recursive' | 'sliding'
                           (default: 'recursive')
 
     Returns:

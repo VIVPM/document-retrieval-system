@@ -28,12 +28,12 @@ reranker_image = (
     )
 )
 
-app = modal.App("bge-reranker-v2-m3")
+app = modal.App("minilm-reranker")
 
-# Volume to persist the 2GB+ model weights between cold starts
-volume = modal.Volume.from_name("bge-reranker-weights", create_if_missing=True)
+# Volume to persist model weights
+volume = modal.Volume.from_name("minilm-reranker-weights", create_if_missing=True)
 MODEL_DIR = "/model_cache"
-MODEL_NAME = "BAAI/bge-reranker-v2-m3"
+MODEL_NAME = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
 # -----------------------------------------------------------------------
 # Step 1: Download weights once (CPU, cheap)
@@ -86,9 +86,16 @@ def serve_reranker():
     from sentence_transformers import CrossEncoder
 
     # Load once at container startup
-    print("🔄 Loading BAAI/bge-reranker-v2-m3...")
+    import os
+    model_path = f"{MODEL_DIR}/{MODEL_NAME}"
+    
+    if not os.path.isdir(model_path):
+        print(f"⚠️ Local model path not found at {model_path}. Falling back to repo name: {MODEL_NAME}")
+        model_path = MODEL_NAME
+
+    print(f"🔄 Loading reranker from: {model_path}...")
     model = CrossEncoder(
-        f"{MODEL_DIR}/{MODEL_NAME}",
+        model_path,
         max_length=1024,
         device="cuda",
     )

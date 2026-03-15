@@ -43,6 +43,7 @@ class LogicalDocument:
     page_start: int
     page_end: int
     text: str
+    filename: Optional[str] = field(default=None)
     chunks: Optional[List[Dict]] = field(default=None)
 
 
@@ -59,6 +60,7 @@ class ChunkMetadata:
         chunk_id    : unique identifier (<doc_id>_chunk_<index>)
         doc_id      : parent document identifier
         doc_type    : document category (e.g. "Bank Statement")
+        filename    : name of the source PDF file
         chunk_index : position of this chunk within the document
         page_start  : first PDF page this chunk originates from
         page_end    : last PDF page this chunk originates from
@@ -68,6 +70,7 @@ class ChunkMetadata:
     chunk_id: str
     doc_id: str
     doc_type: str
+    filename: str
     chunk_index: int
     page_start: int
     page_end: int

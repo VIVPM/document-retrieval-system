@@ -87,7 +87,7 @@ The system is optimized for cloud scale using **Modal** for heavy processing and
     # 2. Docling Worker (PDF Extraction)
     modal deploy modal/modal_docling_worker.py
 
-    # 3. Reranker Server (BGE-M3)
+    # 3. Reranker Server (MiniLM-L-6)
     modal run modal/modal_reranker_server.py::download_model
     modal deploy modal/modal_reranker_server.py
     ```
@@ -97,6 +97,12 @@ The system is optimized for cloud scale using **Modal** for heavy processing and
     DOCLING_URL=https://your-docling-worker.modal.run
     RERANKER_URL=https://your-reranker-server.modal.run
     ```
+
+> [!IMPORTANT]
+> **Deployment Workflow**:
+> *   **First Time**: Run `download_model` **then** `deploy`. This ensures the Volume is populated before the server starts.
+> *   **Subsequent Changes**: Only run `modal deploy`. You do NOT need to redownload unless you change the `MODEL_NAME` in the script.
+> *   **Why Deploy?**: `modal run` gives a temporary development URL. `modal deploy` creates the permanent production URL required for your `.env`.
 
 ### 4. Running the Frontend
 1.  Navigate to the frontend directory:

@@ -7,7 +7,6 @@ openai
 rank-bm25
 
 # Document parsing & Chunks
-docling
 langchain-text-splitters
 tiktoken
 

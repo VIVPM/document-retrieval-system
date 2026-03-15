@@ -13,10 +13,6 @@ extract_and_analyze_pdf(pdf_file)
 
 from typing import List, Tuple
 
-from docling.document_converter import DocumentConverter, PdfFormatOption
-from docling.datamodel.pipeline_options import PdfPipelineOptions
-from docling.datamodel.base_models import InputFormat
-
 from core.models import PageInfo, LogicalDocument
 from core.document_classifier import classify_document_type, detect_document_boundary
 

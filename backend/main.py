@@ -80,7 +80,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://document-retrieval-system-5gqx.onrender.com",
+        "https://document-retrieval-system-frontend.onrender.com",
         "http://localhost:5173",
     ],
     allow_credentials=True,

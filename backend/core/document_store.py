@@ -70,19 +70,26 @@ class EnhancedDocumentStoreHybrid:
         """Fitted BM25 encoder, for persisting alongside the chat session."""
         return self.retriever.export_bm25_params()
 
-    def process_pdf(self, pdf_file, filename: str = "document.pdf", embed_model=None) -> tuple[bool, dict]:
+    def process_pdf(self, pdf_file, filename: str = "document.pdf", embed_model=None,
+                    on_stage=None) -> tuple[bool, dict]:
         """
         Run the complete ingestion pipeline:
           Docling extraction → Classifier boundaries → Chunker → Retriever mapping
+
+        on_stage(key) is called as each sub-step begins (extract/split/chunk/
+        embed/store) so the caller can surface live progress. Optional.
         """
         self.filename = filename
         self.is_ready = False
         start_time = datetime.now()
 
         try:
-            self.pages_info, self.logical_docs = extract_and_analyze_pdf(pdf_file, filename)
+            self.pages_info, self.logical_docs = extract_and_analyze_pdf(
+                pdf_file, filename, on_stage=on_stage)
+            if on_stage:
+                on_stage("chunk")
             self.chunks_metadata = process_all_documents(self.logical_docs)
-            self.retriever.build_indices(self.chunks_metadata, embed_model)
+            self.retriever.build_indices(self.chunks_metadata, embed_model, on_stage=on_stage)
 
             process_time = (datetime.now() - start_time).total_seconds()
             self.processing_stats = {
@@ -137,6 +144,13 @@ class EnhancedDocumentStoreHybrid:
 
         result['filter_used'] = filter_type or 'none'
         return result
+
+    def all_chunks(self) -> List[Tuple]:
+        """Every chunk as (chunk, 1.0) in reading order — for a whole-document
+        summary, which bypasses top-k retrieval and feeds the full document."""
+        if not self.is_ready:
+            return []
+        return [(c, 1.0) for c in self.retriever.all_chunks()]
 
     def retrieve_only(
         self, question: str, filter_type: Optional[str] = None, k: int = 6

@@ -22,9 +22,103 @@ from core.document_classifier import classify_document_type, detect_document_bou
 PAGE_CONCURRENCY = int(os.getenv("PAGE_CONCURRENCY", "8"))
 
 
+def _order_blocks(items, y_tol=6.0):
+    """Reading order by visual ROW, not by y alone.
+
+    A two-column key-value form (label left, value right) puts the value on the
+    same row as its label but a fraction apart in y — so a pure y-sort drops
+    every value into one group and every label into another, divorcing them
+    ("Interest Rate:" ends up nowhere near "4.250 %"). Group items whose y is
+    within y_tol into a row, order each row left-to-right by x, then emit rows
+    top-to-bottom. Falls back cleanly if x is absent (an older worker that
+    emitted only y): every cell then sorts to x=0 and the order is the old
+    y-order.
+    """
+    clean = [it for it in items if it.get("content", "").strip()]
+    clean.sort(key=lambda it: it.get("y_pos", 0))   # keep the existing page order
+    rows, ordered = [], []
+    for it in clean:
+        if rows and abs(it.get("y_pos", 0) - rows[-1]["y"]) <= y_tol:
+            rows[-1]["cells"].append(it)
+        else:
+            rows.append({"y": it.get("y_pos", 0), "cells": [it]})
+    for r in rows:
+        ordered.extend(sorted(r["cells"], key=lambda it: it.get("x_pos", 0)))
+    return ordered
+
+
+def _extract_docling(file_path: str) -> dict:
+    """Docling on Modal — AI layout + table models, includes OCR (handles
+    scanned pages). Returns {page_no(str): [ {type, y_pos, x_pos, content} ]}."""
+    import os
+    import requests
+
+    url = os.getenv("DOCLING_URL")
+    if not url:
+        raise EnvironmentError(
+            "DOCLING_URL is not set. Add it to your .env file.\n"
+            "  DOCLING_URL=https://<your-deployment>.modal.run/extract"
+        )
+    # "classic" = layout model + TableFormer, "vlm" = granite-docling-258M.
+    pipeline = os.getenv("DOCLING_PIPELINE", "classic")
+    print(f"☁️ Sending PDF to Modal for Docling (pipeline={pipeline}, OCR + tables)...")
+    with open(file_path, "rb") as f:
+        resp = requests.post(
+            url, files={"file": (os.path.basename(file_path), f, "application/pdf")},
+            params={"pipeline": pipeline},
+            timeout=1800 if pipeline == "vlm" else 600,
+        )
+    if resp.status_code != 200:
+        raise ValueError(f"Modal API Error: {resp.text}")
+    result = resp.json()
+    if not result.get("success"):
+        raise ValueError(f"Docling Extraction Failed: {result.get('error')}")
+    print(f"✅ Cloud extraction complete! Found {result['num_pages']} pages.")
+    return result["pages"]
+
+
+def _extract_pymupdf(file_path: str, y_tol: float = 3.0) -> dict:
+    """Local, NO-AI extraction (PyMuPDF). Reads the PDF text layer directly and
+    groups words into visual lines by (y, x) — the same reassembly the Modal
+    path relies on — producing the identical page->blocks shape. No GPU, no
+    Modal, milliseconds not seconds. Caveat: text-layer only, so a SCANNED
+    page yields nothing (that is the one thing Docling's OCR adds)."""
+    import fitz  # PyMuPDF
+
+    doc = fitz.open(file_path)
+    pages, scanned = {}, []
+    try:
+        for pno in range(doc.page_count):
+            words = doc[pno].get_text("words")  # (x0, y0, x1, y1, word, blk, ln, wno)
+            if not words:
+                scanned.append(pno + 1)
+            words.sort(key=lambda w: (w[1], w[0]))   # y then x
+            blocks, line = [], None
+            for w in words:
+                if line is not None and abs(w[1] - line["y"]) <= y_tol:
+                    line["cells"].append(w)
+                else:
+                    line = {"y": w[1], "cells": [w]}
+                    blocks.append(line)
+            page_blocks = []
+            for line in blocks:
+                cells = sorted(line["cells"], key=lambda w: w[0])
+                text = " ".join(c[4] for c in cells).strip()
+                if text:
+                    page_blocks.append({"type": "text", "y_pos": float(line["y"]),
+                                        "x_pos": float(cells[0][0]), "content": text})
+            pages[str(pno + 1)] = page_blocks
+    finally:
+        doc.close()
+    note = f"; ⚠️ {len(scanned)} scanned page(s) with no text layer: {scanned}" if scanned else ""
+    print(f"✅ PyMuPDF extraction complete! {len(pages)} pages{note}")
+    return pages
+
+
 def extract_and_analyze_pdf(
     pdf_file,
     filename: str = "document.pdf",
+    on_stage=None,
 ) -> Tuple[List[PageInfo], List[LogicalDocument]]:
     """
     Extract text from a PDF with Docling and detect logical document
@@ -40,61 +134,36 @@ def extract_and_analyze_pdf(
         pages_info   : one PageInfo per PDF page (0-indexed)
         logical_docs : detected logical documents with combined text
     """
-    print("📖 Starting PDF extraction with Docling...")
+    if on_stage:
+        on_stage("extract")
 
     import tempfile
-    import requests
     import os
 
-    MODAL_DOCLING_URL = os.getenv("DOCLING_URL")
-    if not MODAL_DOCLING_URL:
-        raise EnvironmentError(
-            "DOCLING_URL is not set. Add it to your .env file.\n"
-            "  DOCLING_URL=https://<your-deployment>.modal.run/extract"
-        )
-
-    # "classic" = layout model + TableFormer, "vlm" = granite-docling-258M.
-    DOCLING_PIPELINE = os.getenv("DOCLING_PIPELINE", "classic")
-
-    print(f"☁️ Sending PDF to Modal Cloud for Docling Extractions "
-          f"(pipeline={DOCLING_PIPELINE}, OCR + Tables)...")
+    # docling = Modal AI pipeline (layout/table models + OCR); pymupdf = local,
+    # no-AI, text-layer only. Default docling. See _extract_* above.
+    method = os.getenv("EXTRACT_METHOD", "docling").lower()
+    print(f"📖 Starting PDF extraction (EXTRACT_METHOD={method})...")
 
     file_path = pdf_file
     is_temp = False
     if not isinstance(pdf_file, str):
         file_path = getattr(pdf_file, 'name', None)
         if not file_path:
-             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-                 tmp.write(pdf_file.read())
-                 file_path = tmp.name
-                 is_temp = True
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                tmp.write(pdf_file.read())
+                file_path = tmp.name
+                is_temp = True
 
     try:
-        with open(file_path, "rb") as f:
-            files = {"file": (os.path.basename(file_path), f, "application/pdf")}
-            # The VLM runs the model once per page, so it needs far longer.
-            response = requests.post(
-                MODAL_DOCLING_URL, files=files,
-                params={"pipeline": DOCLING_PIPELINE},
-                timeout=1800 if DOCLING_PIPELINE == "vlm" else 600,
-            )
-            
-        if response.status_code != 200:
-            raise ValueError(f"Modal API Error: {response.text}")
-            
-        result = response.json()
-        
-        if not result.get("success"):
-            raise ValueError(f"Docling Extraction Failed: {result.get('error')}")
-            
-        print(f"✅ Cloud extraction complete! Found {result['num_pages']} pages.")
-        
+        pages_data = (_extract_pymupdf(file_path) if method == "pymupdf"
+                      else _extract_docling(file_path))
+
         pages_info: List[PageInfo] = []
-        pages_data = result["pages"]
-        
+
         for str_page_no in sorted(pages_data.keys(), key=int):
             page_no = int(str_page_no)
-            items = sorted(pages_data[str_page_no], key=lambda x: x["y_pos"])
+            items = _order_blocks(pages_data[str_page_no])
 
             # Keep Docling's type tag; the chunker needs it to keep tables whole.
             blocks = [
@@ -127,6 +196,8 @@ def extract_and_analyze_pdf(
     # ------------------------------------------------------------------
     # Document boundary detection → build LogicalDocument list
     # ------------------------------------------------------------------
+    if on_stage:
+        on_stage("split")
     print("🧠 Analysing document structure...")
 
     # The sequential version fed each boundary check the running document

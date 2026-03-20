@@ -172,11 +172,35 @@ class HybridRetriever:
             print(f"ℹ️ Could not delete namespace '{self.namespace}': "
                   f"{type(e).__name__}: {e}")
 
+    def all_chunks(self) -> List[ChunkMetadata]:
+        """Every chunk of this chat's document, in reading order.
+
+        For a whole-document summary, which must see the full document rather
+        than the top-k a normal query returns. Fetches by id (the prefix
+        delete_chat lists) and rebuilds from vector metadata.
+        """
+        if self.pc_index is None:
+            return []
+        ids = self._list_chat_ids()
+        chunks: List[ChunkMetadata] = []
+        for i in range(0, len(ids), 100):
+            resp = self.pc_index.fetch(ids=ids[i:i + 100], namespace=self.namespace)
+            vectors = getattr(resp, "vectors", None)
+            if vectors is None and isinstance(resp, dict):
+                vectors = resp.get("vectors")
+            for vid, vec in (vectors or {}).items():
+                md = getattr(vec, "metadata", None)
+                if md is None and isinstance(vec, dict):
+                    md = vec.get("metadata")
+                chunks.append(self._match_to_chunk({"id": vid, "metadata": md or {}}))
+        chunks.sort(key=lambda c: (c.page_start, c.chunk_index))
+        return chunks
+
     # -----------------------------------------------------------------------
     # Index Building
     # -----------------------------------------------------------------------
 
-    def build_indices(self, chunks_metadata: List[ChunkMetadata], embed_model):
+    def build_indices(self, chunks_metadata: List[ChunkMetadata], embed_model, on_stage=None):
         """
         Build Pinecone hybrid index with dense + sparse vectors.
         Upserts into existing Pinecone index.
@@ -194,6 +218,8 @@ class HybridRetriever:
         self.embed_model = embed_model
 
         # === Step 1: Compute Dense Embeddings ===
+        if on_stage:
+            on_stage("embed")
         print("  📊 Computing dense embeddings...")
         texts = [chunk.text for chunk in chunks_metadata]
         dense_embeddings = embed_model.encode(
@@ -215,6 +241,8 @@ class HybridRetriever:
         sparse_vectors = [self.bm25_encoder.encode_documents(text) for text in texts]
 
         # === Step 5: Upsert dense + sparse vectors into Pinecone ===
+        if on_stage:
+            on_stage("store")
         print(f"  📤 Upserting vectors into Pinecone [namespace: {self.namespace}]...")
         batch_size = 100
 

@@ -58,6 +58,7 @@ class ChatSession(Base):
     title = Column(String, default="New Chat")
     status = Column(String, default="awaiting_document", index=True)
     error = Column(Text)                             # failure reason when status='failed'
+    stage = Column(String)                           # ingest sub-step while processing (extract/split/chunk/embed/store)
 
     filename = Column(String)
 

@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS drs_chat_sessions (
     -- awaiting_document -> processing -> ready | failed
     status      TEXT DEFAULT 'awaiting_document',
     error       TEXT,
+    stage       TEXT,       -- live ingest sub-step while processing: extract/split/chunk/embed/store
     filename    TEXT,
     doc_stats   JSONB,      -- pages, doc types, chunk count — renders the UI without rehydrating
     bm25_params JSONB,      -- fitted BM25Encoder.get_params(); restores the sparse half after a restart
@@ -55,6 +56,8 @@ CREATE TABLE IF NOT EXISTS drs_chat_sessions (
 CREATE INDEX IF NOT EXISTS ix_drs_sessions_user_updated
     ON drs_chat_sessions (user_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS ix_drs_sessions_status ON drs_chat_sessions (status);
+-- For a DB created before `stage` existed (CREATE TABLE IF NOT EXISTS won't add it):
+ALTER TABLE drs_chat_sessions ADD COLUMN IF NOT EXISTS stage TEXT;
 
 
 CREATE TABLE IF NOT EXISTS drs_chat_messages (

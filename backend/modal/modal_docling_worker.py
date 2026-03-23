@@ -119,10 +119,15 @@ def serve_docling():
                     prov = text_item.prov[0]
                     page_no = prov.page_no
                     y_pos = prov.bbox.t if prov.bbox else 0
+                    # x too: a two-column key-value form puts label and value on
+                    # the same row a hair apart in y, so the client needs x to
+                    # order a row left-to-right and keep the value with its label.
+                    x_pos = prov.bbox.l if prov.bbox else 0
                     # setdefault: the VLM can emit items on unmapped pages.
                     page_content.setdefault(page_no, []).append({
                         "type": "text",
                         "y_pos": y_pos,
+                        "x_pos": x_pos,
                         "content": text_item.text,
                     })
 
@@ -131,6 +136,7 @@ def serve_docling():
                     prov = table.prov[0]
                     page_no = prov.page_no
                     y_pos = prov.bbox.t if prov.bbox else 0
+                    x_pos = prov.bbox.l if prov.bbox else 0
                     table_lines = [
                         " | ".join(cell.text for cell in row)
                         for row in table.data.grid
@@ -138,6 +144,7 @@ def serve_docling():
                     page_content.setdefault(page_no, []).append({
                         "type": "table",
                         "y_pos": y_pos,
+                        "x_pos": x_pos,
                         "content": "\n".join(table_lines),
                     })
 

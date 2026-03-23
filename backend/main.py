@@ -292,6 +292,8 @@ class MessageRequest(BaseModel):
     # retrieves ~25% less text. Coverage is k x chunk_size, not k.
     num_chunks: int = 6
     alpha: float = 0.5
+    # Whole-document summary: bypass top-k retrieval and feed every chunk.
+    summarize: bool = False
 
     @field_validator("question")
     @classmethod
@@ -374,6 +376,20 @@ def _ingest(chat_id: str, tmp_path: str, filename: str) -> None:
     Every exit path must leave status at 'ready' or 'failed' — a chat stuck on
     'processing' looks identical to one still working.
     """
+    def _set_stage(key: str) -> None:
+        """Write the current sub-step so /status can surface it. Its own session
+        and swallowing every error — a progress write must never break ingest."""
+        try:
+            s = SessionLocal()
+            try:
+                s.query(ChatSession).filter(ChatSession.id == chat_id).update(
+                    {ChatSession.stage: key})
+                s.commit()
+            finally:
+                s.close()
+        except Exception:
+            pass
+
     db = SessionLocal()
     try:
         chat = db.query(ChatSession).filter(ChatSession.id == chat_id).first()
@@ -383,9 +399,13 @@ def _ingest(chat_id: str, tmp_path: str, filename: str) -> None:
         store = EnhancedDocumentStoreHybrid(namespace=_ns(db, chat.user_id),
                                             chat_id=chat_id)
         success, stats = store.process_pdf(
-            tmp_path, filename=filename, embed_model=embed_model
+            tmp_path, filename=filename, embed_model=embed_model, on_stage=_set_stage
         )
 
+        # Refresh: _set_stage wrote `stage` on a separate session, so this one's
+        # copy is stale. Clearing it here (part of the terminal commit) wins.
+        db.refresh(chat)
+        chat.stage = None
         if success:
             chat.status = "ready"
             chat.error = None
@@ -409,6 +429,7 @@ def _ingest(chat_id: str, tmp_path: str, filename: str) -> None:
         chat = db.query(ChatSession).filter(ChatSession.id == chat_id).first()
         if chat is not None:
             chat.status = "failed"
+            chat.stage = None
             chat.error = f"{type(e).__name__}: {e}"[:2000]
             chat.updated_at = now_ist()
             db.commit()
@@ -599,6 +620,7 @@ def chat_status(chat_id: str, current_user: dict = Depends(get_current_user)):
         chat = _owned_chat(db, chat_id, current_user["user_id"])
         return {
             "status": chat.status,
+            "stage": chat.stage,
             "error": chat.error,
             "doc_stats": chat.doc_stats,
             "filename": chat.filename,
@@ -666,6 +688,7 @@ async def upload_document(
             raise HTTPException(status_code=400, detail="The uploaded file is empty.")
 
         chat.status = "processing"
+        chat.stage = None          # cleared; the ingest task sets each sub-step
         chat.error = None
         chat.filename = file.filename
         chat.doc_stats = None
@@ -715,6 +738,20 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
         try:
             chat = _owned_chat(db, chat_id, uid)
             store = _get_retriever(db, chat)
+
+            if body.summarize:
+                # Whole-document summary: no rewrite, no top-k — every chunk in
+                # reading order, and one "full document" source not N chunks.
+                retrieved = store.all_chunks()
+                src = []
+                if retrieved:
+                    pages = [p for c, _ in retrieved for p in (c.page_start, c.page_end)]
+                    src = [{"filename": retrieved[0][0].filename,
+                            "doc_type": "Full document",
+                            "pages": f"{min(pages)}-{max(pages)}",
+                            "relevance": "100%", "preview": ""}]
+                return body.question, retrieved, sanitize(src)
+
             if body.alpha != store.alpha:
                 store.set_alpha(body.alpha)
 
@@ -886,4 +923,7 @@ def health():
 # ── Entry Point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    # forwarded_allow_ips="*" so per-IP rate limits use X-Forwarded-For behind a
+    # proxy. Harmless locally (no proxy sends the header).
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True,
+                forwarded_allow_ips="*")

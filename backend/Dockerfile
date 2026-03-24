@@ -33,4 +33,8 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
     CMD curl --fail --silent http://localhost:8000/api/health || exit 1
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# --forwarded-allow-ips=* so slowapi's per-IP rate limits key on the real client
+# (X-Forwarded-For) behind a proxy/balancer, not the proxy's own IP — otherwise
+# every user shares one bucket. On a non-Docker deploy set FORWARDED_ALLOW_IPS=*
+# in the service env instead (uvicorn reads it).
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--forwarded-allow-ips", "*"]

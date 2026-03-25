@@ -1,28 +1,74 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import * as api from './api'
 
-const POLL_MS = 5000
+const POLL_MS = 2500   // snappy enough to track ingest sub-steps as they change
 
-// Ingestion runs for minutes (GPU extraction, one LLM call per page, one
-// embedding call per chunk), so the upload response only says "processing".
-// This component owns the polling that turns that into a usable UI.
-function ProcessingView({ filename, since }) {
-  const [elapsed, setElapsed] = useState(0)
+// The real ingest pipeline, in order. `at` is the elapsed second each stage
+// lights up — a plausible timeline (ingest ~45-55s), not a live signal: the
+// backend exposes only processing/ready, so the last stage holds until the poll
+// flips to ready and this view swaps for the chat. Windows mirror where time
+// ACTUALLY goes — extraction (Docling GPU) is the bulk, embeddings second;
+// chunking is sub-second, so it flashes by rather than looking like the holdup.
+const STAGES = [
+  { key: 'extract', label: 'Extracting text & tables', sub: 'Layout-aware OCR reads every page', at: 0 },
+  { key: 'split', label: 'Splitting into documents', sub: 'Classifying pages, detecting boundaries', at: 26 },
+  { key: 'chunk', label: 'Chunking', sub: 'Structure-aware — tables kept whole', at: 32 },
+  { key: 'embed', label: 'Embedding chunks', sub: 'Vectorizing each chunk with Gemini', at: 35 },
+  { key: 'store', label: 'Storing in vector DB', sub: 'Indexing in Pinecone for hybrid search', at: 47 },
+]
+
+// Ingestion runs for ~a minute (GPU extraction, per-page LLM calls, per-chunk
+// embeddings), so the upload response only says "processing". This walks the
+// user through what's actually happening rather than parking on a spinner.
+function ProcessingView({ filename, since, stage }) {
+  const [elapsed, setElapsed] = useState(() => Math.max(0, Math.floor((Date.now() - since) / 1000)))
   useEffect(() => {
-    const t = setInterval(() => setElapsed(Math.floor((Date.now() - since) / 1000)), 1000)
+    const t = setInterval(() => setElapsed(Math.max(0, Math.floor((Date.now() - since) / 1000))), 500)
     return () => clearInterval(t)
   }, [since])
 
+  // Prefer the real backend stage; fall back to the elapsed timeline for the
+  // brief moment before the first stage lands (or an ingest predating this).
+  const stageIdx = STAGES.findIndex((s) => s.key === stage)
+  let active = stageIdx
+  if (active < 0) {
+    active = 0
+    for (let i = 0; i < STAGES.length; i++) if (elapsed >= STAGES[i].at) active = i
+  }
+  // Bar is a smooth time-based estimate (the steps carry the exact stage —
+  // real stages are too uneven, ~70% is extraction, to map onto a bar). Never
+  // 100% here: hitting ready unmounts this view.
+  const pct = Math.min(94, Math.round((elapsed / 52) * 94))
+
   return (
-    <div className="empty-chat">
-      <div className="empty-icon"><span className="spinner spinner-lg" /></div>
-      <h3>Reading {filename}</h3>
-      <p>
-        Extracting pages, identifying documents and building the search index.
-        This takes a few minutes for a large file — you can open another chat
-        and come back.
-      </p>
-      <div className="processing-clock">{Math.floor(elapsed / 60)}m {elapsed % 60}s</div>
+    <div className="proc-wrap">
+      <div className="proc-card">
+        <div className="proc-head">
+          <span className="proc-file">📄 {filename}</span>
+          <span className="proc-clock">{Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, '0')}</span>
+        </div>
+
+        <div className="proc-bar"><div className="proc-bar-fill" style={{ width: `${pct}%` }} /></div>
+
+        <ul className="proc-steps">
+          {STAGES.map((s, i) => {
+            const state = i < active ? 'done' : i === active ? 'active' : 'pending'
+            return (
+              <li key={s.key} className={`proc-step ${state}`}>
+                <span className="proc-ico">
+                  {state === 'done' ? '✓' : state === 'active' ? <span className="spinner" /> : <span className="proc-pip" />}
+                </span>
+                <span className="proc-text">
+                  <span className="proc-label">{s.label}</span>
+                  <span className="proc-sub">{s.sub}</span>
+                </span>
+              </li>
+            )
+          })}
+        </ul>
+
+        <p className="proc-note">This runs in the background — open another chat and come back, it&rsquo;ll be ready to ask.</p>
+      </div>
     </div>
   )
 }
@@ -119,6 +165,7 @@ export default function ChatPanel({ chat, onChatChanged, addToast }) {
   const [loading, setLoading] = useState(true)
   const [showSettings, setShowSettings] = useState(false)
   const [uploadStartedAt, setUploadStartedAt] = useState(Date.now())
+  const [stage, setStage] = useState(null)   // live ingest sub-step from /status
 
   const [docFilter, setDocFilter] = useState('All')
   const [numChunks, setNumChunks] = useState(6)
@@ -140,12 +187,13 @@ export default function ChatPanel({ chat, onChatChanged, addToast }) {
     return () => { cancelled = true }
   }, [chatId, addToast])
 
-  // Poll only while this chat is actually ingesting.
+  // Poll only while this chat is actually ingesting; track the live sub-step.
   useEffect(() => {
-    if (chat.status !== 'processing') return
+    if (chat.status !== 'processing') { setStage(null); return }
     const t = setInterval(async () => {
       try {
         const s = await api.chatStatus(chatId)
+        setStage(s.stage)
         if (s.status !== 'processing') onChatChanged()
       } catch { /* transient — keep polling */ }
     }, POLL_MS)
@@ -154,25 +202,24 @@ export default function ChatPanel({ chat, onChatChanged, addToast }) {
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, querying])
 
-  const send = useCallback(async () => {
-    const q = input.trim()
-    if (!q || querying) return
-    setInput('')
+  const runMessage = useCallback(async (question, extra = {}) => {
+    if (querying) return
     const aid = `tmp-a-${Date.now()}`
     // Add the user turn and an empty assistant bubble the tokens will fill in.
     setMessages((prev) => [
       ...prev,
-      { role: 'user', content: q, id: `tmp-${Date.now()}` },
+      { role: 'user', content: question, id: `tmp-${Date.now()}` },
       { role: 'assistant', content: '', sources: null, id: aid, streaming: true },
     ])
     const patch = (fn) => setMessages((prev) => prev.map((x) => (x.id === aid ? fn(x) : x)))
     setQuerying(true)
     try {
       await api.streamMessage(chatId, {
-        question: q,
+        question,
         filter_type: docFilter === 'All' ? null : docFilter,
         num_chunks: numChunks,
         alpha,
+        ...extra,
       }, {
         onMeta: (m) => patch((x) => ({ ...x, sources: m.sources })),
         onToken: (t) => patch((x) => ({ ...x, content: x.content + t })),
@@ -185,12 +232,23 @@ export default function ChatPanel({ chat, onChatChanged, addToast }) {
       setQuerying(false)
       patch((x) => (x.streaming ? { ...x, streaming: false } : x))
     }
-  }, [input, querying, chatId, docFilter, numChunks, alpha, onChatChanged])
+  }, [querying, chatId, docFilter, numChunks, alpha, onChatChanged])
+
+  const send = useCallback(() => {
+    const q = input.trim()
+    if (!q) return
+    setInput('')
+    runMessage(q)
+  }, [input, runMessage])
+
+  // Whole-document summary — feeds every chunk, not the top-k a query retrieves.
+  const summarize = useCallback(
+    () => runMessage('Summarize this document.', { summarize: true }), [runMessage])
 
   if (chat.status === 'processing') {
     return (
       <section className="chat-panel">
-        <ProcessingView filename={chat.filename || 'your document'} since={uploadStartedAt} />
+        <ProcessingView filename={chat.filename || 'your document'} since={uploadStartedAt} stage={stage} />
       </section>
     )
   }
@@ -220,9 +278,15 @@ export default function ChatPanel({ chat, onChatChanged, addToast }) {
             {stats.total_pages} pages · {stats.documents_found} documents · {stats.total_chunks} chunks
           </span>
         </div>
-        <button className="doc-strip-btn" onClick={() => setShowSettings(!showSettings)}>
-          {showSettings ? 'Hide search settings' : 'Search settings'}
-        </button>
+        <div className="doc-strip-actions">
+          <button className="doc-strip-btn" onClick={summarize} disabled={querying}
+                  title="Summarize the whole document (reads every page, not just the top matches)">
+            📝 Summarize
+          </button>
+          <button className="doc-strip-btn" onClick={() => setShowSettings(!showSettings)}>
+            {showSettings ? 'Hide search settings' : 'Search settings'}
+          </button>
+        </div>
       </div>
 
       {showSettings && (

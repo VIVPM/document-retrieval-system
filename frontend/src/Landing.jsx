@@ -1,12 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import './Landing.css'
 
-const prefersReduced = () =>
-  window.matchMedia('(prefers-reduced-motion: reduce)').matches
-
-// The three-word streamed answer in the hero mock. Rendered as staggered spans
-// so it reads as if the model is writing it, without a JS typing loop.
-const ANSWER = ['The', 'Total', 'Loan', 'Amount', 'is']
+// The streamed answer in the hero mock, revealed word by word so it reads as if
+// the model is writing it — no JS typing loop, just staggered CSS.
+const ANSWER = ['The', 'total', 'loan', 'amount', 'is']
 
 const STEPS = [
   {
@@ -41,26 +38,6 @@ const FEATURES = [
   },
 ]
 
-// Count a number up once, ease-out cubic. Reduced motion → straight to target.
-function useCountUp(target, durationMs, delayMs) {
-  const [value, setValue] = useState(() => (prefersReduced() ? target : 0))
-  useEffect(() => {
-    if (prefersReduced()) return
-    let raf
-    const timer = setTimeout(() => {
-      const start = performance.now()
-      const tick = (now) => {
-        const t = Math.min((now - start) / durationMs, 1)
-        setValue(Math.round(target * (1 - Math.pow(1 - t, 3))))
-        if (t < 1) raf = requestAnimationFrame(tick)
-      }
-      raf = requestAnimationFrame(tick)
-    }, delayMs)
-    return () => { clearTimeout(timer); cancelAnimationFrame(raf) }
-  }, [target, durationMs, delayMs])
-  return value
-}
-
 // Reveal children on scroll — adds .lp-in when the block enters the viewport.
 function Reveal({ children, className = '' }) {
   const ref = useRef(null)
@@ -80,9 +57,6 @@ function Reveal({ children, className = '' }) {
 }
 
 export default function Landing({ onSignIn, onGetStarted }) {
-  const amount = useCountUp(380000, 1200, 2200)
-  const dollars = `$${amount.toLocaleString('en-US')}`
-
   return (
     <div className="lp">
       <nav className="lp-nav">
@@ -106,7 +80,7 @@ export default function Landing({ onSignIn, onGetStarted }) {
             streamed answers, no hallucinated numbers.
           </p>
           <div className="lp-cta-row lp-fade" style={{ '--d': '350ms' }}>
-            <button className="btn btn-primary btn-lg" onClick={onGetStarted}>Get started — it’s free</button>
+            <button className="btn btn-primary btn-lg" onClick={onGetStarted}>Get started</button>
             <a className="btn btn-ghost btn-lg" href="#how">See how it works</a>
           </div>
         </div>
@@ -120,11 +94,15 @@ export default function Landing({ onSignIn, onGetStarted }) {
           <div className="lp-mock-body">
             <div className="lp-msg user">What is the total loan amount?</div>
             <div className="lp-msg bot">
+              <span className="lp-typing" aria-hidden="true">
+                <span className="lp-tdot" /><span className="lp-tdot" /><span className="lp-tdot" />
+              </span>
               <span className="lp-answer">
                 {ANSWER.map((w, i) => (
-                  <span key={i} className="lp-word" style={{ '--i': i }}>{w} </span>
+                  <span key={i} className="lp-word" style={{ '--i': i }}>{w}</span>
                 ))}
-                <span className="lp-value">{dollars}</span>.
+                <span className="lp-word lp-value" style={{ '--i': ANSWER.length }}>$380,000</span>
+                <span className="lp-word lp-period" style={{ '--i': ANSWER.length }}>.</span>
                 <span className="lp-caret" />
               </span>
               <div className="lp-cite">
@@ -167,10 +145,10 @@ export default function Landing({ onSignIn, onGetStarted }) {
       </section>
 
       {/* Closing CTA */}
-      <section className="lp-section lp-section-tight">
+      <section className="lp-section">
         <Reveal>
           <div className="lp-cta-band">
-            <h2 className="lp-h2">Ask your first document in minutes</h2>
+            <h2 className="lp-h2 lp-cta-title">Ask questions, get answers in minutes.</h2>
             <p className="lp-body lp-cta-sub">Create an account, upload a PDF, and start asking.</p>
             <button className="btn btn-primary btn-lg" onClick={onGetStarted}>Get started</button>
           </div>
@@ -178,8 +156,7 @@ export default function Landing({ onSignIn, onGetStarted }) {
       </section>
 
       <footer className="lp-footer">
-        <span className="lp-wordmark"><span className="lp-logo">📄</span> DocQA</span>
-        <span className="lp-copyright">© {new Date().getFullYear()} · Mortgage-packet Q&amp;A with page-accurate citations</span>
+        <span className="lp-copyright">© {new Date().getFullYear()} DocQA. All rights reserved.</span>
       </footer>
     </div>
   )

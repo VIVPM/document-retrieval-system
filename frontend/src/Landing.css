@@ -21,9 +21,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  max-width: 1180px;
-  margin: 0 auto;
-  padding: 18px 24px;
+  /* Full width: the wordmark hugs the top-left corner, the actions the
+     top-right, rather than sitting inside a centered 1180px column. */
+  padding: 18px clamp(20px, 5vw, 48px);
   background: color-mix(in srgb, var(--bg-primary) 82%, transparent);
   backdrop-filter: blur(10px);
 }
@@ -152,36 +152,73 @@
   max-width: 92%;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
+  position: relative;
+  min-height: 2.6em;   /* holds the bubble open while only the typing dots show */
 }
 .lp-answer { color: var(--text-primary); }
-.lp-word {
-  opacity: 0;
-  animation: lp-word-on 0.4s ease forwards;
-  animation-delay: calc(900ms + var(--i) * 150ms);
+
+/* Typing indicator — three dots pulse, then fade out as the answer begins. */
+.lp-typing {
+  position: absolute;
+  top: 13px;
+  left: 14px;
+  display: inline-flex;
+  gap: 4px;
+  animation: lp-typing-out 1.2s 500ms forwards;
 }
-@keyframes lp-word-on { to { opacity: 1; } }
+.lp-tdot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  animation: lp-tbounce 0.9s ease-in-out infinite;
+}
+.lp-tdot:nth-child(2) { animation-delay: 0.15s; }
+.lp-tdot:nth-child(3) { animation-delay: 0.30s; }
+@keyframes lp-tbounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.45; }
+  30%           { transform: translateY(-4px); opacity: 1; }
+}
+@keyframes lp-typing-out { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
+
+/* The answer streams in a word at a time — each rises and sharpens into place. */
+.lp-word {
+  display: inline-block;
+  /* margin, not an inline space: inline-block trims trailing whitespace, which
+     would run the words together. */
+  margin-right: 0.26em;
+  opacity: 0;
+  transform: translateY(7px);
+  filter: blur(4px);
+  animation: lp-word-on 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: calc(1600ms + var(--i) * 80ms);
+}
+@keyframes lp-word-on { to { opacity: 1; transform: translateY(0); filter: blur(0); } }
 .lp-value {
   color: var(--accent);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  margin-right: 0;   /* so the period hugs the value */
 }
+.lp-period { margin-right: 0; }
 .lp-caret {
   display: inline-block;
   width: 2px;
-  height: 1em;
-  margin-left: 2px;
+  height: 1.05em;
+  margin-left: 3px;
   vertical-align: text-bottom;
   background: var(--accent);
-  animation: lp-blink 1s step-end infinite;
-  animation-delay: 2000ms;
-}
-@keyframes lp-blink { 50% { opacity: 0; } }
-.lp-cite {
-  margin-top: 10px;
   opacity: 0;
-  animation: lp-fade-up 0.5s ease forwards;
-  animation-delay: 2400ms;
+  animation: lp-blink 1s step-end 1600ms infinite;
 }
+@keyframes lp-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+.lp-cite {
+  margin-top: 12px;
+  opacity: 0;
+  transform: translateY(6px);
+  animation: lp-cite-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) 2500ms forwards;
+}
+@keyframes lp-cite-in { to { opacity: 1; transform: none; } }
 .lp-chip {
   display: inline-block;
   font-family: 'JetBrains Mono', ui-monospace, monospace;
@@ -195,7 +232,6 @@
 
 /* Sections */
 .lp-section { max-width: 1180px; margin: 0 auto; padding: 72px 24px; }
-.lp-section-tight { padding-top: 8px; }
 .lp-h2 {
   font-size: clamp(1.5rem, 3.2vw, 2.1rem);
   font-weight: 700;
@@ -266,7 +302,12 @@
   z-index: -1;
   background: radial-gradient(60% 120% at 50% 0%, var(--accent-glow) 0%, transparent 65%);
 }
-.lp-cta-sub { max-width: 30rem; margin: 0.5rem auto 1.5rem; }
+/* Tight stack: heading, one line of sub, button — no big gaps between them. */
+.lp-cta-title { margin-bottom: 0.6rem; }
+.lp-cta-sub { max-width: 30rem; margin: 0 auto 1.4rem; }
+/* inline-flex so the band's text-align:center actually centers the button
+   (the base .btn is a full-width block flex). */
+.lp-cta-band .btn { display: inline-flex; }
 
 /* Footer — margin-top:auto pins it to the bottom (see .lp flex column) so
    there is never a dark gap below it on a tall screen. */
@@ -274,17 +315,14 @@
   margin-top: auto;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 12px;
+  justify-content: center;   /* just the centered copyright, no wordmark */
+  /* Full width so the top border runs edge to edge, not just across a centered
+     1180px column. The copyright stays centered inside it. */
   width: 100%;
-  max-width: 1180px;
-  margin-left: auto;
-  margin-right: auto;
   padding: 26px 24px 30px;
   border-top: 1px solid var(--border);
 }
-.lp-copyright { font-size: 0.82rem; color: var(--text-muted); }
+.lp-copyright { font-size: 0.82rem; color: var(--text-muted); text-align: center; }
 
 /* Scroll reveal */
 .lp-reveal {
@@ -311,8 +349,10 @@
 .auth-back:hover { color: var(--text-primary); }
 
 @media (prefers-reduced-motion: reduce) {
-  .lp-fade, .lp-word, .lp-cite { opacity: 1; animation: none; transform: none; }
-  .lp-hero::before, .lp-caret { animation: none; }
+  .lp-fade, .lp-word, .lp-cite { opacity: 1; animation: none; transform: none; filter: none; }
+  .lp-hero::before { animation: none; }
+  .lp-typing, .lp-caret { display: none; }
+  .lp-msg.bot { min-height: 0; }
   .lp-reveal { opacity: 1; transform: none; transition: none; }
 }
 

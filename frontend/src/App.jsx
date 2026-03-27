@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import './App.css'
 
-const API = 'https://document-retrieval-system-5gqx.onrender.com'
+const API = 'http://localhost:8000' || 'https://document-retrieval-system-5gqx.onrender.com'
 
 // ── Toast utility ──────────────────────────────────────────────────────
 function useToasts() {

@@ -24,33 +24,62 @@ A multi-user RAG (Retrieval-Augmented Generation) application for PDF documents.
 
 ## 🏗️ Architecture
 
+Six layers, read top to bottom. Each arrow is a hand-off between layers; the
+shared services (data, external AI) are reached once per layer rather than by
+every stage, so the flow stays legible. Observability is cross-cutting.
+
 ```mermaid
 graph TD
-    User[👤 User] -->|JWT| React["⚛️ React Frontend<br>login · chat rail · chat view"]
-    React -->|HTTP / JSON| FastAPI["⚡ FastAPI<br>backend/main.py"]
+    User(["👤 User"])
 
-    subgraph Identity [Neon · Postgres]
-        FastAPI -->|"owns"| PG[("🐘 accounts · chat_sessions<br>chat_messages · bm25_params")]
+    subgraph CLIENT ["1 · Client layer — React / Vite"]
+        Land["🛬 Landing page"]
+        UI["💬 Chat UI · upload gate · live ingest stepper · streamed answers"]
     end
 
-    subgraph Ingest ["Ingest — 202, background task"]
-        FastAPI -->|"upload"| Docling["📄 Docling on Modal L4<br>OCR + tables"]
-        Docling --> Classify["🏷️ Classify + split<br>flash-lite · 15 doc types"]
-        Classify --> Chunker["✂️ Structure-aware chunking<br>tables stay atomic · 384 / 48"]
-        Chunker --> Embed["🧬 gemini-embedding-2<br>768-dim · RETRIEVAL_DOCUMENT"]
-        Embed --> Pine
+    subgraph APP ["2 · Application layer — FastAPI (main.py)"]
+        Auth["🔐 Auth · bcrypt · access + refresh JWT · login lockout · per-IP rate-limit"]
+        REST["🗂️ Chat endpoints · POST /message → SSE stream · 202 async upload + stage polling"]
     end
 
-    subgraph Query ["Query — ownership checked in Postgres first"]
-        FastAPI -->|"ask"| Store["📦 Retriever cache<br>miss ⇒ rehydrate"]
-        PG -.->|"bm25_params"| Store
-        Store --> Router["🎯 Centroid routing<br>no LLM"]
-        Router --> Hybrid["🔍 Hybrid query<br>α·dense + (1−α)·sparse"]
-        Hybrid --> LLM["🤖 gemini-2.5-flash<br>thinking ≤ 2048"]
-        LLM -->|"answer + citations"| PG
+    subgraph INGEST ["3 · Ingest pipeline — background task, one stage at a time"]
+        Ext["📄 Docling extract"] --> Split["🏷️ Classify + split · flash-lite"]
+        Split --> Chunk["✂️ Structure-aware chunk · tables atomic"]
+        Chunk --> Emb["🧬 Embed · gemini-embedding-2 · 768d"]
+        Emb --> Up["📤 BM25 fit + Pinecone upsert"]
     end
 
-    Hybrid <-->|"single call"| Pine[("🌲 Pinecone<br>one namespace per chat")]
+    subgraph QUERY ["4 · Retrieval + answer layer"]
+        RW["📝 Rewrite follow-up → standalone"]
+        RW --> Hyb["🔍 Hybrid query · α·dense + (1−α)·sparse · one call"]
+        Hyb --> Ans["🤖 gemini-2.5-flash · streamed, cited"]
+    end
+
+    subgraph DATA ["5 · Data layer — Neon Postgres + Pinecone"]
+        PG[("🐘 accounts · chats · messages<br>bm25_params · refresh tokens")]
+        Pine[("🌲 Pinecone · one namespace per user")]
+    end
+
+    subgraph EXT ["6 · External AI services"]
+        Gem["☁️ Google Gemini · flash / flash-lite / embeddings"]
+        Mod["☁️ Modal · Docling GPU worker (L4)"]
+    end
+
+    OBS["📈 Observability · cross-cutting<br>Langfuse (LLM) + Grafana (HTTP · metrics · dashboard)"]
+
+    User --> CLIENT
+    CLIENT -->|HTTP + JWT| APP
+    APP -->|upload| INGEST
+    APP -->|ask| QUERY
+    APP -->|identity · ownership| DATA
+    INGEST -->|vectors + bm25_params| DATA
+    INGEST -->|extract| Mod
+    INGEST -->|classify · embed| Gem
+    QUERY -->|hybrid search| Pine
+    QUERY -->|rewrite · answer| Gem
+    APP -.->|HTTP traces · metrics| OBS
+    QUERY -.->|LLM traces| OBS
+    INGEST -.->|LLM traces| OBS
 ```
 
 ---
@@ -136,6 +165,14 @@ GEMINI_FAST_MODEL=gemini-2.5-flash-lite   # classification + boundary detection
 DOCLING_PIPELINE=classic  # or "vlm" for granite-docling-258M (see below)
 USE_MODAL_LLM=0           # 1 enables the Gemma-2 fallback
 TOKEN_TTL_HOURS=24
+
+# Observability (optional — all tracing stays off unless these are set)
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_HOST=https://us.cloud.langfuse.com
+GRAFANA_OTLP_ENDPOINT=https://otlp-gateway-prod-<region>.grafana.net/otlp
+GRAFANA_OTLP_AUTH=Basic <base64>          # the full Authorization header value
+OTEL_SERVICE_NAME=document-retrieval-system
 ```
 
 > [!IMPORTANT]
@@ -207,6 +244,50 @@ Hybrid sparse-dense retrieval beats pure vector search on every metric — which
 
 > [!NOTE]
 > Evaluation was performed on a diverse set of complex financial and legal documents to ensure robustness across different domains. Raw per-question output for all configurations lives in `results/`.
+
+---
+
+## 🔥 Load testing & capacity
+
+`backend/load_test.py` spawns the **real** app with only the retrieval + LLM boundary stubbed, so a run is free and takes seconds — it exercises the async endpoints, the connection pool, JWT auth and SSE, not the model. Idle-vs-saturated phases, a `--ramp` capacity sweep, and `--calibrate` for a few real messages.
+
+**Capacity** (live Render instance, `--ramp`, read mix):
+
+| Concurrent browse clients | p50 | p95 | errors |
+|---|---|---|---|
+| 5 | 485ms | 625ms | 0 |
+| 25 | 781ms | 1313ms | 0 |
+| 50 | 1578ms | 6828ms | 0 |
+| 100 | 3031ms | 8640ms | 0 |
+
+Healthy to **~25 concurrent browse clients**, **zero errors even at 100** (it degrades in latency, never fails). The ceiling is the DB connection pool: an A/B raising it from 15 → 30 (`pool_size=10 + max_overflow=20`) roughly **doubled** read throughput (~18 → ~33 req/s) and pushed the knee from ~50 to ~100. Streaming a `/message` competes for pooled connections with browse reads (`_prepare` / `_save`), so heavy answering degrades browsing ~1.4–2.3× — the pool is the lever.
+
+---
+
+## 📈 Observability
+
+OpenTelemetry over OTLP, wired programmatically (not the `opentelemetry-instrument` wrapper). `openinference`'s `GoogleGenAIInstrumentor` auto-traces every Gemini call:
+
+* **LLM spans → Langfuse + Grafana.** Each message is one `chat-message` trace with the rewrite and answer generations nested under it, tagged with user + session.
+* **HTTP spans → Grafana** (a separate provider, so Langfuse stays LLM-only).
+* **`chat_messages_total` metric → Grafana**, with a paste-importable dashboard and a muted error-rate alert (`backend/grafana/`).
+
+Everything is a no-op unless the env vars are set, and nothing raises — tracing must never break a request. Set `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_HOST`, and `GRAFANA_OTLP_ENDPOINT` / `GRAFANA_OTLP_AUTH` (the full `Basic <base64>` header) / `OTEL_SERVICE_NAME`.
+
+---
+
+## 🐳 CI/CD & Docker
+
+`.github/workflows/ci.yml` runs on every push and PR:
+
+1. **backend** — `ruff`, `compileall`, `load_test.py --selftest` (no network).
+2. **frontend** — `npm ci`, `npm run lint`, `npm run build`.
+3. **docker** — build both images (no push), so a broken Dockerfile fails here, not at deploy.
+4. **deploy** — only after all three pass, only on push to `main`: POSTs the Render deploy hooks (`RENDER_DEPLOY_HOOK_*` secrets), skipping gracefully if they're unset.
+
+`docker compose up --build` runs the stack locally: `backend/Dockerfile` (`python:3.12-slim` + uvicorn, non-root, `/api/health` probe) and `frontend/Dockerfile` (Vite build → nginx). Docling runs on Modal, so the backend image needs no GPU/GL libraries.
+
+The backend runs with `--forwarded-allow-ips *` (in the Dockerfile CMD) so slowapi's per-IP rate limits key on the real client (`X-Forwarded-For`) behind a proxy/balancer rather than the proxy's own IP — otherwise every user shares one rate-limit bucket. On a non-Docker deploy, set `FORWARDED_ALLOW_IPS=*` in the service env instead (uvicorn reads it).
 
 ---
 
@@ -313,24 +394,21 @@ Because RRF deliberately discards magnitude, its ordering is coarse — it knows
 
 **RRF alone suffices when** `recall@k` is already high, latency matters, there is no GPU budget, or the reranker is not stronger than the first stage. **Add a reranker on top when** the corpus is large enough that `recall@k` is genuinely poor, over-fetching to 50–100 candidates is cheap, and you have verified *on your own data* that the cross-encoder actually outranks your first stage. That last clause is the one most often skipped — and it is the one that decided the outcome here.
 
-### Q4: Why is `DOCLING_PIPELINE=vlm` (granite-docling-258M) available but not the default?
+### Q4: How is multi-column form extraction handled, and why is `DOCLING_PIPELINE=vlm` (granite-docling-258M) available but not the default?
 
-Extraction, not retrieval or the LLM, is this project's quality ceiling: the classic pipeline flattens multi-column form tables (`label | value | label | value`) with the label cell duplicated across columns. `ibm-granite/granite-docling-258M` looked like the fix — a drop-in Docling VLM pipeline, and IBM report **TEDS 0.97 structure / 0.96 with-content on FinTabNet**, a *financial* table benchmark, against SmolDocling's 0.82 / 0.76.
+Extraction *was* this project's quality ceiling. A mortgage fee sheet is a two-column **key-value form**, and the classic pipeline returned the value detached from its label — `Interest Rate:` in one block, `4.250 %` in another — so a question naming the field retrieved a chunk that did not contain the number.
 
-Measured on the same 7-page test packet (`backend/eval/extract_eval.py`):
+**The real cause was a discarded coordinate, not a weak model.** The value was never lost: `Interest Rate:` (x=237) and `4.250 %` (x=298) sit on the *same visual row* (y=842.9 vs 842.8), but the worker exposed only each block's **y**-coordinate, so `pdf_processor` sorted by y alone — dropping every label into one group and every value into another. The fix is one line in the Modal worker (emit `x = bbox.l`) plus `pdf_processor._order_blocks()`, which groups blocks into visual **rows** (y within a tolerance) and orders each row left-to-right by x. `Interest Rate: 4.250 %` is reassembled — verified end-to-end (the question now answers *4.250%*), at classic's speed, with tables untouched.
 
-| | classic | vlm |
-|---|---|---|
-| characters extracted | 11,747 | **7,138** |
-| page-1 fee table | 22 rows | **empty block** |
-| funds-to-close table | 9 rows | **gone** |
-| `Interest Rate` | `Interest Rate:` (value detached) | **`Interest Rate: 4.250 %`** ✅ |
-| simple grids (pp. 2, 5) | — | byte-identical |
-| runtime | 47s | 287s |
+**Why not the VLM (`granite-docling-258M`) instead?** It looked like the fix — IBM report **TEDS 0.97 structure / 0.96 with-content on FinTabNet**, a *financial* table benchmark — and it *does* keep a label with its value. But measured on the test packets it emitted the fee tables as *empty blocks*, taking `ORIGINATION`, `Underwriting`, `95,641.53` and every other fee figure with them:
 
-It **does** fix text form fields — label and value arrive in one block, where classic splits them with nothing lexically tying them together. But it emitted page 1's fee table as a *single empty table*, taking `ORIGINATION`, `Underwriting`, `Appraisal`, `95,641.53`, `475,000` and every other fee figure with it.
+| | classic (was) | vlm | **row-grouping (shipped)** |
+|---|---|---|---|
+| `Interest Rate` value | detached ❌ | `Interest Rate: 4.250 %` ✅ | `Interest Rate: 4.250 %` ✅ |
+| fee / funds-to-close tables | kept ✅ | **emptied** ❌ | kept ✅ |
+| runtime | ~46s | ~2× (per-page VLM) | ~46s |
 
-Losing the fee table outright is far worse than having its labels duplicated, and the fee sheet is the most-queried document in a mortgage packet. **A published benchmark on a public dataset did not transfer to this layout** — which is the general lesson, and the same one Q2 records about the reranker. It stays deployed behind the flag because the text-field win is real and a hybrid (classic tables + VLM text blocks) is the obvious next thing to try.
+Losing the fee table is far worse than a detached field, and the fee sheet is the most-queried document in a packet. **A published benchmark on a public dataset did not transfer to this layout** — the same lesson Q2 records about the reranker. So the VLM stays behind the flag (its text-field win is real if you ever want it), but the row-grouping fix — a coordinate Docling already computed — supersedes the "classic tables + VLM text" hybrid it once pointed at.
 
 ---
 
@@ -357,20 +435,33 @@ document-retrieval-system/
 │   │   ├── modal_llm_server.py        # vLLM hosting (Gemma-2)
 │   │   └── modal_docling_worker.py    # Serverless PDF extraction
 │   ├── eval/                        # Measurement harnesses
+│   │   ├── model_sweep.py             # Generated questions, no judge (trust this)
 │   │   ├── model_eval.py              # flash vs flash-lite, LLM-judged
-│   │   └── extract_eval.py            # classic vs granite-docling
-│   ├── auth.py                      # JWT + bcrypt
+│   │   ├── prompt_eval.py             # Prompt-change A/B
+│   │   ├── extract_eval.py            # classic vs granite-docling
+│   │   └── hybrid_extract_eval.py     # classic vs vlm vs row-grouping
+│   ├── grafana/                     # Grafana dashboard + alert provisioning
+│   ├── auth.py                      # JWT + bcrypt + refresh tokens
+│   ├── observability.py             # OpenTelemetry → Langfuse + Grafana
 │   ├── main.py                      # API entry point
+│   ├── load_test.py                 # Capacity / responsiveness harness
+│   ├── Dockerfile                   # python:3.12-slim + uvicorn
 │   ├── migrations.sql               # Schema + housekeeping queries
 │   ├── requirements.txt
 │   └── .env                         # Keys, DB URL, worker URLs
 ├── frontend/
-│   └── src/
-│       ├── api.js                   # API client, owns the JWT
-│       ├── Login.jsx                # Login / signup
-│       ├── ChatPanel.jsx            # Upload gate, polling, messages
-│       ├── App.jsx                  # Shell, auth gate, chat rail
-│       └── App.css                  # Design tokens & styles
+│   ├── src/
+│   │   ├── api.js                   # API client, owns the JWT
+│   │   ├── Landing.jsx              # Animated landing page
+│   │   ├── Login.jsx                # Login / signup
+│   │   ├── ChatPanel.jsx            # Upload gate, live ingest stepper, messages
+│   │   ├── App.jsx                  # Shell, auth gate, chat rail
+│   │   └── App.css                  # Design tokens & styles
+│   ├── Dockerfile                   # Vite build → nginx
+│   └── nginx.conf                   # SPA routing
+├── .github/workflows/ci.yml         # lint · build · docker · gated deploy
+├── docker-compose.yml               # local api + frontend stack
+├── ruff.toml
 ├── notebooks/                       # R&D and evaluation (gitignored)
 ├── results/                         # Ragas metrics output
 └── README.md

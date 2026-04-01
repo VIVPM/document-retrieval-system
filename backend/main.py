@@ -99,6 +99,7 @@ class QueryRequest(BaseModel):
     auto_route: bool = True
     num_chunks: int = 4
     use_rerank: bool = False
+    alpha: float = 0.5
 
 
 class RerankSettingRequest(BaseModel):
@@ -164,9 +165,11 @@ def query_document(request: QueryRequest):
 
     filter_type = None if request.filter_type in (None, "All", "") else request.filter_type
 
-    # Apply the rerank setting from the request
+    # Apply settings from the request
     if request.use_rerank != doc_store.use_rerank:
         doc_store.set_rerank(request.use_rerank)
+    if request.alpha != doc_store.alpha:
+        doc_store.set_alpha(request.alpha)
 
     result = doc_store.query(
         request.question,

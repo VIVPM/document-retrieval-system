@@ -18,16 +18,18 @@ from core.answer_generator import generate_answer_with_sources
 class EnhancedDocumentStoreHybrid:
     """
     Manages the complete document processing and retrieval pipeline.
-    Uses hybrid search (Pinecone + BM25) with RRF and optional reranking.
+    Uses Pinecone sparse-dense hybrid search with alpha-based fusion
+    and optional reranking via Modal.
     """
 
-    def __init__(self, use_rerank: bool = False):
+    def __init__(self, use_rerank: bool = False, alpha: float = 0.5):
         self.pages_info = []
         self.logical_docs = []
         self.chunks_metadata = []
 
-        self.retriever = HybridRetriever(rrf_k=60, use_rerank=use_rerank)
+        self.retriever = HybridRetriever(alpha=alpha, use_rerank=use_rerank)
         self.use_rerank = use_rerank
+        self.alpha = alpha
 
         self.is_ready = False
         self.processing_stats = {}
@@ -139,8 +141,19 @@ class EnhancedDocumentStoreHybrid:
             for doc in self.logical_docs
         ]
 
+    def set_alpha(self, alpha: float):
+        """Update the dense/sparse balance for hybrid search."""
+        self.alpha = alpha
+        self.retriever.alpha = alpha
+        print(f"🔄 Alpha updated to {alpha}")
+
     def _get_search_type_label(self) -> str:
-        label = 'Hybrid (Pinecone + BM25 with RRF)'
+        if self.alpha == 1.0:
+            label = 'Vector (pure semantic)'
+        elif self.alpha == 0.0:
+            label = 'BM25 (pure keyword)'
+        else:
+            label = f'Hybrid (alpha={self.alpha})'
         if self.use_rerank:
             label += ' + Rerank'
         return label

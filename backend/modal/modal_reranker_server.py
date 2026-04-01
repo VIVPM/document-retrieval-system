@@ -1,12 +1,13 @@
 """
-modal_reranker_server.py — BGE Reranker-v2-m3 served via Modal
+modal_reranker_server.py — BGE Reranker served via Modal
 
-Hosts the BAAI/bge-reranker-v2-m3 CrossEncoder (2GB+) on a Modal T4 GPU,
+Hosts the BAAI/bge-reranker-base CrossEncoder on a Modal T4 GPU,
 exposing a FastAPI endpoint POST /rerank that accepts a query + list of texts
 and returns float scores.
 
-Deploy:
-    modal deploy modal/modal_reranker_server.py
+Usage:
+    modal run modal/modal_reranker_server.py::download_model   # Step 1: download weights
+    modal deploy modal/modal_reranker_server.py                 # Step 2: deploy server
 
 The local retriever.py calls this endpoint when use_rerank=True and
 RERANKER_URL is set in the environment.
@@ -28,12 +29,12 @@ reranker_image = (
     )
 )
 
-app = modal.App("minilm-reranker")
+app = modal.App("bge-reranker")
 
 # Volume to persist model weights
-volume = modal.Volume.from_name("minilm-reranker-weights", create_if_missing=True)
+volume = modal.Volume.from_name("bge-reranker-weights", create_if_missing=True)
 MODEL_DIR = "/model_cache"
-MODEL_NAME = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+MODEL_NAME = "BAAI/bge-reranker-base"
 
 # -----------------------------------------------------------------------
 # Step 1: Download weights once (CPU, cheap)
@@ -41,18 +42,18 @@ MODEL_NAME = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 @app.function(
     image=reranker_image,
     volumes={MODEL_DIR: volume},
-    timeout=1800,               # 30 min — model is ~2GB
+    timeout=1800,
     secrets=[modal.Secret.from_name("huggingface-secret")],
 )
 def download_model():
-    """Download BGE-reranker-v2-m3 weights to the Modal Volume."""
+    """Download BAAI/bge-reranker-base weights to the Modal Volume."""
     from huggingface_hub import snapshot_download
 
     print(f"Downloading {MODEL_NAME} to {MODEL_DIR}...")
     snapshot_download(
         repo_id=MODEL_NAME,
         local_dir=f"{MODEL_DIR}/{MODEL_NAME}",
-        ignore_patterns=["*.pt", "*.bin"],   # prefer safetensors
+        ignore_patterns=["*.pt", "*.bin"],
     )
     volume.commit()
     print("✅ Download complete.")
@@ -85,10 +86,9 @@ def serve_reranker():
     """FastAPI ASGI server serving the BGE reranker."""
     from sentence_transformers import CrossEncoder
 
-    # Load once at container startup
     import os
     model_path = f"{MODEL_DIR}/{MODEL_NAME}"
-    
+
     if not os.path.isdir(model_path):
         print(f"⚠️ Local model path not found at {model_path}. Falling back to repo name: {MODEL_NAME}")
         model_path = MODEL_NAME
@@ -96,7 +96,7 @@ def serve_reranker():
     print(f"🔄 Loading reranker from: {model_path}...")
     model = CrossEncoder(
         model_path,
-        max_length=1024,
+        max_length=512,
         device="cuda",
     )
     print("✅ Reranker model loaded.")

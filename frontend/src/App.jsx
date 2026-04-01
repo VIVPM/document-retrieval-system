@@ -68,12 +68,13 @@ function buildAnswerText(data) {
   }
 
   const rd = data.retrieval_details || {}
-  const cfg = rd.rrf_config || {}
+  const cfg = rd.config || {}
   const stats = rd.retrieval_stats || {}
-  if (cfg.k !== undefined) {
-    txt += `\n🔍 Search: Hybrid (FAISS + BM25 with RRF, k=${cfg.k})`
+  if (cfg.alpha !== undefined) {
+    const mode = cfg.alpha === 1.0 ? 'Vector (pure semantic)' : cfg.alpha === 0.0 ? 'BM25 (pure keyword)' : `Hybrid (alpha=${cfg.alpha})`
+    txt += `\n🔍 Search: ${mode}`
     txt += `\n📊 Searched ${stats.total_chunks ?? 0} chunks`
-    if (cfg.rerank_enabled) {
+    if (cfg.rerank_applied) {
       txt += '\n🎯 Reranking: ✅ Applied'
     }
   }
@@ -111,6 +112,7 @@ export default function App() {
   const [autoRoute, setAutoRoute]     = useState(true)
   const [useRerank, setUseRerank]     = useState(false)
   const [numChunks, setNumChunks]     = useState(4)
+  const [alpha, setAlpha]             = useState(0.5)
   const [docTypes, setDocTypes]       = useState(['All'])
 
   // Scroll to bottom
@@ -153,7 +155,7 @@ export default function App() {
   const handleRerankToggle = async val => {
     setUseRerank(val)
     try {
-      if (val) addToast('⏳ Connecting to MiniLM Reranker on Modal…')
+      if (val) addToast('⏳ Connecting to BGE Reranker on Modal…')
       await apiSetRerank(val)
       addToast(val ? '✅ Reranker enabled!' : '🔄 Reranking disabled.', 'success')
     } catch (err) {
@@ -212,6 +214,7 @@ export default function App() {
         auto_route: autoRoute,
         num_chunks: numChunks,
         use_rerank: useRerank,
+        alpha: alpha,
       })
       setMessages(prev => [...prev, { role: 'assistant', content: buildAnswerText(res) }])
     } catch (err) {
@@ -328,7 +331,16 @@ export default function App() {
                   <span className="toggle-slider" />
                 </label>
               </div>
-              <span className="setting-hint">MiniLM-L-6 via Modal (fast & efficient reranking)</span>
+              <span className="setting-hint">BGE Reranker via Modal</span>
+            </div>
+
+            <div className="setting-row">
+              <div className="slider-row">
+                <label className="setting-label">⚖️ Search Balance (Alpha)</label>
+                <span className="slider-value">{alpha === 1.0 ? '1.0 (Vector)' : alpha === 0.0 ? '0.0 (Keyword)' : alpha}</span>
+              </div>
+              <input type="range" min={0} max={1} step={0.1} value={alpha} onChange={e => setAlpha(Number(e.target.value))} />
+              <span className="setting-hint">0.0 = pure keyword · 0.5 = hybrid · 1.0 = pure semantic</span>
             </div>
 
             <div className="setting-row">

@@ -1,10 +1,8 @@
 # Core ML and RAG frameworks
 google-genai
 pinecone
+pinecone-text
 openai
-
-# Search & Lexical
-rank-bm25
 
 # Document parsing & Chunks
 langchain-text-splitters

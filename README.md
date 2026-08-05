@@ -24,47 +24,59 @@ A multi-user RAG (Retrieval-Augmented Generation) application for PDF documents.
 
 ## 🏗️ Architecture
 
-Six layers, read straight down. Each layer hands off to the one below it; the
-ingest pipeline and the retrieval path each stack their own stages vertically.
-The two dotted edges are the only cross-cuts: ingest reaches the Modal/Gemini
-workers, and the app fans traces out to observability.
+Six layers, read top to bottom. Each arrow is a hand-off between layers; the
+ingest and retrieval pipelines flow left-to-right within their own band and the
+bands stack one below the other, while the shared services (data, external AI)
+are reached once per layer rather than by every stage, so the flow stays
+legible. Observability is cross-cutting.
 
 ```mermaid
-%%{init: {'flowchart': {'nodeSpacing': 18, 'rankSpacing': 24}}}%%
-flowchart TB
+graph TD
     User(["👤 User"])
 
-    subgraph C ["1 · Client — React / Vite"]
-        UI["Landing · chat · live ingest · streamed answers"]
+    subgraph CLIENT ["1 · Client layer — React / Vite"]
+        Land["🛬 Landing page"]
+        UI["💬 Chat UI · upload gate · live ingest stepper · streamed answers"]
     end
 
-    subgraph A ["2 · Application — FastAPI"]
-        API["Auth · rate-limit · SSE /message · 202 upload"]
+    subgraph APP ["2 · Application layer — FastAPI (main.py)"]
+        Auth["🔐 Auth · bcrypt · access + refresh JWT · lockout · per-IP rate-limit"]
+        REST["🗂️ Chat endpoints · POST /message → SSE · 202 async upload + polling"]
     end
 
-    subgraph I ["3 · Ingest pipeline — background task"]
-        direction TB
-        i1["Extract · docling / pymupdf"] --> i2["Classify + split · flash-lite"] --> i3["Chunk · tables atomic"] --> i4["Embed · 768d"] --> i5["BM25 fit + Pinecone upsert"]
+    subgraph INGEST ["3 · Ingest pipeline — background task"]
+        direction LR
+        Ext["📄 Extract · Docling / PyMuPDF"] --> Split["🏷️ Classify + split · flash-lite"] --> Chunk["✂️ Chunk · tables atomic"] --> Emb["🧬 Embed · 768d"] --> Up["📤 BM25 fit + Pinecone upsert"]
     end
 
-    subgraph D ["4 · Data — Neon + Pinecone"]
-        PG[("Postgres · chats · bm25_params")]
-        Pine[("Pinecone · 1 ns/user")]
+    subgraph DATA ["4 · Data layer — Neon Postgres + Pinecone"]
+        PG[("🐘 Postgres · accounts · chats · messages · bm25_params")]
+        Pine[("🌲 Pinecone · one namespace per user")]
     end
 
-    subgraph Q ["5 · Retrieval + answer"]
-        direction TB
-        q1["Rewrite follow-up → standalone"] --> q2["Hybrid query · α-fused"] --> q3["gemini-2.5-flash · streamed, cited"]
+    subgraph QUERY ["5 · Retrieval + answer layer"]
+        direction LR
+        RW["📝 Rewrite follow-up → standalone"] --> Hyb["🔍 Hybrid query · α·dense + (1−α)·sparse"] --> Ans["🤖 gemini-2.5-flash · streamed, cited"]
     end
 
-    subgraph X ["6 · External AI"]
-        Gem["Gemini · flash / embeddings"]
-        Mod["Modal · Docling GPU (L4)"]
+    subgraph EXT ["6 · External AI services"]
+        Gem["☁️ Google Gemini · flash / flash-lite / embeddings"]
+        Mod["☁️ Modal · Docling GPU worker (L4)"]
     end
 
-    User --> C --> A --> I --> D --> Q --> X
-    I -.-> X
-    A -.-> OBS["📈 Langfuse + Grafana"]
+    OBS["📈 Observability · cross-cutting<br>Langfuse (LLM) + Grafana (HTTP · metrics · dashboard)"]
+
+    User --> CLIENT
+    CLIENT -->|HTTP + JWT| APP
+    APP -->|identity · ownership| DATA
+    APP -->|upload| INGEST
+    INGEST -->|vectors + bm25_params| DATA
+    DATA -->|hybrid search| QUERY
+    INGEST -->|extract · classify · embed| EXT
+    QUERY -->|rewrite · answer| EXT
+    APP -.->|HTTP traces · metrics| OBS
+    INGEST -.->|LLM traces| OBS
+    QUERY -.->|LLM traces| OBS
 ```
 
 ---

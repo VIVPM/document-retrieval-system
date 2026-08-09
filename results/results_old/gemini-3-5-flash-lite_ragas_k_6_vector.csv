@@ -1,0 +1,263 @@
+question_id,question,expected_answer,answer,answer_correctness,context_precision,context_recall,faithfulness,status
+0,What is the estimated total monthly payment in the Projected Payments section?,1869.37,"$1,869.37` (",1.0,0.9999999999666667,1.0,1.0,complete
+1,What interest rate is being offered?,4.25%,4.25% (or 4.250%),1.0,0.7499999999625,1.0,1.0,complete
+2,What will the monthly principal and interest payment be?,1869.37,"$1,869.37",1.0,0.7708333333140625,1.0,1.0,complete
+3,What is the sale price of the home being purchased on the Loan Estimate?,475000,"$475,000",1.0,0.9999999999,1.0,1.0,complete
+4,How much cash does the buyer need to bring to closing?,95802,"$95,802",1.0,0.9999999999666667,1.0,1.0,complete
+5,What are the total estimated closing costs on the Loan Estimate?,5802,"$5,802",1.0,0.699999999965,1.0,1.0,complete
+6,Where is the property located that is being purchased?,"1254 Main Street, San Diego, CA 92110","Based on the supplied contexts, the property being purchased for the loan has the address 6468 South 20th Street, in the City of Milwaukee, County of Milwaukee, State of Wisconsin (Context [1]). Additionally, a separate document lists a property address of 1254 Main Street, San Diego, CA 9210x (Context [2]).",0.0,0.49999999995,1.0,0.5,complete
+7,How long is the loan term?,30 years,30 years (or 360 months),0.6666666666666666,0.41111111109740744,1.0,1.0,complete
+8,"What type of loan is this — conventional, FHA, or VA?",Conventional,Conventional,1.0,0.49999999995,1.0,0.0,complete
+9,Is the rate fixed or adjustable?,Fixed Rate,The rate is fixed.,1.0,0.6999999999766667,1.0,1.0,complete
+10,Is there a prepayment penalty on this loan?,NO,"No, there is no prepayment penalty on this loan.",1.0,0.9999999999,1.0,1.0,complete
+11,Does the Loan Estimate indicate a balloon payment?,NO,No,1.0,0.49999999995,1.0,1.0,complete
+12,Can the interest rate go up after closing?,NO,No.,1.0,0.6666666666333333,1.0,1.0,complete
+13,Who are the applicants on this loan?,John Q. Smith and Mary A. Smith,John Q. Smith and Mary A. Smith,1.0,0.2916666666520833,1.0,1.0,complete
+14,"Is the interest rate locked, and if so until when?","YES, until 01/20/2015","Yes, the interest rate is locked until 01/20/2015.",1.0,0.3333333333,1.0,1.0,complete
+15,What is the estimated monthly amount for property taxes on the Loan Estimate?,440,The answer cannot be determined from the supplied contexts.,0.0,0.9999999999,1.0,1.0,complete
+16,Are property taxes and insurance being escrowed?,NO,"Based on the supplied contexts, property taxes and insurance are not being escrowed (indicated as ""NO"" for being in escrow under Estimated Taxes, Insurance & Assessments in Context [4]).",0.8,0.499999999975,1.0,1.0,complete
+17,What is the total of all loan costs on page 2?,4055,The answer cannot be determined from the supplied contexts.,0.0,0.49999999995,1.0,0.0,complete
+18,How much are the other costs in the closing breakdown?,1747,"Based on the supplied contexts, the total other costs (""TOTAL OTHER COSTS (E + F + G + H)"") are $1,747.",0.6666666666666666,0.699999999965,1.0,1.0,complete
+19,What is the down payment amount?,95000,"$95,000",1.0,0.99999999995,1.0,1.0,complete
+20,How much earnest money deposit was credited?,5000,"$5,000",1.0,0.7499999999625,1.0,1.0,complete
+21,Were any closing costs financed into the loan?,0,"No, closing costs were not financed into the loan ($0).",1.0,0.7222222221981481,1.0,1.0,complete
+22,How much are the services you can shop for on the Loan Estimate?,2335,"$2,335",1.0,0.6666666666333333,1.0,1.0,complete
+23,What does the home inspection cost?,450,$450,1.0,0.99999999995,1.0,1.0,complete
+24,How much is the closing and escrow fee?,860,$860,1.0,0.8333333332916666,1.0,1.0,complete
+25,What is the lender's title insurance premium?,650,$650,1.0,0.7499999999625,1.0,1.0,complete
+26,How much are the notary fees?,150,$150,1.0,0.99999999995,1.0,1.0,complete
+27,What is the appraisal fee on the Loan Estimate?,525,$525,1.0,0.36666666664833336,1.0,1.0,complete
+28,How much is the credit report fee?,25,$25,1.0,0.8333333332916666,1.0,1.0,complete
+29,What is the flood certification fee?,20,$20,1.0,0.99999999995,1.0,1.0,complete
+30,How much is the origination charge total?,1070,"$1,070",1.0,0.99999999995,1.0,1.0,complete
+31,What is the underwriting fee?,550,$550,1.0,0.99999999995,1.0,1.0,complete
+32,What does the administration fee come to?,445,$445,1.0,0.7499999999625,1.0,1.0,complete
+33,How much is the wire transfer fee on the Loan Estimate?,75,$75.00,1.0,0.32499999998375,1.0,1.0,complete
+34,What are the total government recording fees and taxes?,150,$150,1.0,0.99999999995,1.0,1.0,complete
+35,How much are the total prepaids at closing?,1597,"$1,597",1.0,0.99999999995,1.0,1.0,complete
+36,How many months of homeowner's insurance are collected upfront?,12,12 months,1.0,0.499999999975,1.0,1.0,complete
+37,What is the prepaid homeowner's insurance premium amount?,475,$475,1.0,0.99999999995,1.0,1.0,complete
+38,How much is the prepaid interest?,1122,"$1,122 (or $1,121.53)",0.6666666666666666,0.99999999995,1.0,1.0,complete
+39,What is the services you cannot shop for total?,650,"$2,335",0.0,0.49999999995,1.0,0.0,complete
+40,What is the Annual Percentage Rate?,4.329%,4.329%,1.0,0.9999999999,1.0,1.0,complete
+41,What is the Total Interest Percentage over the life of the loan?,77.39%,77.39%,1.0,0.7555555555303703,1.0,1.0,complete
+42,How much principal will be paid off in 5 years?,34931,"$34,931",1.0,0.8333333333055556,1.0,1.0,complete
+43,What is the total amount paid after 5 years including all costs?,117339,"$117,339",1.0,0.99999999995,1.0,1.0,complete
+44,How many days is the grace period before a late fee kicks in?,15,The answer cannot be determined from the supplied contexts.,0.0,0.0,0.0,0.0,complete
+45,What percentage is the late fee?,6%,The answer cannot be determined from the supplied contexts.,0.0,0.0,0.0,1.0,complete
+46,Is homeowner's insurance required for this loan?,YES,"Yes, homeowner's insurance is required for this loan.",1.0,0.33333333331666665,1.0,1.0,complete
+47,Which lender is originating this loan?,XYZ Lender,XYZ Lender,1.0,0.5666666666525,1.0,1.0,complete
+48,What is the per diem interest charge on the Fees Worksheet?,44.8611,$44.8611,1.0,0.9166666666361111,1.0,1.0,complete
+49,What loan program is shown on the Fees Worksheet?,30 YEAR FIXED -Purchase,30 YEAR FIXED -Purchase,1.0,0.99999999995,1.0,1.0,complete
+50,What is the total estimated monthly payment including taxes and insurance on the Fees Worksheet?,2308.95,"Based on the supplied contexts, the total estimated monthly payment including taxes and insurance on the Fees Worksheet is $2,308.95.",1.0,0.3333333333,1.0,1.0,complete
+51,How much are the real estate taxes per month on the Fees Worksheet?,400.00,The answer cannot be determined from the supplied contexts.,0.0,0.0,0.0,0.0,complete
+52,What is the title officer's email address on the Preliminary Title Report?,titleteam@ticortitle.com,titleteam@ticortitle.com,1.0,0.99999999995,1.0,1.0,complete
+53,What property is covered in the Preliminary Title Report?,"1234 First Street, San Diego, CA 92101","1234 First Street, San Diego, CA 92101",1.0,0.9999999999,1.0,1.0,complete
+54,Which title company issued the preliminary report?,Ticor Title Company of California,Ticor Title Company of California (issuing policies of Chicago Title Insurance Company),0.6666666666666666,0.9999999999833333,1.0,1.0,complete
+55,Who is the title officer on this file?,Best Title Officer,Best Title Officer,1.0,0.9999999999,1.0,1.0,complete
+56,What is the effective date and time of the title search?,"June 13, 2013 at 7:30 a.m.","June 13, 2013 at 7:30 a.m.",1.0,0.8333333332916666,1.0,1.0,complete
+57,Who currently holds title to the property on the Preliminary Title Report?,"John J. Seller and Jane G. Seller, husband and wife as joint tenants","John J. Seller and Jane G. Seller, husband and wife as joint tenants",1.0,0.99999999995,1.0,1.0,complete
+58,What is the APN for the title report property?,370-200-01,370-200-01,1.0,0.8666666666377778,1.0,1.0,complete
+59,What map number is referenced in the legal description?,7236,Map No. 7236,1.0,0.99999999995,1.0,1.0,complete
+60,What is the recording number for the utility easement granted to SDG&E?,172707,172707,1.0,0.9999999999,1.0,1.0,complete
+61,When was the utility easement recorded?,"July 5, 1972","Based on the supplied contexts, the utility easement was recorded on July 5, 1972 (Recording No. 172707) for public utilities, and an easement for general utility was also reserved in a document with a recording date of September 19, 1972 (Recording No. 249792). Additionally, a general utility easement was filed on March 22, 1972 according to Map No. 7236.",0.5,0.9999999999,1.0,0.6666666666666666,complete
+62,What is the recording number for the CC&Rs?,79249,79249,1.0,0.49999999995,1.0,1.0,complete
+63,What fiscal year are the property taxes assessed for on the title report?,2012-2013,2012-2013 and 2013-2014,0.6666666666666666,0.9999999999,1.0,0.5,complete
+64,What corporation issues the title insurance policies referenced in the preliminary report?,"Chicago Title Insurance Company, a Nebraska Corporation",Chicago Title Insurance Company,0.6666666666666666,0.499999999975,1.0,1.0,complete
+65,What type of estate or interest is covered in the Preliminary Title Report?,A fee as to parcel 1 and an easement as to parcel 2,"Based on the supplied contexts, the estate or interest covered is ""A fee as to parcel 1 and an easement as to parcel 2.""",1.0,0.249999999975,1.0,1.0,complete
+66,What policy forms are contemplated by the Preliminary Title Report?,ALTA Homeowners Policy (2-3-10) ALTA Extended Loan Policy (6-17-06),"Based on the supplied contexts, the policy forms contemplated by the Preliminary Title Report are:
+
+* ALTA Homeowners Policy (2-3-10)
+* ALTA Extended Loan Policy (6-17-06",1.0,0.699999999965,1.0,1.0,complete
+67,In which city and county is the property in the legal description?,"City of San Diego, County of San Diego, State of California","City of San Diego, County of San Diego",0.8,0.3333333333,1.0,1.0,complete
+68,What tax code area is the property in?,08001,08001,1.0,0.9999999999,1.0,1.0,complete
+69,"Who is the beneficiary on the deed of trust recorded June 5, 2007?","Wells Fargo Bank, N.A.","Wells Fargo Bank, N.A.",1.0,0.9999999999,1.0,1.0,complete
+70,What was the original amount of the 2007 deed of trust?,150000.00,"$150,000.00",1.0,0.9999999999,1.0,1.0,complete
+71,"When was the $305,000 deed of trust recorded?","June 15, 2006","June 15, 2006",1.0,0.49999999995,1.0,1.0,complete
+72,What is the loan account number for the credit line deed of trust?,651-651-1597533-1998,651-651-1597533-1998,1.0,0.9999999999,1.0,1.0,complete
+73,"Who is the trustee on the older $305,000 deed of trust?",Ticor Title Company,Ticor Title Company,1.0,0.9999999999,1.0,1.0,complete
+74,What is the ABA routing number for wiring funds to the title company?,122235821,122235821,1.0,0.9999999999,1.0,1.0,complete
+75,What bank receives the wire transfers for the title company?,US Bank,US Bank,1.0,0.9999999999,1.0,1.0,complete
+76,Where should reconveyance documents be mailed after payoff?,"2878 Camino Del Rio South, Suite 500 San Diego, CA 92108",The answer cannot be determined from the supplied contexts.,0.0,0.49999999995,1.0,1.0,complete
+77,What is the property address on the credit line closure request?,"1234 First Street, San Diego, CA 92101","1234 First Street, San Diego, CA 92101",1.0,0.99999999995,1.0,1.0,complete
+78,When was the preliminary title transmittal generated?,"June 13, 2013",The answer cannot be determined from the supplied contexts.,0.0,0.8333333333055556,1.0,0.0,complete
+79,What time was the transmittal stamped?,3:44 PM,3:44 PM,1.0,0.9999999999,1.0,1.0,complete
+80,What is the ending balance on the bank statement?,51176.35,"51,176.35",1.0,0.9999999999,1.0,1.0,complete
+81,What was the beginning balance?,13679.61,"13,679.61",1.0,0.9999999999,1.0,1.0,complete
+82,What is the minimum depth below surface for mineral extraction operations?,five hundred (500) feet,The answer cannot be determined from the supplied contexts.,0.0,0.0,0.0,0.0,complete
+83,What is the total of electronic deposits on the bank statement?,217653.02,"217,653.02",1.0,0.9166666666361111,1.0,1.0,complete
+84,How much went out in electronic payments?,166112.54,"166,112.54",1.0,0.9999999999,1.0,1.0,complete
+85,What is the account number on the TD Bank statement?,435-4366572,435-4366572,1.0,0.9999999999,1.0,1.0,complete
+86,What is the average collected balance for the statement period?,3256.66,"3,256.66",1.0,0.9999999999,1.0,1.0,complete
+87,How many days are in the bank statement period?,31,31 days,1.0,0.8333333332916666,1.0,1.0,complete
+88,How much was the check deposit from Larson Contractors?,3750.00,"3,750.00",1.0,0.9999999999,1.0,1.0,complete
+89,How much was the check deposit from A D Real Estate Investors on July 12th?,"4,245.00","4,245.00",1.0,0.9999999999,1.0,1.0,complete
+90,How much is in other credits on the bank statement?,515.87,$515.87,1.0,0.9999999999,1.0,1.0,complete
+91,What is the total of other withdrawals?,44413.00,"44,413.00",1.0,0.9999999999,1.0,1.0,complete
+92,What is the statement period covered?,Jul 01 2018 - JUL 31 2018,Jul 01 2018 - JUL 31 2018,1.0,0.36666666664833336,1.0,1.0,complete
+93,What lot number is Parcel No 1 in Villa Barbados North Unit No. 1?,Lot 58,The answer cannot be determined from the supplied,0.0,0.0,0.0,0.0,complete
+94,To whom was the utility easement granted?,San Diego Gas and Electric Company,San Diego Gas and Electric Company,1.0,0.9999999999,1.0,1.0,complete
+95,What is the recording date of the CC&Rs?,"March 31, 1972","March 31, 1972",1.0,0.9999999999,1.0,1.0,complete
+96,What is the status of the 1st installment of property taxes?,Paid,Paid,1.0,0.9999999999,1.0,1.0,complete
+97,What is the status of the 2nd installment of property taxes?,Open (Delinquent after April 10),The 2nd installment is open and delinquent after April 10.,1.0,0.9999999999,1.0,1.0,complete
+98,What is the homeowner's exemption amount on the title report?,7000.00,"$7,000.00",1.0,0.9999999999,1.0,1.0,complete
+99,What is the penalty and cost on the delinquent taxes?,106.16,$106.16,1.0,0.49999999995,1.0,1.0,complete
+100,"What is the recording number for the $150,000 deed of trust?",2007-316852,2007-316852,1.0,0.9999999999,1.0,1.0,complete
+101,"Who is the trustee on the $150,000 deed of trust?",American Securities Company,American Securities Company,1.0,0.9999999999,1.0,1.0,complete
+102,"When was the $305,000 deed of trust dated?","June 2, 2006","June 2, 2006",1.0,0.99999999995,1.0,1.0,complete
+103,What is the recording number for the open space easement?,249792,249792,1.0,0.3333333333,1.0,1.0,complete
+104,Who reserved the open space easement?,"Community Builders, a California corporation","Community Builders, a California corporation",1.0,0.3333333333,1.0,1.0,complete
+105,"When was the $150,000 deed of trust dated?","May 3, 2007","May 3, 2007",1.0,0.49999999995,1.0,1.0,complete
+106,What document does the title company require to complete the title search?,Statement of Information,The answer cannot be determined from the supplied contexts.,0.0,0.0,0.0,0.0,complete
+107,Who needs to complete the Statement of Information?,Buyers and Sellers,"Based on the supplied contexts, all borrowers must sign the Statement of Information.",0.0,0.0,0.0,1.0,complete
+108,What percentage of the title premium does Ticor Title pay to its underwriter?,12%,12%,1.0,0.3333333333,1.0,1.0,complete
+109,What CLTA Endorsement Form will the Company attach to an ALTA Loan Policy?,CLTA Endorsement Form 100,The answer cannot be determined from the supplied contexts.,0.0,0.0,0.0,0.0,complete
+110,What is the employee name for Employee ID 007?,James Bond,James Bond,1.0,0.9999999999,1.0,1.0,complete
+111,What is James Bond's basic pay?,8000,8000,1.0,0.4499999999775,1.0,1.0,complete
+112,How much allowance does James Bond receive?,500,"Based on the supplied contexts, James Bond receives an allowance of 500.",1.0,0.5833333333041666,1.0,1.0,complete
+113,How much overtime was paid to James Bond?,300,The answer cannot be determined from the supplied contexts.,0.0,0.5833333333041666,1.0,0.0,complete
+114,What is James Bond's net pay?,8000,"Based on the supplied contexts, James Bond's net pay is 8000.",1.0,0.4499999999775,1.0,1.0,complete
+115,Who is the employee at Unknown and Co.?,Joe Boe,Joe Boe,1.0,0.9999999999,1.0,1.0,complete
+116,What is Joe Boe's basic pay?,3400,3400,1.0,0.26666666665333333,1.0,1.0,complete
+117,What is the net pay written in words on Joe Boe's pay slip?,Three Thousand Three Hundred And Eighty,The answer cannot be determined from the supplied contexts.,0.0,0.0,0.0,0.0,complete
+118,Who is the employee on the Tech Mahindra pay slip?,Akshay Chungade,The answer cannot be determined from the supplied contexts.,0.0,0.249999999975,0.0,0.0,complete
+119,Are there any conveyances affecting the land within 24 months of the report?,"No, there are NO conveyances recorded within 24 months",The answer cannot be determined from the supplied contexts.,0.0,0.249999999975,0.0,0.0,complete
+120,How much federal tax was withheld on the Tech Mahindra pay slip?,198.94,198.94,1.0,0.49999999995,1.0,1.0,complete
+121,What is the CPP deduction for this pay period?,82.51,$82.51,1.0,0.9999999999,1.0,1.0,complete
+122,How much is the EI deduction?,25.03,"Current: 25.03, YTD: 536.90",0.6666666666666666,0.9999999999,1.0,1.0,complete
+123,What are the total deductions on Akshay's pay stub?,306.48,$306.48,1.0,0.7499999999625,1.0,1.0,complete
+124,Does the title company accept ACH transfers?,"No, the office does not accept ACH transfers",The answer cannot be determined from the supplied contexts.,0.0,0.19999999998,0.0,0.0,complete
+125,What is the hourly rate on the Tech Mahindra pay slip?,18.200,The answer cannot be determined from the supplied contexts.,0.0,0.16666666665,1.0,0.0,complete
+126,How much is the life insurance benefit for the current period?,8.30,8.30,1.0,0.9999999999,1.0,1.0,complete
+127,What is the dental benefit amount?,72.44,"Current: 72.44, YTD: 796.84",0.6666666666666666,0.9999999999,1.0,1.0,complete
+128,What is the sequence number on Akshay's pay slip?,204238038,The answer cannot be determined from the supplied contexts.,0.0,0.249999999975,1.0,0.0,complete
+129,What is the pay period on the Tech Mahindra pay slip?,"Oct 13, 2024 to Oct 26, 2024","Oct 13, 2024 to Oct 26, 2024",1.0,0.249999999975,1.0,0.0,complete
+130,What must the borrower sign and return regarding the equity line?,Equity Line/Credit Line Affidavit provided with the report,"Based on the supplied contexts, the borrower must sign and return the Equity Line/Credit Line Affidavit provided with the report.",1.0,0.7499999999625,1.0,1.0,complete
+131,How many working days may the principal difference be held if requirements are not met?,10 working days,10 working days,1.0,0.9999999999,1.0,1.0,complete
+132,What is the account name for wire transfers to the title company?,Ticor Title Company of California,Ticor Title Company of California,1.0,0.691666666649375,1.0,1.0,complete
+133,What is the address of the bank receiving wire transfers?,"535 Westminster Mall, Westminster, CA 92683","535 Westminster Mall, Westminster, CA 9",0.0,0.9999999999,1.0,0.0,complete
+134,What is the street address of the Chief Privacy Officer?,601 Riverside Avenue,"601 Riverside Avenue, Jacksonville, FL 32204",0.0,0.9999999999,1.0,1.0,complete
+135,Can the company disclose Personal Information to insurance regulatory authorities?,"Yes, to an insurance regulatory authority or a law enforcement or other governmental authority","Yes, the company can disclose Personal Information to an insurance regulatory authority.",0.5,0.99999999995,1.0,1.0,complete
+136,What types of information does FNF collect from applications?,"name, address, social security number, tax identification number, asset information, and income information","Based on the supplied contexts, FNF collects information from applications such as your name, address, social security number, tax identification number, asset information, and income information.",1.0,0.6666666666333333,1.0,1.0,complete
+137,What does TTCC stand for in the Discount Notice?,Ticor Title Company of California,Ticor Title Company of California,1.0,0.46666666665111106,1.0,1.0,complete
+138,What does CTIC stand for in the Discount Notice?,Chicago Title Insurance Company,Chicago Title Insurance Company,1.0,0.9999999999,1.0,1.0,complete
+139,What California Code section requires delivery of the discount notice?,Section 2355.3 in Title 10 of the California Code of Regulations,Section 2355.3 in Title 10 of the California Code of Regulations.,1.0,0.9999999999,1.0,1.0,complete
+140,What is the effective through date on the discount notice?,"November 1, 2014","November 1, 2014",1.0,0.49999999995,1.0,1.0,complete
+141,Can a customer receive multiple $20 discounts?,"Yes, if you had more than one qualifying transaction you may be entitled to multiple discounts","Yes, if you had more than one qualifying transaction, you may be entitled to multiple discounts.",1.0,0.9999999999666667,1.0,1.0,complete
+142,Where should the $20 discount request form be sent?,"Ticor Title Company of California, 2878 Camino Del Rio South, Suite 500, San Diego, CA 92108","Based on the supplied contexts, the answer cannot be determined.",0.0,0.9999999999,1.0,0.0,complete
+143,What is the deductible for Covered Risk 16 on the homeowner's policy?,"1% of Policy Amount or $5,000.00 (whichever is less)","Based on the supplied contexts, the deductible for Covered Risk",1.0,0.99999999995,1.0,0.5,complete
+144,What is the deductible for Covered Risk 18 on the expanded loan policy?,"1% of Policy Amount Shown in Schedule A or $5,000.00 (whichever is less)","Based on the supplied contexts, the deductible for Covered Risk 18 varies depending on the specific policy version/page referenced:
+
+* Context [1] states: **1% of Policy Amount or $2,500.00 (whichever is less)**
+* Context [2] states: **1% of Policy Amount Shown in Schedule A or $5,000.00 (whichever is less)**",0.5,0.99999999995,1.0,1.0,complete
+145,What is the maximum dollar limit for Covered Risk 16 on the expanded loan policy?,"$10,000.00","Based on the supplied contexts, the maximum dollar limit for Covered Risk 16 is $25,000.00 (as shown in Context [1]).",0.0,0.99999999995,1.0,0.0,complete
+146,What is the purpose of the Affidavit - Uninsured Deed?,For the protection and benefit of the grantee and for inducing Chicago Title Insurance Company to insure title,"Based on the supplied contexts, the purpose of the Affidavit is for the protection and benefit of the grantee, their successors and assigns, and any other parties acquiring an interest in the property, and to induce the title company to insure title to the property.",0.5714285714285715,0.99999999995,1.0,1.0,complete
+147,Which county's Official Records are referenced in the Affidavit?,"San Diego County, California",San Diego County,1.0,0.9999999999,1.0,1.0,complete
+148,What title order number is referenced in the Affidavit about liens?,CYTEST-995-,CYTEST-995-,1.0,0.3833333333205555,1.0,1.0,complete
+149,What California law governs the Certification of Trust?,California Probate Code Section 18100.5,California Probate Code Section 18100.5,1.0,0.9999999999,1.0,1.0,complete
+150,What is the purpose of the credit line closure request letter?,To close/freeze the credit line or equity line of credit,"Based on the supplied contexts, the purpose of the credit line closure request letter is to request that the specified credit line or equity line of credit be closed or frozen, and to agree not to request any further advances on the account.",0.6666666666666666,0.999999999975,1.0,0.5,complete
+151,What is the property address on the transmittal?,"1234 FIRST STREET, SAN DIEGO, CA 92101","1234 First Street, San Diego, CA 92101",1.0,0.9999999999,1.0,1.0,complete
+152,How much was the check deposit from A D Real Estate Investors?,"4,245.00","4,245.00",1.0,0.9999999999,1.0,1.0,complete
+153,What is the name on the resume?,John W. Smith,John W. Smith,1.0,0.49999999995,1.0,1.0,complete
+154,Which university did John W. Smith attend?,"University of Arkansas at Little Rock, Little Rock, AR",University of Arkansas at Little Rock,0.6666666666666666,0.9999999999,1.0,1.0,complete
+155,What is the contact email on the resume?,jwsmith@colostate.edu,jwsmith@colostate.edu,1.0,0.49999999995,1.0,1.0,complete
+156,What is the GPA in Early Childhood Development?,3.8,3.8,1.0,0.9999999999,1.0,1.0,complete
+157,What degrees does John W. Smith hold?,BA in Elementary Education and BS in Early Childhood Development,John W. Smith holds a BA in Elementary Education and a BS in Early Childhood Development.,1.0,0.9999999999,1.0,1.0,complete
+158,How much was the check deposit from JHACS Electrical?,"3,800.00","3,800.00",1.0,0.9999999999,1.0,1.0,complete
+159,How much was the check deposit from Vidales and Sons?,"3,758.00","3,758.00",1.0,0.9999999999,1.0,1.0,complete
+160,What was the ATM deposit amount on July 31st?,"2,678.39","$2,678.39",1.0,0.9999999999,1.0,1.0,complete
+161,What is the annual percentage yield earned on the bank account?,0.00%,0.00%,1.0,0.9999999999,1.0,1.0,complete
+162,What is the interest earned this period on the bank statement?,0.00,0.00,1.0,0.9999999999,1.0,1.0,complete
+163,What is the estimated closing costs amount on the Fees Worksheet?,"4,520.00","$5,802",0.0,0.249999999975,0.0,1.0,complete
+164,What is the estimated prepaid items and reserves on the Fees Worksheet?,"1,121.53","$1,121.53",1.0,0.46666666665111106,1.0,1.0,complete
+165,What is the cash deposit amount shown on the Fees Worksheet?,"5,000.00","-$5,000 (listed as ""Deposit"" under Calculating Cash to Close)",0.0,0.9999999999,1.0,1.0,complete
+166,What is the hazard insurance premium total on the Fees Worksheet?,475.00,$475.00,1.0,0.699999999965,1.0,1.0,complete
+167,How many days of daily interest charges are shown on the Fees Worksheet?,25,25 days,1.0,0.9999999999,1.0,1.0,complete
+168,What is the mortgage recording charge on the Fees Worksheet?,150.00,$ 150.00,1.0,0.5833333333041666,1.0,1.0,complete
+169,Who prepared the Fees Worksheet?,XYZ Lender,XYZ Lender,1.0,0.6666666666333333,1.0,1.0,complete
+170,What is the application number on the Fees Worksheet?,samplesmith,samplesmith,1.0,0.9999999999,1.0,1.0,complete
+171,What date was the Fees Worksheet prepared?,10/05/2015,10/05/2015,1.0,0.9999999999,1.0,1.0,complete
+172,What is John W. Smith's GPA in Elementary Education?,3.5,3.5,1.0,0.9999999999,1.0,1.0,complete
+173,How many volunteer workers did John W. Smith manage?,25,The answer cannot be determined from the supplied contexts.,0.0,0.0,0.0,0.0,complete
+174,What is John W. Smith's address on the resume?,"2002 Front Range Way Fort Collins, CO 80525","2002 Front Range Way Fort Collins, CO 80525",1.0,0.9999999999,1.0,1.0,complete
+175,Where was John W. Smith a Teacher's Assistant?,"Cowell Elementary, Conway, Arkansas","Cowell Elementary in Conway, Arkansas",1.0,0.9999999999,1.0,1.0,complete
+176,What is the total earnings on James Bond's pay slip?,8800,8800,1.0,0.6388888888675925,1.0,1.0,complete
+177,How long is the probationary period in the employment contract?,6 months,The probationary period is six (6) months.,1.0,0.3333333333,1.0,1.0,complete
+178,How many days notice is required during the probationary period?,7 days,Seven days notice.,1.0,0.8333333332916666,1.0,1.0,complete
+179,What is the pay date on James Bond's pay slip?,2025/07/17,2025/07/17,1.0,0.9999999999,1.0,1.0,complete
+180,What is the total earnings on Joe Boe's pay slip?,4110,4110,1.0,0.3333333333,1.0,1.0,complete
+181,What are the standard working hours per day per the contract?,8 hours,8 hours a day excluding meal breaks.,0.6666666666666666,0.9999999999,1.0,1.0,complete
+182,What is the overtime rate multiplier?,1.5 times,The answer cannot be determined from the supplied contexts.,0.0,0.699999999965,1.0,0.0,complete
+183,After how many days of work is the employee entitled to a rest day?,6 days,After six days of work.,1.0,0.9999999999,1.0,1.0,complete
+184,When does the night shift premium start?,10 PM,The answer cannot be determined from the supplied contexts.,0.0,0.0,0.0,1.0,complete
+185,When does the night shift premium end?,8 AM,The answer cannot be determined from the supplied contexts.,0.0,0.0,0.0,1.0,complete
+186,What safety equipment must the employer provide at no cost?,Personal Protective Equipment (PPE),"Based on the supplied contexts, the employer must provide all Personal Protective Equipment (PPE) required for the occupation free of cost.",1.0,0.9999999999,1.0,1.0,complete
+187,How much is the fee reduction under the settlement program on the Discount Notice?,20.00,The answer cannot be determined from the supplied contexts.,0.0,0.91666666664375,1.0,0.0,complete
+188,What discount do churches get on an owner's title policy?,50% to 70%,"Based on the supplied contexts, the charge for an owner's policy on properties used as a church shall be 50% to 70% of the appropriate title insurance rate, depending on the type of coverage selected, provided the charge is normally the church's obligation.",0.0,0.9999999999,1.0,1.0,complete
+189,What discount do churches get on a lender's policy?,40% to 50%,"Based on the supplied contexts, the charge for a lender's policy on properties used as a church shall be 40",0.0,0.9999999999,1.0,0.0,complete
+190,What is the discount percentage for disaster relief loans?,50%,"Based on the supplied contexts, the discount for disaster loans is 50% of the appropriate title insurance rate.",1.0,0.49999999995,1.0,1.0,complete
+191,What is Joe Boe's employee ID?,0211,0211,1.0,0.9999999999,1.0,1.0,complete
+192,What is the qualifying start date for the $20 discount?,"May 19, 1995","May 19, 1995",1.0,0.9999999999,1.0,1.0,complete
+193,What is the end date for the $20 discount qualifying period?,"November 1, 2002","November 1, 2002",1.0,0.699999999965,1.0,1.0,complete
+194,What is the effective date of the discount schedule?,1-10-2010,"Based on the supplied contexts, the effective date of the discount schedule is January 10, 2010 (1-10-2010).",1.0,0.3333333333,1.0,1.0,complete
+195,Who is the Chief Privacy Officer's employer according to the Privacy Statement?,"Fidelity National Financial, Inc.","Fidelity National Financial, Inc.",1.0,0.5833333333041666,1.0,1.0,complete
+196,Where is the Chief Privacy Officer located?,"Jacksonville, FL 32204","The Chief Privacy Officer is located at Fidelity National Financial, Inc., 601 Riverside Avenue, Jacksonville, FL 32204.",0.0,0.49999999995,1.0,1.0,complete
+197,What is the deductible for Covered Risk 14 on the homeowner's policy?,"$2,500.00","1% of Policy Amount or $2,500.00",0.0,0.9999999999,1.0,1.0,complete
+198,What is the maximum liability for Covered Risk 14?,"$10,000.00","$ 10,000.00",1.0,0.9999999999,1.0,1.0,complete
+199,What is the maximum liability for Covered Risk 15 in the Insurance Policy?,"$25,000.00","$25,000.00",1.0,0.9999999999,1.0,1.0,complete
+200,What is the maximum dollar limit for Covered Risk 18?,"$5,000.00","Based on the supplied contexts, the maximum dollar limit for Covered Risk 18 is $5,000.00 (Context [1]) or $25,000.00 (Context [2]), as different pages of the report provide conflicting amounts.",0.5,0.99999999995,1.0,1.0,complete
+201,What is the percentage-based deductible for Covered Risk 16 on the expanded loan policy?,1%,"Based on the supplied contexts, the percentage-based deductible for Covered Risk 16 is 1% of Policy Amount or $5,000.00 (whichever is less) [1], or 1% of Policy Amount Shown in Schedule A or $2,500.00 depending on the specific policy section/page referenced [2].",0.0,0.99999999995,1.0,1.0,complete
+202,What is the pay date on Joe Boe's pay slip?,2012/09/10,2012/09/10,1.0,0.9999999999,1.0,1.0,complete
+203,What is the employee number on the Tech Mahindra pay slip?,995353,"Based on the supplied contexts, the answer cannot be determined from the supplied contexts.",0.0,0.16666666665,1.0,0.0,complete
+204,What is the payroll number on the Tech Mahindra pay slip?,M03715,M03715,1.0,0.3333333333,1.0,1.0,complete
+205,What are the deduction components on Akshay Chungade's pay stub?,"Federal Tax 198.94, CPP 82.51, EI 25.03","Based on the supplied contexts, the deduction components on Akshay Chungade's pay stub are Federal Tax, CPP, EI, and Insurance Prem.",0.6,0.16666666665,1.0,1.0,complete
+206,What are the benefits listed on the Tech Mahindra pay slip with their current amounts?,"Life Insurance 8.30, DepLifeBC&Q 1.37, AD&D 4.00, Dental 72.44, ExtHealth 142.90","Based on the supplied contexts, the benefits and their current amounts are:
+
+* **Life Insurance:** 8.30
+* **Dep Life BC & Q:** 1.37
+* **AD&D:** 4.00
+* **Dental:** 72.44
+* **Ext Health:** 142.90",1.0,0.9999999999,1.0,1.0,complete
+207,What is the pest inspection fee?,50,$50,1.0,0.99999999995,1.0,1.0,complete
+208,What is the electronic document delivery fee?,50,$50,1.0,0.8333333332916666,1.0,1.0,complete
+209,What is the tax service fee?,80,$80,1.0,0.7499999999625,1.0,1.0,complete
+210,What is the title courier fee?,50,$50,1.0,0.99999999995,1.0,1.0,complete
+211,What is the document preparation fee?,75,$75,1.0,0.8333333332916666,1.0,1.0,complete
+212,Who is the check deposit from on July 5th?,"Vision Media Inc, 4500.00",VISION MEDIA INC,0.6666666666666666,0.9999999999,1.0,1.0,complete
+213,What was the ATM deposit on July 30th?,4022.00,"4,022.00",1.0,0.9999999999,1.0,1.0,complete
+214,What is the extended health benefit amount?,142.90,"Based on the supplied contexts, the extended health benefit amount is 142.90 for the current period and 1,571.90 for the year-to-date (YTD).",0.6666666666666666,0.49999999995,1.0,1.0,complete
+215,What is Akshay's year-to-date net pay?,25712.38,The answer cannot be determined from the supplied contexts.,0.0,0.9999999999,1.0,0.0,complete
+216,What is the purpose of this loan?,Purchase,The purpose of this loan is a purchase.,1.0,0.4777777777618519,1.0,1.0,complete
+217,When was the Loan Estimate issued?,10/05/2015,10/05/2015,1.0,0.9999999999,1.0,1.0,complete
+218,Does the loan allow assumption?,Will not allow assumption on the original terms,"The loan will allow assumption under certain conditions, as the lender will allow a person to assume the loan on the original terms under certain conditions if you sell or transfer the property.",0.0,0.3333333333,1.0,0.0,complete
+219,What is the hazard insurance monthly amount on the Fees Worksheet?,39.58,$39.58,1.0,0.6666666666333333,1.0,1.0,complete
+220,What is the total estimated funds needed to close on the Fees Worksheet?,95641.53,"$95,641.53",1.0,0.49999999995,1.0,1.0,complete
+221,Is there a confidentiality clause in the employment contract?,"Yes, the employee must not disclose confidential information about the employer's financial status and activities","Yes, there is a confidentiality clause in the employment contract.",0.5,0.9999999999,1.0,1.0,complete
+222,Can the employment contract be transferred to a new employer?,"Yes, the employer can assign it to a successor employer with the employee's consent","Yes, the employment contract can be assigned/transferred by the Employer to a successor employer with the consent of the employee.",1.0,0.4166666666458333,1.0,1.0,complete
+223,Who is the account holder on the bank statement?,KE CONTRACT LLC / KE 2 CONTRACT LLC,KE 2 CONTRACT LLC (or KE: CONTRACT LLC),0.5,0.9999999999,1.0,1.0,complete
+224,What type of checking account is this?,TD Business Premier Checking,TD Business Premier Checking,1.0,0.49999999995,1.0,1.0,complete
+225,What is the wire transfer account number for the title company?,153497036480,153497036480,1.0,0.9999999999,1.0,1.0,complete
+226,What is the insurance premium deduction year-to-date on the Tech Mahindra pay slip?,170.80,170.80,1.0,0.8333333332916666,1.0,1.0,complete
+227,How much was the check deposit from Vision Media Inc?,4500.00,"$4,500.00",1.0,0.9999999999,1.0,1.0,complete
+228,What is the employer's name on the Tech Mahindra pay slip?,Tech Mahindra Limited,Tech Mahindra Limited,1.0,0.9999999999,1.0,1.0,complete
+229,What is the ABA routing number for US Bank?,122235821,122235821,1.0,0.9999999999,1.0,1.0,complete
+230,What is the employer's city on the Tech Mahindra pay slip?,"Toronto, Ontario",Toronto,1.0,0.7499999999625,1.0,1.0,complete
+231,What is the property address on the Ticor Preliminary Title Report?,"1234 First Street, San Diego, CA 92101","1234 First Street, San Diego, CA 92101",1.0,0.49999999995,1.0,1.0,complete
+232,What is the term of employment in the contract?,indefinite term until terminated in accordance with the provisions of this agreement,The employment shall commence from the date thereof and continue for an indefinite term until terminated in accordance with the provisions of the agreement.,0.8,0.3333333333,1.0,1.0,complete
+233,What is the basic pay on the Unknown and Co. pay slip?,3400,The answer cannot be determined from the supplied contexts.,0.0,0.26666666665333333,1.0,0.0,complete
+234,Can the employee assign the employment contract?,"No, this agreement may not be assigned by the Employee","No, the employee may not assign the employment contract.",1.0,0.3333333333,1.0,1.0,complete
+235,What is the total deductions amount on Joe Boe's pay slip?,730,The answer cannot be determined from the supplied contexts.,0.0,0.19999999998,1.0,0.0,complete
+236,What is the basic pay on James Bond's pay slip?,8000,8000,1.0,0.49999999995,1.0,1.0,complete
+237,How much was the overtime pay on the Unknown and Co. pay slip?,210,The overtime pay on the Unknown and Co. pay slip was 210.,1.0,0.3333333333,1.0,1.0,complete
+238,What governs the entitlements and termination of services?,"Labour and Employment Act, 2007 and its regulations and laws of the land","The entitlements and termination of services will be governed by the Labour and Employment Act, 2007 and its regulations and laws of the land.",1.0,0.9999999999,1.0,1.0,complete
+239,What is the notice period after probation for terminating the contract?,1 month advance notice,1 month advance notice,1.0,0.9999999999,1.0,1.0,complete
+240,What is the maximum dollar limit for Covered Risk 19 on the expanded loan policy?,"$25,000.00","$25,000.00",1.0,0.9999999999,1.0,1.0,complete
+241,What is the escrow officer's email on the title report?,escrowteam@ticortitle.com,escrowteam@ticortitle.com,1.0,0.99999999995,1.0,1.0,complete
+242,What is the title officer's phone number?,(619) 260-0000,(619) 260-0000,1.0,0.8666666666377778,1.0,1.0,complete
+243,What address is the Ticor Title office located at?,"2878 Camino Del Rio South, Suite 500 San Diego, CA 92108","2878 Camino Del Rio South,",0.6666666666666666,0.8333333332916666,1.0,1.0,complete
+244,What is the purchase price shown on the Fees Worksheet?,"475,000.00",The answer cannot be determined from the supplied contexts.,0.0,0.249999999975,1.0,0.0,complete
+245,What is the term shown on the Fees Worksheet?,360 / 360 mths,360 / 360 mths,1.0,0.9999999999,1.0,1.0,complete
+246,What is the Covered Risk 21 maximum dollar limit on the expanded loan policy?,"$5,000.00","$ 5,000.00",1.0,0.9999999999,1.0,1.0,complete
+247,What is John W. Smith's overall GPA?,3.4,3.4,1.0,0.9999999999,1.0,1.0,complete
+248,What was John W. Smith's role at The Wesley Center?,Counseling Supervisor,Counseling Supervisor,1.0,0.9999999999,1.0,1.0,complete
+249,How much is the AD&D benefit on the Tech Mahindra pay slip?,4.00,"Based on the supplied contexts, the current AD&D benefit is 4.00 (with a YTD of 44.00).",0.6666666666666666,0.49999999995,1.0,1.0,complete

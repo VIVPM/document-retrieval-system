@@ -228,16 +228,29 @@ A chat that belongs to another user returns **404, not 403** — a 403 would con
 
 The system's performance is validated using the **Ragas** evaluation framework, focusing on faithfulness, relevancy, and retrieval quality.
 
-### Evaluation Metrics (k=5, 250 questions, `results/ragas_results_5_hybrid.csv`)
+### Current pipeline — k=6, 250 questions (generator `gemini-2.5-flash-lite`, judge `gemini-3.5-flash-lite`)
 
-| Metric | Hybrid (shipped) | Vector only |
+All three retrieval modes over the same corpus and models — raw per-question output in `results/ragas_k_6_{vector,sparse,hybrid}.csv`:
+
+| Metric | Hybrid (α=0.4) | Vector (α=1) | Sparse (α=0) |
+|---|---|---|---|
+| Faithfulness | **0.918** | 0.910 | 0.900 |
+| Answer Correctness | **0.860** | 0.824 | 0.808 |
+| Context Precision | **0.804** | 0.731 | 0.753 |
+| Context Recall | **0.952** | 0.928 | 0.916 |
+
+**Hybrid wins every metric** — the clearest justification for the sparse-dense index.
+
+### Earlier notebook baseline — k=5 (`results/results_old/ragas_results_5_hybrid.csv`)
+
+| Metric | Hybrid | Vector only |
 |---|---|---|
-| Faithfulness | **0.892** | 0.804 |
-| Answer Correctness | **0.836** | 0.746 |
-| Context Precision | **0.856** | 0.697 |
-| Context Recall | **0.964** | 0.880 |
+| Faithfulness | 0.892 | 0.804 |
+| Answer Correctness | 0.836 | 0.746 |
+| Context Precision | 0.856 | 0.697 |
+| Context Recall | 0.964 | 0.880 |
 
-Hybrid sparse-dense retrieval beats pure vector search on every metric — which is what justifies the BM25 half of the index.
+Hybrid beats vector here too, but this run is **not directly comparable** to the k=6 table above — different `k`, a different (notebook-inlined) chunking/pipeline, and a different Ragas judge. Kept as a historical baseline.
 
 > [!NOTE]
 > Evaluation was performed on a diverse set of complex financial and legal documents to ensure robustness across different domains. Raw per-question output for all configurations lives in `results/`.
@@ -460,6 +473,32 @@ document-retrieval-system/
 ├── docker-compose.yml               # local api + frontend stack
 ├── ruff.toml
 ├── notebooks/                       # R&D and evaluation (gitignored)
-├── results/                         # Ragas metrics output
+├── results/                         # Ragas metrics (k=6 CSVs; results_old/ = k=5 baseline)
 └── README.md
 ```
+
+---
+
+## 📜 License
+
+MIT License
+
+Copyright (c) 2026 Vivek P. Marakumbi
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

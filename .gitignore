@@ -11,3 +11,6 @@ backend/eval/extract_*.json
 backend/load_test_results/
 
 CLAUDE.md
+
+# Design FAQ kept local
+faq.txt

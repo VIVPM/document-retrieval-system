@@ -1,8 +1,5 @@
 """
 Answer generation and embeddings, both via Gemini.
-
-Modal/Gemma-2-9B still deploys and can be re-enabled as a fallback with
-USE_MODAL_LLM=1. It is off by default; upgrade_roadmap.txt item 21 covers why.
 """
 
 import os
@@ -16,40 +13,15 @@ load_dotenv()
 
 GEMINI_API_KEY     = os.getenv("GEMINI_API_KEY", "").strip()
 
-# ── Answer generation ────────────────────────────────────────────────────────
 GEMINI_CHAT_MODEL  = os.getenv("GEMINI_CHAT_MODEL", "gemini-2.5-flash")
 
-# Classification and per-page boundary detection run here; answers and query
-# rewriting stay on GEMINI_CHAT_MODEL. See CLAUDE.md for why the rewriter is
-# not on this one.
 GEMINI_FAST_MODEL  = os.getenv("GEMINI_FAST_MODEL", "gemini-2.5-flash-lite")
 
-# -1 dynamic, 0 off, >0 fixed ceiling. Capped rather than dynamic because
-# thinking bills at the output rate and comes out of GEMINI_MAX_OUTPUT.
 GEMINI_THINKING_BUDGET = int(os.getenv("GEMINI_THINKING_BUDGET", "2048"))
 GEMINI_MAX_OUTPUT  = int(os.getenv("GEMINI_MAX_OUTPUT", "8192"))
 
-# ── Dormant: Modal / Gemma-2-9B ──────────────────────────────────────────────
-# Off by default; the deploy script is still maintained.
-USE_MODAL_LLM      = os.getenv("USE_MODAL_LLM", "0") == "1"
-LLM_URL            = os.getenv("LLM_URL", "").strip()
-MODAL_KEY          = "modal-dummy-key"
-MODAL_MODEL        = "google/gemma-2-9b-it"
-MODAL_TIMEOUT      = float(os.getenv("MODAL_LLM_TIMEOUT", "45"))
-# Must match --max-model-len in modal/modal_llm_server.py; prompt + completion
-# has to fit inside it or vLLM rejects the request outright.
-MODAL_MAX_CTX      = int(os.getenv("MODAL_MAX_CTX", "4096"))
-RESERVE_TOKENS     = 96      # chat template + tokeniser drift safety margin
-MIN_ANSWER_TOKENS  = 256     # below this an answer is not worth attempting
-
 GEMINI_EMBED_MODEL = "models/gemini-embedding-2"
-# Must equal the Pinecone index dimension, which is immutable. Checked at
-# startup by HybridRetriever._assert_index_compatible.
 EMBED_DIM          = 768
-# Concurrent embed_content calls, NOT a batch size. gemini-embedding-2 cannot
-# batch on the Developer API: models.embed_content special-cases this model and
-# runs t_contents() over a list, which collapses N strings into ONE multi-part
-# content and returns a single vector. Concurrency is the available win.
 EMBED_CONCURRENCY  = int(os.getenv("EMBED_CONCURRENCY", "8"))
 
 
@@ -62,12 +34,10 @@ class MockResponse:
 
 
 class LLMRouter:
-    """Generates completions, with Modal/Gemma-2-9B as an opt-in fallback."""
+    """Generates completions via Gemini."""
 
     def __init__(self):
         self._gemini = None
-        self._modal_client = None
-
         if GEMINI_API_KEY:
             self._gemini = genai.Client(api_key=GEMINI_API_KEY)
             thinking = ("off" if GEMINI_THINKING_BUDGET == 0
@@ -76,67 +46,11 @@ class LLMRouter:
             print(f"🔄 {GEMINI_CHAT_MODEL} configured (thinking: {thinking})")
         else:
             print("⚠️  GEMINI_API_KEY not set — answer generation unavailable")
-
-        if USE_MODAL_LLM and LLM_URL:
-            from openai import OpenAI
-            # max_retries=0: retries would multiply the cold-start wait.
-            self._modal_client = OpenAI(
-                api_key=MODAL_KEY, base_url=LLM_URL,
-                timeout=MODAL_TIMEOUT, max_retries=0,
-            )
-            print(f"🔄 Modal fallback enabled: {LLM_URL} (timeout {MODAL_TIMEOUT}s)")
-
-        self.label = self._describe()
-
-    def _describe(self) -> str:
-        if self._gemini and self._modal_client:
-            return f"{GEMINI_CHAT_MODEL} → Modal/Gemma-2-9B fallback"
-        if self._gemini:
-            return GEMINI_CHAT_MODEL
-        if self._modal_client:
-            return "Modal/Gemma-2-9B (no Gemini key)"
-        return "No LLM configured"
-
-    @staticmethod
-    def _count_tokens(text: str) -> int:
-        """Approximate token count, for sizing a safety margin."""
-        try:
-            import tiktoken
-            return len(tiktoken.get_encoding("cl100k_base").encode(text))
-        except Exception:
-            return len(text) // 3        # deliberately pessimistic fallback
-
-    def _budget(self, prompt: str, requested: int, max_ctx: int) -> int:
-        """Clamp max_tokens so prompt + completion fits the model's window."""
-        if not max_ctx:
-            return requested
-        room = max_ctx - self._count_tokens(prompt) - RESERVE_TOKENS
-        return min(requested, room)
-
-    def _chat(self, client, model: str, prompt: str,
-              temperature: float, max_tokens: int) -> str:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
-        choice = response.choices[0]
-        text = (choice.message.content or "").strip()
-
-        if not text:
-            # Separates "ran out of budget mid-reasoning" from "said nothing".
-            reasoning = (getattr(choice.message, "model_extra", None) or {}).get(
-                "reasoning_content") or ""
-            used = getattr(response.usage, "completion_tokens", "?")
-            print(f"   ↳ {model} returned empty content "
-                  f"(finish={choice.finish_reason!r}, completion_tokens={used}, "
-                  f"reasoning={len(reasoning)} chars, max_tokens={max_tokens})")
-
-        return text
+        self.label = GEMINI_CHAT_MODEL if self._gemini else "No LLM configured"
 
     def _gemini_complete(self, prompt: str, temperature: float, max_tokens: int,
                          thinking_budget: int, model: str) -> tuple[str, dict]:
+        """Single Gemini call; returns (text, usage-metadata dict)."""
         response = self._gemini.models.generate_content(
             model=model,
             contents=prompt,
@@ -150,7 +64,6 @@ class LLMRouter:
         text = (response.text or "").strip()
 
         if not text:
-            # Never let an empty completion pass as an answer — say why instead.
             cand = (response.candidates or [None])[0]
             finish = getattr(cand, "finish_reason", None) if cand else None
             print(f"   ↳ {model} returned no text "
@@ -161,7 +74,6 @@ class LLMRouter:
         usage = {
             "model": model,
             "prompt_tokens": getattr(m, "prompt_token_count", None) or 0,
-            # Excludes thinking, which Gemini reports separately.
             "output_tokens": getattr(m, "candidates_token_count", None) or 0,
             "thinking_tokens": getattr(m, "thoughts_token_count", None) or 0,
             "cached_tokens": getattr(m, "cached_content_token_count", None) or 0,
@@ -190,21 +102,6 @@ class LLMRouter:
             except Exception as e:
                 print(f"⚠️  {model} failed ({type(e).__name__}: {e})")
 
-        # Opt-in fallback, off unless USE_MODAL_LLM=1.
-        if self._modal_client:
-            budget = self._budget(prompt, max_tok, MODAL_MAX_CTX)
-            if budget < MIN_ANSWER_TOKENS:
-                print(f"ℹ️  Prompt leaves only {budget} tokens in Modal's "
-                      f"{MODAL_MAX_CTX}-token window — skipping it.")
-            else:
-                try:
-                    text = self._chat(self._modal_client, MODAL_MODEL,
-                                      prompt, temp, budget)
-                    if text:
-                        return MockResponse(text)
-                except Exception as e:
-                    print(f"⚠️  Modal fallback failed ({type(e).__name__}: {e})")
-
         return MockResponse("")
 
     def stream(self, prompt: str, **kwargs):
@@ -215,7 +112,6 @@ class LLMRouter:
         streamed answer is identical to the buffered one, just delivered token by
         token. Gemini's stream is a blocking sync generator; the SSE endpoint
         pumps it through asyncio.to_thread so it never blocks the event loop.
-        The Modal fallback has no streaming path and is skipped here.
         """
         if not self._gemini:
             return
@@ -271,13 +167,12 @@ class GeminiEmbeddingModel:
             return list(pool.map(lambda t: self._embed_one(t, task_type), texts))
 
     def _embed_one(self, text: str, task_type: str) -> list[float]:
+        """Embed one string via Gemini and validate the returned dimension."""
         result = self.client.models.embed_content(
             model=GEMINI_EMBED_MODEL,
             contents=text,
             config=types.EmbedContentConfig(
                 task_type=task_type,
-                # EMBED_DIM, never a literal — a second number here drifts
-                # from the startup guard and fails at upsert instead.
                 output_dimensionality=EMBED_DIM,
             )
         )
@@ -295,11 +190,9 @@ class GeminiEmbeddingModel:
         return values
 
 
-# ── Module-level singletons (imported by all core modules) ──────────────────
 llm = LLMRouter()
 print(f"🟢 LLM Router ready: {llm.label}")
 
-# ── Embedding model (Cloud) ─────────────────────────────────────────────────
 print(f"🔄 Loading cloud embedding model: {GEMINI_EMBED_MODEL}...")
 try:
     embed_model = GeminiEmbeddingModel(api_key=GEMINI_API_KEY)
@@ -307,4 +200,3 @@ try:
 except ValueError as e:
     print(f"⚠️ {e}")
     embed_model = None
-

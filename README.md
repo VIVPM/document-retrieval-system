@@ -11,14 +11,14 @@ A multi-user RAG (Retrieval-Augmented Generation) application for PDF documents.
 *   **Accounts & persistent chats**: JWT auth over bcrypt, DB-backed login lockout, and conversations that survive a restart — including their source citations.
 *   **Session rehydration**: the in-process retriever is a pure cache. On a miss it rebuilds from Neon + Pinecone in **~11s** instead of re-ingesting the document (**~180s**), by persisting the fitted BM25 encoder and recomputing centroids from the index.
 *   **Asynchronous ingestion**: upload returns `202` and processes in the background with a pollable status, because extraction runs for minutes on a real packet.
-*   **Open-Source Extraction**: Leverages **Docling** for high-fidelity, structure-aware PDF parsing.
+*   **Pluggable Extraction**: **AWS Textract** (TABLES + FORMS, default) or **PyMuPDF** (local, no-AI, text-layer only) via `EXTRACT_METHOD`. Contextual chunking attaches each chunk's document identity so entity-specific queries stay unambiguous.
 *   **Hybrid Search Engine**: A single **Pinecone** sparse-dense index holding `gemini-embedding-2` embeddings (768-dim) alongside **BM25** sparse vectors, fused by a tunable `alpha` (0.0 = pure keyword → 1.0 = pure semantic).
 *   **Conversational follow-ups**: a follow-up like *"and when does it lock?"* is condensed into a standalone question **before retrieval**, because retrieval runs before any LLM sees a prompt. History is read server-side from Neon.
-*   **Answer Generation**: **gemini-2.5-flash** with thinking capped at 2048 — on an ambiguous multi-candidate question it enumerates candidates with sources instead of guessing. Thinking tokens bill at the output rate, so the cap bounds the tail (dynamic permits 24,576) without touching the ~300-token median. Modal/Gemma-2-9B remains as an opt-in fallback (`USE_MODAL_LLM=1`).
+*   **Answer Generation**: **gemini-2.5-flash** with thinking capped at 2048 — on an ambiguous multi-candidate question it enumerates candidates with sources instead of guessing. Thinking tokens bill at the output rate, so the cap bounds the tail (dynamic permits 24,576) without touching the ~300-token median.
 *   **Two models, split on measured need**: classification and per-page boundary detection run on **gemini-2.5-flash-lite** (closed-set label, yes/no answer — and boundary detection fires once per *page*, making it the volume driver of ingest cost). Answers and query rewriting stay on flash.
 *   **Semantic Routing**: Automatic query routing to specific document sections via embedding centroids — no extra LLM call.
 
-> **Note on reranking:** a cross-encoder reranking stage (BAAI/bge-reranker-base on Modal) was built and evaluated on 250 questions, then removed — it changed answer quality by a statistically indistinguishable amount while costing a 3× over-fetch and a GPU round-trip per query. It remains a reasonable optional addition under conditions this corpus does not meet. See [Design FAQ Q2](#q2-when-is-a-reranker-actually-worth-adding) for the measurements.
+> **Note on reranking:** a cross-encoder reranking stage (BAAI/bge-reranker-base) was built and evaluated on 250 questions, then removed — it changed answer quality by a statistically indistinguishable amount while costing a 3× over-fetch and a GPU round-trip per query. It remains a reasonable optional addition under conditions this corpus does not meet. See [Design FAQ Q2](#q2-when-is-a-reranker-actually-worth-adding) for the measurements.
 
 ---
 
@@ -46,7 +46,7 @@ graph TD
 
     subgraph INGEST ["3 · Ingest pipeline — background task"]
         direction LR
-        Ext["📄 Extract · Docling / PyMuPDF"] --> Split["🏷️ Classify + split · flash-lite"] --> Chunk["✂️ Chunk · tables atomic"] --> Emb["🧬 Embed · 768d"] --> Up["📤 BM25 fit + Pinecone upsert"]
+        Ext["📄 Extract · Textract / PyMuPDF"] --> Split["🏷️ Classify + split · flash-lite"] --> Chunk["✂️ Chunk · tables atomic · contextual"] --> Emb["🧬 Embed · 768d"] --> Up["📤 BM25 fit + Pinecone upsert"]
     end
 
     subgraph DATA ["4 · Data layer — Neon Postgres + Pinecone"]
@@ -61,7 +61,7 @@ graph TD
 
     subgraph EXT ["6 · External AI services"]
         Gem["☁️ Google Gemini · flash / flash-lite / embeddings"]
-        Mod["☁️ Modal · Docling GPU worker (L4)"]
+        Tex["☁️ AWS Textract · TABLES + FORMS"]
     end
 
     OBS["📈 Observability · cross-cutting<br>Langfuse (LLM) + Grafana (HTTP · metrics · dashboard)"]
@@ -89,7 +89,7 @@ graph TD
 * **Neon (or any Postgres)**: Accounts, chat sessions and messages.
 * **Pinecone**: Serverless index, `dimension=768`, `metric=dotproduct`.
 * **Google AI API key**: `gemini-embedding-2` embeddings **and** `gemini-2.5-flash` answers.
-* **Modal account**: Docling extraction (GPU). The Gemma-2 LLM server is optional.
+* **AWS account** *(default extraction path)*: AWS Textract API (`AmazonTextractFullAccess` — or scoped to `textract:AnalyzeDocument`). Skip if you set `EXTRACT_METHOD=pymupdf` (local, no AWS calls).
 
 ### 2. Backend Setup
 1.  Navigate to the backend directory:
@@ -101,32 +101,19 @@ graph TD
     pip install -r requirements.txt
     ```
 
-### 3. Worker Setup (Modal)
+### 3. Extraction Setup (AWS Textract)
 
-**Modal** runs Docling extraction on a GPU. Answers come from the Gemini API directly, so no self-hosted LLM server is required.
+PDF extraction runs on **AWS Textract** (TABLES + FORMS features). Answers come from the Gemini API directly, so no self-hosted LLM server is required.
 
-#### A. Modal Deployment (Docling, and optionally the LLM)
-1.  **Initialize Modal**: `pip install modal && modal setup`.
-2.  **Create Secrets**: In the Modal dashboard, create a secret named `huggingface-secret` containing your `HF_TOKEN`.
-3.  **Deploy the Stack**:
-    ```bash
-    # 1. LLM Server (Gemma-2 9B)
-    modal run modal/modal_llm_server.py::download_model
-    modal deploy modal/modal_llm_server.py
+#### A. AWS
+1.  Create an IAM user with `AmazonTextractFullAccess` (or a scoped policy granting `textract:AnalyzeDocument`).
+2.  Generate an access key pair for that user.
+3.  Set the credentials in `backend/.env` (see section E).
 
-    # 2. Docling Worker (PDF Extraction)
-    modal deploy modal/modal_docling_worker.py
-    ```
-4.  **Finalize .env**: Copy the deployment URLs into your backend `.env`:
-    ```text
-    LLM_URL=https://your-llm-server.modal.run
-    DOCLING_URL=https://your-docling-worker.modal.run
-    ```
-
-#### C. Pinecone
+#### B. Pinecone
 Create a serverless index with **`dimension=768`** and **`metric=dotproduct`** — dotproduct is required for sparse-dense hybrid queries, and the dimension must equal `EMBED_DIM` in `llm/llm_router.py`, which also drives the embedding call itself. The backend verifies both at startup and refuses to run on a mismatch, rather than failing minutes later at upsert.
 
-#### D. Neon (Postgres)
+#### C. Neon (Postgres)
 Create a database and copy its **pooled** connection string (the `-pooler` host — PgBouncer multiplexes many client connections onto few backends, which a free-tier compute needs). Tables are prefixed `drs_` so this schema can share a database with other projects.
 
 Create them with either:
@@ -137,7 +124,7 @@ python -c "from db.database import engine, Base; import db.models; Base.metadata
 # ...or paste migrations.sql into the Neon SQL editor
 ```
 
-#### E. Complete `backend/.env`
+#### D. Complete `backend/.env`
 
 ```text
 # Vector store
@@ -147,8 +134,13 @@ PINECONE_HOST=https://your-index-xxxxx.svc.region.pinecone.io
 
 # Embeddings + LLM
 GEMINI_API_KEY=your_gemini_key
-LLM_URL=https://your-llm-server.modal.run
-DOCLING_URL=https://your-docling-worker.modal.run
+
+# Extraction — pluggable. Default textract; set to "pymupdf" for local text-layer read (no AWS calls).
+EXTRACT_METHOD=textract
+# AWS Textract (only required when EXTRACT_METHOD=textract)
+AWS_ACCESS_KEY_ID=your_aws_access_key
+AWS_SECRET_ACCESS_KEY=your_aws_secret
+AWS_REGION=us-east-1
 
 # Database + auth
 DATABASE_URL=postgresql://user:pass@ep-xxx-pooler.region.aws.neon.tech/dbname?sslmode=require
@@ -159,8 +151,7 @@ ALLOWED_ORIGINS=https://your-frontend.onrender.com,http://localhost:5173  # CORS
 MAX_UPLOAD_MB=3           # upload cap (MB), enforced while streaming
 GEMINI_THINKING_BUDGET=2048  # fixed ceiling (default); 0 = off, -1 = dynamic
 GEMINI_FAST_MODEL=gemini-2.5-flash-lite   # classification + boundary detection
-DOCLING_PIPELINE=classic  # or "vlm" for granite-docling-258M (see below)
-USE_MODAL_LLM=0           # 1 enables the Gemma-2 fallback
+CONTEXTUAL_CHUNKING=1     # attach per-document identity to each chunk (default 1, set 0 to disable)
 TOKEN_TTL_HOURS=24
 
 # Observability (optional — all tracing stays off unless these are set)
@@ -172,11 +163,6 @@ GRAFANA_OTLP_AUTH=Basic <base64>          # the full Authorization header value
 OTEL_SERVICE_NAME=document-retrieval-system
 ```
 
-> [!IMPORTANT]
-> **Deployment Workflow**:
-> *   **First Time**: Run `download_model` **then** `deploy`. This ensures the Volume is populated before the server starts.
-> *   **Subsequent Changes**: Only run `modal deploy`. You do NOT need to redownload unless you change the `MODEL_NAME` in the script.
-> *   **Why Deploy?**: `modal run` gives a temporary development URL. `modal deploy` creates the permanent production URL required for your `.env`.
 
 ### 4. Running the Frontend
 1.  Navigate to the frontend directory:
@@ -228,32 +214,25 @@ A chat that belongs to another user returns **404, not 403** — a 403 would con
 
 The system's performance is validated using the **Ragas** evaluation framework, focusing on faithfulness, relevancy, and retrieval quality.
 
-### Current pipeline — k=6, 250 questions (generator `gemini-2.5-flash-lite`, judge `gemini-3.5-flash-lite`)
+### Current pipeline — k=6, 250 questions (AWS Textract extraction + contextual chunking; generator `gemini-2.5-flash-lite`, judge `gemini-3.5-flash-lite`)
 
-All three retrieval modes over the same corpus and models — raw per-question output in `results/ragas_k_6_{vector,sparse,hybrid}.csv`:
+All three retrieval modes over the same corpus and models — raw per-question output in `results/ragas_k_6_{hybrid_new, vector_6, sparse_6}.csv`:
 
 | Metric | Hybrid (α=0.4) | Vector (α=1) | Sparse (α=0) |
 |---|---|---|---|
-| Faithfulness | **0.918** | 0.910 | 0.900 |
-| Answer Correctness | **0.860** | 0.824 | 0.808 |
-| Context Precision | **0.804** | 0.731 | 0.753 |
-| Context Recall | **0.952** | 0.928 | 0.916 |
+| Answer Correctness | **0.941** | 0.890 | 0.909 |
+| Context Precision | 0.847 | 0.805 | **0.880** |
+| Context Recall | **0.980** | 0.972 | 0.968 |
+| Faithfulness | **0.979** | 0.954 | 0.963 |
+| — | | | |
+| Fully correct (AC = 1) | **222 / 250** | 207 / 250 | 210 / 250 |
+| Partial (0 < AC < 1) | 21 / 250 | 25 / 250 | 27 / 250 |
+| Wrong (AC = 0) | **7 / 250** | 18 / 250 | 13 / 250 |
 
-**Hybrid wins every metric** — the clearest justification for the sparse-dense index.
-
-### Earlier notebook baseline — k=5 (`results/results_old/ragas_results_5_hybrid.csv`)
-
-| Metric | Hybrid | Vector only |
-|---|---|---|
-| Faithfulness | 0.892 | 0.804 |
-| Answer Correctness | 0.836 | 0.746 |
-| Context Precision | 0.856 | 0.697 |
-| Context Recall | 0.964 | 0.880 |
-
-Hybrid beats vector here too, but this run is **not directly comparable** to the k=6 table above — different `k`, a different (notebook-inlined) chunking/pipeline, and a different Ragas judge. Kept as a historical baseline.
+**Hybrid wins on Answer Correctness, Context Recall, Faithfulness, and the fully-correct count**, and cuts the wrong-answer bucket to **7/250** — sparse alone leaves 13 wrong, vector alone leaves 18. Sparse edges hybrid only on `context_precision` (0.880 vs 0.847), because BM25 tends to fetch a tighter set of exact-keyword matches; the α=0.4 blend trades a bit of that precision for large gains everywhere else.
 
 > [!NOTE]
-> Evaluation was performed on a diverse set of complex financial and legal documents to ensure robustness across different domains. Raw per-question output for all configurations lives in `results/`.
+> Evaluation was performed on a multi-document mortgage packet (21 logical documents across 50 pages). Raw per-question output for all configurations lives in `results/`.
 
 ---
 
@@ -295,7 +274,7 @@ Everything is a no-op unless the env vars are set, and nothing raises — tracin
 3. **docker** — build both images (no push), so a broken Dockerfile fails here, not at deploy.
 4. **deploy** — only after all three pass, only on push to `main`: POSTs the Render deploy hooks (`RENDER_DEPLOY_HOOK_*` secrets), skipping gracefully if they're unset.
 
-`docker compose up --build` runs the stack locally: `backend/Dockerfile` (`python:3.12-slim` + uvicorn, non-root, `/api/health` probe) and `frontend/Dockerfile` (Vite build → nginx). Docling runs on Modal, so the backend image needs no GPU/GL libraries.
+`docker compose up --build` runs the stack locally: `backend/Dockerfile` (`python:3.12-slim` + uvicorn, non-root, `/api/health` probe) and `frontend/Dockerfile` (Vite build → nginx). Extraction runs on AWS Textract, so the backend image needs no GPU/GL libraries.
 
 The backend runs with `--forwarded-allow-ips *` (in the Dockerfile CMD) so slowapi's per-IP rate limits key on the real client (`X-Forwarded-For`) behind a proxy/balancer rather than the proxy's own IP — otherwise every user shares one rate-limit bucket. On a non-Docker deploy, set `FORWARDED_ALLOW_IPS=*` in the service env instead (uvicorn reads it).
 
@@ -309,7 +288,7 @@ document-retrieval-system/
 │   ├── core/                        # Processing & retrieval engine
 │   │   ├── document_store.py          # Orchestration + rehydrate()
 │   │   ├── retriever.py               # Hybrid search, routing, namespaces
-│   │   ├── pdf_processor.py           # Docling integration (classic | vlm)
+│   │   ├── pdf_processor.py           # AWS Textract integration (TABLES + FORMS)
 │   │   ├── chunker.py                 # Structure-aware chunking
 │   │   ├── document_classifier.py     # Doc-type & boundary detection
 │   │   ├── query_rewriter.py          # Follow-up → standalone question
@@ -320,15 +299,10 @@ document-retrieval-system/
 │   │   └── models.py                  # accounts, chat_sessions, messages
 │   ├── llm/
 │   │   └── llm_router.py              # Gemini answers + embeddings
-│   ├── modal/                       # Cloud deployment scripts
-│   │   ├── modal_llm_server.py        # vLLM hosting (Gemma-2)
-│   │   └── modal_docling_worker.py    # Serverless PDF extraction
 │   ├── eval/                        # Measurement harnesses
 │   │   ├── model_sweep.py             # Generated questions, no judge (trust this)
 │   │   ├── model_eval.py              # flash vs flash-lite, LLM-judged
-│   │   ├── prompt_eval.py             # Prompt-change A/B
-│   │   ├── extract_eval.py            # classic vs granite-docling
-│   │   └── hybrid_extract_eval.py     # classic vs vlm vs row-grouping
+│   │   └── prompt_eval.py             # Prompt-change A/B
 │   ├── grafana/                     # Grafana dashboard + alert provisioning
 │   ├── auth.py                      # JWT + bcrypt + refresh tokens
 │   ├── observability.py             # OpenTelemetry → Langfuse + Grafana
@@ -351,8 +325,7 @@ document-retrieval-system/
 ├── .github/workflows/ci.yml         # lint · build · docker · gated deploy
 ├── docker-compose.yml               # local api + frontend stack
 ├── ruff.toml
-├── notebooks/                       # R&D and evaluation (gitignored)
-├── results/                         # Ragas metrics (k=6 CSVs; results_old/ = k=5 baseline)
+├── results/                         # Ragas metrics (k=6 CSVs; results_old/ = pre-migration baselines)
 └── README.md
 ```
 

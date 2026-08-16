@@ -7,7 +7,7 @@ const POLL_MS = 2500   // snappy enough to track ingest sub-steps as they change
 // lights up — a plausible timeline (ingest ~45-55s), not a live signal: the
 // backend exposes only processing/ready, so the last stage holds until the poll
 // flips to ready and this view swaps for the chat. Windows mirror where time
-// ACTUALLY goes — extraction (Docling GPU) is the bulk, embeddings second;
+// ACTUALLY goes — extraction (AWS Textract) is the bulk, embeddings second;
 // chunking is sub-second, so it flashes by rather than looking like the holdup.
 const STAGES = [
   { key: 'extract', label: 'Extracting text & tables', sub: 'Layout-aware OCR reads every page', at: 0 },

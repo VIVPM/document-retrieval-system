@@ -10,8 +10,8 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # Requirements first so the install layer survives code edits. build-essential is
-# purged in the same layer so it never reaches the final image. Docling runs on
-# Modal, not here, so this image needs no OpenCV/GL system libs.
+# purged in the same layer so it never reaches the final image. Extraction runs
+# on AWS Textract, so this image needs no OpenCV/GL system libs.
 COPY backend/requirements.txt ./requirements.txt
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl build-essential \

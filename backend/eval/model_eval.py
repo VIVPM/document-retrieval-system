@@ -139,7 +139,7 @@ def cost(usage):
 
 
 # ── 1. Extract + chunk (real pipeline; also exercises flash-lite classify) ────
-print(f"[extract] {os.path.basename(PDF)} via Docling on Modal")
+print(f"[extract] {os.path.basename(PDF)} via Textract")
 t0 = time.time()
 pages, docs = extract_and_analyze_pdf(PDF, filename=os.path.basename(PDF))
 print(f"   {len(pages)} pages, {len(docs)} logical docs in {time.time()-t0:.0f}s")

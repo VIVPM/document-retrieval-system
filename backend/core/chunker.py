@@ -134,7 +134,7 @@ def chunk_by_structure(
     chunk_overlap: int = 48,
 ) -> List[ChunkMetadata]:
     """
-    Chunk a document using the block types Docling already identified.
+    Chunk a document using the block types the extractor already identified.
 
     Two properties the token-only splitter cannot give:
 

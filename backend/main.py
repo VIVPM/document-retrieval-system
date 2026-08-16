@@ -642,9 +642,9 @@ async def upload_document(
     """
     Attach a PDF to a chat and start ingestion in the background.
 
-    Returns 202 immediately — ingestion runs for minutes (Docling on GPU, one
-    LLM call per page, one embedding call per chunk), which no HTTP client
-    should be asked to hold open. Poll /status.
+    Returns 202 immediately — ingestion runs for minutes (Textract per-page,
+    one LLM call per page for classification, one embedding call per chunk),
+    which no HTTP client should be asked to hold open. Poll /status.
     """
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are accepted.")

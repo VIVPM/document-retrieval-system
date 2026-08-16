@@ -1,0 +1,72 @@
+{
+  "timestamp": "2026-08-03T06:53:28.777190+00:00",
+  "config": {
+    "port": 8021,
+    "concurrency": 20,
+    "messages": 10,
+    "duration": 15.0,
+    "msg_seconds": 2.0,
+    "mix": "all",
+    "seed_messages": 30,
+    "calibrate": null,
+    "base": null,
+    "ramp": false,
+    "levels": "5,15,30,50,100",
+    "ramp_stop_pct": 25,
+    "serve": false,
+    "cleanup": false
+  },
+  "answers_streamed": 28,
+  "idle": {
+    "health": {
+      "p50": 31.0,
+      "p95": 62.0,
+      "n": 40
+    },
+    "chats": {
+      "p50": 2046.0,
+      "p95": 2438.0,
+      "n": 40
+    },
+    "chat": {
+      "p50": 2421.0,
+      "p95": 5313.0,
+      "n": 38
+    },
+    "login": {
+      "p50": 4938.0,
+      "p95": 6766.0,
+      "n": 28
+    }
+  },
+  "saturated": {
+    "health": {
+      "p50": 31.0,
+      "p95": 47.0,
+      "n": 36
+    },
+    "chats": {
+      "p50": 1968.0,
+      "p95": 3032.0,
+      "n": 36
+    },
+    "chat": {
+      "p50": 3453.0,
+      "p95": 5922.0,
+      "n": 32
+    },
+    "login": {
+      "p50": 6281.0,
+      "p95": 9781.0,
+      "n": 20
+    }
+  },
+  "throttled": {
+    "idle": 0,
+    "saturated": 0
+  },
+  "errors": {
+    "idle": 0,
+    "saturated": 0
+  }
+}

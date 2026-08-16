@@ -7,8 +7,6 @@ upgrade_roadmap.txt
 # eval transcripts / cached extractions
 backend/eval/*_results.json
 backend/eval/extract_*.json
-# load-test run artifacts (reports + spawned-server log)
-backend/load_test_results/
 
 CLAUDE.md
 

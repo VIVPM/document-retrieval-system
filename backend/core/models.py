@@ -21,11 +21,11 @@ from typing import List, Dict, Optional
 @dataclass
 class Block:
     """
-    One layout element as Docling found it, in reading order.
+    One layout element as the extractor found it, in reading order.
 
-    `kind` is the whole point: Docling already knows what is a table and what
-    is prose, and the chunker needs that to avoid severing a table from its
-    header row. Carrying `page_num` per block is what makes chunk citations
+    `kind` is the whole point: the extractor already knows what is a table and
+    what is prose, and the chunker needs that to avoid severing a table from
+    its header row. Carrying `page_num` per block is what makes chunk citations
     page-accurate instead of spanning the whole document's range.
     """
     kind: str        # "text" | "table"
@@ -84,7 +84,10 @@ class ChunkMetadata:
         chunk_index : position of this chunk within the document
         page_start  : first PDF page this chunk originates from
         page_end    : last PDF page this chunk originates from
-        text        : raw chunk text
+        text        : raw chunk text (displayed in citations, kept clean)
+        context     : optional per-document identity line for Contextual
+                      Retrieval — prepended to `text` at embed and BM25 time,
+                      never shown to the user.
     """
     chunk_id: str
     doc_id: str
@@ -94,6 +97,7 @@ class ChunkMetadata:
     page_start: int
     page_end: int
     text: str
+    context: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------

@@ -1,8 +1,11 @@
 """
 pdf_processor.py — PDF extraction and multi-document analysis pipeline.
 
-Uses Docling for high-quality PDF extraction (text + tables) and then
-applies LLM-based document classification and boundary detection to split
+Dispatches to one of two extractors based on `EXTRACT_METHOD`:
+  textract (default) — AWS Textract, form/table-aware, best on mortgage forms
+  pymupdf            — local text-layer read, no AI, no external call
+
+Both return the same page->blocks shape. The LLM classifier then splits
 a multi-document PDF into individual logical documents.
 
 Public API
@@ -18,7 +21,6 @@ from typing import List, Tuple
 from core.models import Block, PageInfo, LogicalDocument
 from core.document_classifier import classify_document_type, detect_document_boundary
 
-# Concurrent per-page LLM calls during structure analysis.
 PAGE_CONCURRENCY = int(os.getenv("PAGE_CONCURRENCY", "8"))
 
 
@@ -30,12 +32,10 @@ def _order_blocks(items, y_tol=6.0):
     every value into one group and every label into another, divorcing them
     ("Interest Rate:" ends up nowhere near "4.250 %"). Group items whose y is
     within y_tol into a row, order each row left-to-right by x, then emit rows
-    top-to-bottom. Falls back cleanly if x is absent (an older worker that
-    emitted only y): every cell then sorts to x=0 and the order is the old
-    y-order.
+    top-to-bottom.
     """
     clean = [it for it in items if it.get("content", "").strip()]
-    clean.sort(key=lambda it: it.get("y_pos", 0))   # keep the existing page order
+    clean.sort(key=lambda it: it.get("y_pos", 0))
     rows, ordered = [], []
     for it in clean:
         if rows and abs(it.get("y_pos", 0) - rows[-1]["y"]) <= y_tol:
@@ -47,52 +47,103 @@ def _order_blocks(items, y_tol=6.0):
     return ordered
 
 
-def _extract_docling(file_path: str) -> dict:
-    """Docling on Modal — AI layout + table models, includes OCR (handles
-    scanned pages). Returns {page_no(str): [ {type, y_pos, x_pos, content} ]}."""
-    import os
-    import requests
+def _extract_textract(file_path: str) -> dict:
+    """AWS Textract — form/table-specialised extraction.
 
-    url = os.getenv("DOCLING_URL")
-    if not url:
-        raise EnvironmentError(
-            "DOCLING_URL is not set. Add it to your .env file.\n"
-            "  DOCLING_URL=https://<your-deployment>.modal.run/extract"
-        )
-    # "classic" = layout model + TableFormer, "vlm" = granite-docling-258M.
-    pipeline = os.getenv("DOCLING_PIPELINE", "classic")
-    print(f"☁️ Sending PDF to Modal for Docling (pipeline={pipeline}, OCR + tables)...")
-    with open(file_path, "rb") as f:
-        resp = requests.post(
-            url, files={"file": (os.path.basename(file_path), f, "application/pdf")},
-            params={"pipeline": pipeline},
-            timeout=1800 if pipeline == "vlm" else 600,
-        )
-    if resp.status_code != 200:
-        raise ValueError(f"Modal API Error: {resp.text}")
-    result = resp.json()
-    if not result.get("success"):
-        raise ValueError(f"Docling Extraction Failed: {result.get('error')}")
-    print(f"✅ Cloud extraction complete! Found {result['num_pages']} pages.")
-    return result["pages"]
+    Rasterises each page and calls AnalyzeDocument with TABLES + FORMS. Returns
+    {page_no(str): [ {type, y_pos, x_pos, content} ]}. Requires
+    AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (+ optional AWS_REGION).
+    """
+    import boto3
+    import fitz
+
+    sess = boto3.Session(region_name=os.getenv("AWS_REGION", "us-east-1"))
+    tex = sess.client("textract")
+    doc = fitz.open(file_path)
+    print(f"☁️ Textract: {doc.page_count} pages (TABLES + FORMS)...")
+
+    pages = {}
+    for pno in range(doc.page_count):
+        img = doc[pno].get_pixmap(matrix=fitz.Matrix(300 / 72, 300 / 72)).tobytes("png")
+        r = tex.analyze_document(Document={"Bytes": img}, FeatureTypes=["TABLES", "FORMS"])
+        B = {b["Id"]: b for b in r["Blocks"]}
+
+        def child_words(blk):
+            """Concatenate WORD children (and checked SELECTION_ELEMENTs) of a block."""
+            out = []
+            for rel in blk.get("Relationships", []) or []:
+                if rel["Type"] == "CHILD":
+                    for i in rel["Ids"]:
+                        b = B[i]
+                        if b["BlockType"] == "WORD":
+                            out.append(b["Text"])
+                        elif b["BlockType"] == "SELECTION_ELEMENT" and b.get("SelectionStatus") == "SELECTED":
+                            out.append("[X]")
+            return " ".join(out)
+
+        blocks = []
+        in_table_word_ids = set()
+        for b in r["Blocks"]:
+            if b["BlockType"] != "TABLE":
+                continue
+            cells, mr, mc = {}, 0, 0
+            for rel in b.get("Relationships", []) or []:
+                if rel["Type"] == "CHILD":
+                    for i in rel["Ids"]:
+                        c = B[i]
+                        if c["BlockType"] == "CELL":
+                            cells[(c["RowIndex"], c["ColumnIndex"])] = child_words(c)
+                            mr = max(mr, c["RowIndex"])
+                            mc = max(mc, c["ColumnIndex"])
+                            for r2 in c.get("Relationships", []) or []:
+                                if r2["Type"] == "CHILD":
+                                    in_table_word_ids.update(r2["Ids"])
+            rows = "\n".join(" | ".join(cells.get((ri, ci), "") for ci in range(1, mc + 1))
+                             for ri in range(1, mr + 1))
+            bb = b.get("Geometry", {}).get("BoundingBox", {}) or {}
+            blocks.append({"type": "table", "y_pos": float(bb.get("Top", 0)),
+                           "x_pos": float(bb.get("Left", 0)), "content": rows.strip()})
+
+        for b in r["Blocks"]:
+            if b["BlockType"] != "LINE":
+                continue
+            word_ids = []
+            for rel in b.get("Relationships", []) or []:
+                if rel["Type"] == "CHILD":
+                    word_ids.extend(rel["Ids"])
+            if word_ids and all(w in in_table_word_ids for w in word_ids):
+                continue
+            bb = b.get("Geometry", {}).get("BoundingBox", {}) or {}
+            blocks.append({"type": "text", "y_pos": float(bb.get("Top", 0)),
+                           "x_pos": float(bb.get("Left", 0)),
+                           "content": (b.get("Text") or "").strip()})
+
+        pages[str(pno + 1)] = [b for b in blocks if b["content"]]
+
+    doc.close()
+    print(f"✅ Textract extraction complete! {len(pages)} pages.")
+    return pages
 
 
 def _extract_pymupdf(file_path: str, y_tol: float = 3.0) -> dict:
-    """Local, NO-AI extraction (PyMuPDF). Reads the PDF text layer directly and
-    groups words into visual lines by (y, x) — the same reassembly the Modal
-    path relies on — producing the identical page->blocks shape. No GPU, no
-    Modal, milliseconds not seconds. Caveat: text-layer only, so a SCANNED
-    page yields nothing (that is the one thing Docling's OCR adds)."""
-    import fitz  # PyMuPDF
+    """Local, NO-AI extraction (PyMuPDF).
+
+    Reads the PDF text layer directly and groups words into visual lines by
+    (y, x) — producing the same page->blocks shape Textract emits, so the
+    downstream pipeline is agnostic to which extractor ran. No GPU, no API,
+    milliseconds not seconds. Caveat: text-layer only — a SCANNED page yields
+    nothing (Textract's OCR is what covers that case).
+    """
+    import fitz
 
     doc = fitz.open(file_path)
     pages, scanned = {}, []
     try:
         for pno in range(doc.page_count):
-            words = doc[pno].get_text("words")  # (x0, y0, x1, y1, word, blk, ln, wno)
+            words = doc[pno].get_text("words")
             if not words:
                 scanned.append(pno + 1)
-            words.sort(key=lambda w: (w[1], w[0]))   # y then x
+            words.sort(key=lambda w: (w[1], w[0]))
             blocks, line = [], None
             for w in words:
                 if line is not None and abs(w[1] - line["y"]) <= y_tol:
@@ -121,14 +172,14 @@ def extract_and_analyze_pdf(
     on_stage=None,
 ) -> Tuple[List[PageInfo], List[LogicalDocument]]:
     """
-    Extract text from a PDF with Docling and detect logical document
-    boundaries using the LLM classifier.
+    Extract text from a PDF with Textract and detect logical document boundaries
+    using the LLM classifier.
 
-    Tables are converted to pipe-delimited text rows and merged into the
-    page text in reading order (top-to-bottom by Y position).
+    Tables are converted to pipe-delimited text rows and merged into the page
+    text in reading order (top-to-bottom by Y position).
 
     Args:
-        pdf_file: file path string or file-like object accepted by Docling.
+        pdf_file: file path string or file-like object.
 
     Returns:
         pages_info   : one PageInfo per PDF page (0-indexed)
@@ -138,12 +189,6 @@ def extract_and_analyze_pdf(
         on_stage("extract")
 
     import tempfile
-    import os
-
-    # docling = Modal AI pipeline (layout/table models + OCR); pymupdf = local,
-    # no-AI, text-layer only. Default docling. See _extract_* above.
-    method = os.getenv("EXTRACT_METHOD", "docling").lower()
-    print(f"📖 Starting PDF extraction (EXTRACT_METHOD={method})...")
 
     file_path = pdf_file
     is_temp = False
@@ -155,9 +200,17 @@ def extract_and_analyze_pdf(
                 file_path = tmp.name
                 is_temp = True
 
+    method = os.getenv("EXTRACT_METHOD", "textract").lower()
+    print(f"📖 Starting PDF extraction (EXTRACT_METHOD={method})...")
+
     try:
-        pages_data = (_extract_pymupdf(file_path) if method == "pymupdf"
-                      else _extract_docling(file_path))
+        if method == "pymupdf":
+            pages_data = _extract_pymupdf(file_path)
+        elif method == "textract":
+            pages_data = _extract_textract(file_path)
+        else:
+            print(f"⚠️ Unknown EXTRACT_METHOD={method!r}; falling back to textract.")
+            pages_data = _extract_textract(file_path)
 
         pages_info: List[PageInfo] = []
 
@@ -165,12 +218,11 @@ def extract_and_analyze_pdf(
             page_no = int(str_page_no)
             items = _order_blocks(pages_data[str_page_no])
 
-            # Keep Docling's type tag; the chunker needs it to keep tables whole.
             blocks = [
                 Block(
                     kind=item.get("type", "text"),
                     content=item["content"],
-                    page_num=page_no - 1,        # 0-indexed for downstream
+                    page_num=page_no - 1,
                 )
                 for item in items
                 if item.get("content", "").strip()
@@ -193,21 +245,10 @@ def extract_and_analyze_pdf(
         if is_temp and os.path.exists(file_path):
             os.remove(file_path)
 
-    # ------------------------------------------------------------------
-    # Document boundary detection → build LogicalDocument list
-    # ------------------------------------------------------------------
     if on_stage:
         on_stage("split")
     print("🧠 Analysing document structure...")
 
-    # The sequential version fed each boundary check the running document
-    # type, which is what made it sequential. Every page is classified up
-    # front instead, so the check can use the PREVIOUS page's own type and
-    # every pair becomes independent — two concurrent rounds instead of one
-    # round-trip per page.
-    #
-    # Dropping the hint entirely was tried first and is wrong: without it the
-    # Contract following a Pay Slip is not detected and the two merge.
     with ThreadPoolExecutor(max_workers=PAGE_CONCURRENCY) as pool:
         page_types = list(pool.map(
             lambda p: classify_document_type(p.text), pages_info))
@@ -218,7 +259,6 @@ def extract_and_analyze_pdf(
             range(1, len(pages_info)),
         ))
 
-    # A new logical document starts wherever the boundary check says "no".
     starts = [0] + [i for i, same in enumerate(same_as_prev, start=1) if not same]
     doc_types = [page_types[i] for i in starts]
 

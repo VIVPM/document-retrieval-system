@@ -103,7 +103,7 @@ class HybridRetriever:
         Fail at session start, not after a full extraction run.
 
         A dimension or metric mismatch only surfaces at the upsert call, which
-        happens after Docling, after one LLM call per page and one embedding
+        happens after extraction, after one LLM call per page and one embedding
         call per chunk — minutes of work and real API spend, thrown away for a
         config error that is knowable up front.
         """
@@ -217,11 +217,17 @@ class HybridRetriever:
         self.chunks_metadata = chunks_metadata
         self.embed_model = embed_model
 
-        # === Step 1: Compute Dense Embeddings ===
         if on_stage:
             on_stage("embed")
         print("  📊 Computing dense embeddings...")
-        texts = [chunk.text for chunk in chunks_metadata]
+
+        def _augmented(c):
+            """Contextual Retrieval: prepend the per-document identity so BM25 and
+            dense embedding both see 'James Bond' next to his value cell. Kept
+            out of `chunk.text` so citation previews stay clean."""
+            return f"[{c.context}]\n{c.text}" if c.context else c.text
+
+        texts = [_augmented(chunk) for chunk in chunks_metadata]
         dense_embeddings = embed_model.encode(
             texts, show_progress_bar=True, task_type="RETRIEVAL_DOCUMENT"
         )
@@ -229,9 +235,6 @@ class HybridRetriever:
 
         doc_types = set(chunk.doc_type for chunk in chunks_metadata)
 
-        # === Step 2: Fit BM25 Encoder on corpus ===
-        # IDF is corpus-specific, so this encoder may only query the namespace
-        # it was fitted on.
         print("  📝 Fitting BM25 encoder on corpus...")
         self.bm25_encoder.fit(texts)
         print("  ✅ BM25 encoder fitted")
@@ -269,6 +272,7 @@ class HybridRetriever:
                     "metadata": {
                         "chat_id": self.chat_id,
                         "text": chunk.text,
+                        "context": chunk.context or "",
                         "doc_type": chunk.doc_type,
                         "doc_id": chunk.doc_id,
                         "filename": chunk.filename,
@@ -452,6 +456,7 @@ class HybridRetriever:
             page_start=int(md.get("page_start", 0)),
             page_end=int(md.get("page_end", 0)),
             text=md.get("text", ""),
+            context=(md.get("context") or None),
         )
 
     # -----------------------------------------------------------------------

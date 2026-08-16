@@ -6,7 +6,8 @@ openai
 
 # Document parsing & Chunks
 langchain-text-splitters
-pymupdf                    # EXTRACT_METHOD=pymupdf: local, no-AI PDF text extraction
+pymupdf                    # EXTRACT_METHOD=pymupdf: local, no-AI PDF text extraction; also rasterises pages for Textract
+boto3                      # EXTRACT_METHOD=textract (default): AWS Textract client (TABLES + FORMS)
 tiktoken
 
 # API & Web Server

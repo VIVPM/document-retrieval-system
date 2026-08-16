@@ -234,7 +234,7 @@ All three retrieval modes over the same corpus and models — raw per-question o
 > [!NOTE]
 > Evaluation was performed on a multi-document mortgage packet (21 logical documents across 50 pages). Raw per-question output for all configurations lives in `results/`.
 >
-> **Model provenance for these numbers:** the 250-question RAGAS runs above used **`gemini-2.5-flash-lite`** as the answer generator (and **`gemini-3.5-flash-lite`** as the judge) — chosen to keep the eval affordable. The deployed app, however, answers real user questions with **`gemini-2.5-flash`** (see `GEMINI_CHAT_MODEL` in `backend/llm/llm_router.py`). Live app quality is likely marginally better than the numbers above, because `flash` edges `flash-lite` on ambiguous multi-candidate questions. The two are complementary settings — the 250-question set was not answered with `gemini-2.5-flash`.
+> **Model provenance for these numbers:** the 250-question RAGAS runs above used **`gemini-2.5-flash-lite`** as the answer generator (and **`gemini-3.5-flash-lite`** as the judge) — chosen to keep the eval affordable. The deployed app, however, answers real user questions with **`gemini-2.5-flash`** (see `GEMINI_CHAT_MODEL` in `backend/llm/llm_router.py`).
 
 ---
 

@@ -403,7 +403,7 @@ def ramp_mode(base, token, chat_id, levels, duration, stop_pct, mix):
 def calibrate(n, base):
     """Ingest Test Blob File.pdf, then send N real messages through the running
     app (real rewrite + Pinecone + Gemini) and report latency. Costs money (a
-    few Flash calls each) and a Modal ingest (~45s)."""
+    few Flash calls each) and a Textract ingest (~45s)."""
     if not os.path.exists(PDF):
         sys.exit(f"no PDF at {PDF} — calibrate needs a document to ingest.")
     token, _ = ensure_user(base)

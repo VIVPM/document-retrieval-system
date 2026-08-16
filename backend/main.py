@@ -201,7 +201,7 @@ init_metrics()            # chat_messages_total counter -> Grafana Cloud
 #   signup/login   an attacker's endpoints. The lockout is per-USERNAME and
 #                  DB-backed, so it does nothing against one host spraying many
 #                  usernames; these limits are per-IP and cover that gap.
-#   document       one upload = Modal GPU time + one LLM call per page. By far
+#   document       one upload = Textract per-page + one LLM call per page. By far
 #                  the most expensive thing an authenticated user can trigger.
 #   message        one LLM call per question, plus a rewrite on follow-ups.
 #

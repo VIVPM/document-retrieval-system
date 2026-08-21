@@ -146,6 +146,11 @@ export async function logout() {
   clearSession()
 }
 
+// ── Account ─────────────────────────────────────────────────────────────
+// Daily message credits: { cap, used, remaining }. 1 credit = one question
+// and its answer.
+export const getCredits = () => request('/api/account/credits')
+
 // ── Chats ───────────────────────────────────────────────────────────────
 export const listChats = () => request('/api/chats')
 export const newChat = () => request('/api/chats/new', { method: 'POST' })

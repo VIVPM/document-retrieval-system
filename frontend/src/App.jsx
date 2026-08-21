@@ -88,6 +88,7 @@ export default function App() {
   const [pendingDelete, setPendingDelete] = useState(null)
   const [deleting, setDeleting] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [credits, setCredits] = useState(null)
 
   // A dead session drops to the LANDING page (authMode = null), not the login
   // form and not a stale app view with a logout button.
@@ -116,6 +117,9 @@ export default function App() {
     try {
       const d = await api.listChats()
       setChats(d.chats)
+      // ChatPanel calls this on every finished message, so credits stay current
+      // without its own polling. A failure here must not break the chat list.
+      api.getCredits().then(setCredits).catch(() => {})
       return d.chats
     } catch (err) {
       addToast(err.message, 'error')
@@ -228,6 +232,14 @@ export default function App() {
           <p>One conversation per document</p>
         </div>
         <div className="header-user">
+          {credits && (
+            <span
+              className={`credits${credits.remaining === 0 ? ' credits-out' : ''}`}
+              title={`${credits.used} of ${credits.cap} used today. Resets at midnight IST.`}
+            >
+              {credits.remaining} / {credits.cap} credits
+            </span>
+          )}
           <span className="username">{username}</span>
           <button className="btn btn-secondary btn-sm" onClick={logout}>Log out</button>
         </div>

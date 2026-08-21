@@ -29,6 +29,21 @@
   font-weight: 500;
 }
 .btn-sm { padding: 6px 12px; font-size: 0.76rem; }
+.header-user .credits {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 10px;
+  white-space: nowrap;
+  cursor: default;
+}
+.header-user .credits-out {
+  color: var(--red);
+  border-color: var(--red);
+}
 
 .main-grid {
   display: grid;

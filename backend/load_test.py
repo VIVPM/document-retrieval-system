@@ -80,12 +80,17 @@ def serve_mode(port, msg_seconds):
     message path. main imports these names, and send_message calls them by
     those names, so patching them on `main` is what the request path picks up.
 
-    Rate limits are lifted here so synthetic load measures the app's capacity
-    rather than the limiter (which is exercised on its own elsewhere)."""
+    Rate limits and the daily message cap are lifted here so synthetic load
+    measures the app's capacity rather than the limiter (which is exercised on
+    its own elsewhere). The cap matters as much as the limiters: --seed-messages
+    writes user turns straight to the DB and _credits_used_today counts them, so
+    a seeded run would exhaust a real cap before the message phase even starts.
+    Set before `import main`, which reads the cap at module level."""
     os.environ["RATE_MESSAGE"] = "1000000/minute"
     os.environ["RATE_UPLOAD"] = "1000000/hour"
     os.environ["RATE_LOGIN"] = "1000000/minute"
     os.environ["RATE_SIGNUP"] = "1000/hour"
+    os.environ["DAILY_MESSAGE_CAP"] = "100000000"
 
     # Keep synthetic load out of Langfuse/Grafana. Set empty, don't pop: main.py's
     # load_dotenv(override=False) would otherwise repopulate them from .env.

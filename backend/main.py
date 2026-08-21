@@ -220,6 +220,27 @@ RATE_LOGIN = os.getenv("RATE_LOGIN", "10/minute")
 RATE_UPLOAD = os.getenv("RATE_UPLOAD", "10/hour")
 RATE_MESSAGE = os.getenv("RATE_MESSAGE", "30/minute")
 
+# Daily chat credits. 1 credit = one question and its answer, so this counts
+# the user's own turns, not the assistant's. Rate limits above throttle bursts;
+# this bounds an account's total spend per day, which is a different job.
+# Required with no default — a forgotten deploy setting should fail loudly
+# rather than run on a guessed limit.
+_daily_cap = os.getenv("DAILY_MESSAGE_CAP")
+if not _daily_cap:
+    raise RuntimeError(
+        "DAILY_MESSAGE_CAP must be set (chat messages each account may "
+        "send per day). Set it in backend/.env locally and in the environment "
+        "of whatever hosts this in production."
+    )
+try:
+    DAILY_MESSAGE_CAP = int(_daily_cap)
+except ValueError:
+    raise RuntimeError(
+        f"DAILY_MESSAGE_CAP must be a whole number, got {_daily_cap!r}")
+if DAILY_MESSAGE_CAP < 1:
+    raise RuntimeError(
+        f"DAILY_MESSAGE_CAP must be at least 1, got {DAILY_MESSAGE_CAP}")
+
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
 # The username IS a Gmail address. Anchored on both ends so "notgmail.com" and
@@ -320,6 +341,24 @@ def _owned_chat(db, chat_id: str, user_id: int) -> ChatSession:
     if chat is None:
         raise HTTPException(status_code=404, detail="Chat not found.")
     return chat
+
+
+def _credits_used_today(db, user_id: int) -> int:
+    """Chat messages this user has sent since IST midnight.
+
+    This is the whole credit mechanism: remaining = cap - this. Reset is free —
+    at midnight the window moves and the count is 0 again, so there is no
+    credits table and no nightly restore job. Counts the user's own turns only,
+    so one question and its answer together spend exactly one credit. A message
+    whose stream failed was never persisted and so costs nothing, which is
+    generous by a rewrite call; tighten it only if that is ever abused.
+    """
+    since = now_ist().replace(hour=0, minute=0, second=0, microsecond=0)
+    return db.query(ChatMessage).filter(
+        ChatMessage.user_id == user_id,
+        ChatMessage.role == "user",
+        ChatMessage.created_at >= since,
+    ).count()
 
 
 def _chat_dict(chat: ChatSession) -> dict:
@@ -550,6 +589,20 @@ def logout(body: RefreshRequest):
         db.close()
 
 
+# ── Account ───────────────────────────────────────────────────────────────────
+
+@app.get("/api/account/credits")
+def get_credits(current_user: dict = Depends(get_current_user)):
+    """Daily chat credits: 1 credit = one question and its answer, resets at IST midnight."""
+    db = SessionLocal()
+    try:
+        used = _credits_used_today(db, current_user["user_id"])
+    finally:
+        db.close()
+    return {"cap": DAILY_MESSAGE_CAP, "used": used,
+            "remaining": max(0, DAILY_MESSAGE_CAP - used)}
+
+
 # ── Chats ─────────────────────────────────────────────────────────────────────
 
 @app.get("/api/chats")
@@ -737,6 +790,20 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
         db = SessionLocal()
         try:
             chat = _owned_chat(db, chat_id, uid)
+
+            # Ownership first (a non-owner learns nothing about credits), then
+            # the cap, then the expensive work. Checked here rather than in the
+            # endpoint because this thread already holds a connection, and the
+            # load test showed a message's DB round-trips are what starve the
+            # pool — a third acquisition per message would make that worse.
+            used = _credits_used_today(db, uid)
+            if used >= DAILY_MESSAGE_CAP:
+                raise HTTPException(
+                    status_code=429,
+                    detail=(f"Daily limit reached — {DAILY_MESSAGE_CAP} messages "
+                            f"per day. Your credits reset at midnight IST."),
+                )
+
             store = _get_retriever(db, chat)
 
             if body.summarize:

@@ -63,19 +63,65 @@ class MockResponse:
 
 
 class LLMRouter:
-    """Generates completions via Gemini."""
+    """Generates completions via whichever provider LLM_MODEL selects."""
 
     def __init__(self):
         self._gemini = None
-        if GEMINI_API_KEY:
+        self._cf = None
+        if LLM_MODEL == "CLOUDFLARE":
+            missing = [n for n, v in (("CLOUDFLARE_ACCOUNT_ID", CLOUDFLARE_ACCOUNT_ID),
+                                      ("CLOUDFLARE_API_TOKEN", CLOUDFLARE_API_TOKEN)) if not v]
+            if missing:
+                raise RuntimeError(
+                    f"LLM_MODEL=CLOUDFLARE needs {' and '.join(missing)}. "
+                    "Set them in backend/.env."
+                )
+            from openai import OpenAI
+            self._cf = OpenAI(
+                api_key=CLOUDFLARE_API_TOKEN,
+                base_url=f"https://api.cloudflare.com/client/v4/accounts/"
+                         f"{CLOUDFLARE_ACCOUNT_ID}/ai/v1",
+            )
+            self.label = CLOUDFLARE_MODEL
+            print(f"🔄 Cloudflare Workers AI configured ({CLOUDFLARE_MODEL})")
+        elif GEMINI_API_KEY:
             self._gemini = genai.Client(api_key=GEMINI_API_KEY)
             thinking = ("off" if GEMINI_THINKING_BUDGET == 0
                         else "dynamic" if GEMINI_THINKING_BUDGET < 0
                         else f"{GEMINI_THINKING_BUDGET} tokens")
             print(f"🔄 {GEMINI_CHAT_MODEL} configured (thinking: {thinking})")
+            self.label = GEMINI_CHAT_MODEL
         else:
             print("⚠️  GEMINI_API_KEY not set — answer generation unavailable")
-        self.label = GEMINI_CHAT_MODEL if self._gemini else "No LLM configured"
+            self.label = "No LLM configured"
+
+    def _cloudflare_complete(self, prompt: str, temperature: float,
+                             max_tokens: int) -> tuple[str, dict]:
+        """Single Workers AI call through the OpenAI-compatible endpoint.
+
+        No thinking_budget equivalent: the chosen model does not reason, which is
+        why the caller's max_tokens can stay as tight as it is for Gemini.
+        """
+        r = self._cf.chat.completions.create(
+            model=CLOUDFLARE_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        content = r.choices[0].message.content
+        text = ("" if content is None else str(content)).strip()
+        if not text:
+            print(f"   ↳ {CLOUDFLARE_MODEL} returned no text "
+                  f"(finish={r.choices[0].finish_reason!r})")
+        u = getattr(r, "usage", None)
+        usage = {
+            "model": CLOUDFLARE_MODEL,
+            "prompt_tokens": getattr(u, "prompt_tokens", None) or 0,
+            "output_tokens": getattr(u, "completion_tokens", None) or 0,
+            "thinking_tokens": 0,
+            "cached_tokens": 0,
+        }
+        return text, usage
 
     def _gemini_complete(self, prompt: str, temperature: float, max_tokens: int,
                          thinking_budget: int, model: str) -> tuple[str, dict]:
@@ -115,12 +161,26 @@ class LLMRouter:
 
         `fast=True` routes to GEMINI_FAST_MODEL; `model` overrides both.
         `thinking_budget` and `temperature` override the module defaults.
+
+        Both are Gemini-only knobs. Workers AI publishes one model for this job,
+        so both tiers point at it there and `fast`/`thinking_budget` are ignored
+        — the two-tier split is a cost optimisation, not something callers depend
+        on for correctness.
         """
         temp     = kwargs.get("temperature", 0.3)
         max_tok  = kwargs.get("max_tokens", GEMINI_MAX_OUTPUT)
         thinking = kwargs.get("thinking_budget", GEMINI_THINKING_BUDGET)
         model    = kwargs.get("model") or (GEMINI_FAST_MODEL if kwargs.get("fast")
                                            else GEMINI_CHAT_MODEL)
+
+        if self._cf:
+            try:
+                text, usage = self._cloudflare_complete(prompt, temp, max_tok)
+                if text:
+                    return MockResponse(text, usage)
+            except Exception as e:
+                print(f"⚠️  {CLOUDFLARE_MODEL} failed ({type(e).__name__}: {e})")
+            return MockResponse("")
 
         if self._gemini:
             try:
@@ -135,19 +195,41 @@ class LLMRouter:
 
     def stream(self, prompt: str, **kwargs):
         """
-        Yield answer text chunks as Gemini produces them.
+        Yield answer text chunks as the active provider produces them.
 
-        Same config as complete() — capped thinking, generous max_output — so a
-        streamed answer is identical to the buffered one, just delivered token by
-        token. Gemini's stream is a blocking sync generator; the SSE endpoint
-        pumps it through asyncio.to_thread so it never blocks the event loop.
+        Same config as complete(), so a streamed answer is identical to the
+        buffered one, just delivered token by token. Both providers' streams are
+        blocking sync generators; the SSE endpoint pumps them through
+        asyncio.to_thread so neither blocks the event loop.
         """
-        if not self._gemini:
-            return
         temp     = kwargs.get("temperature", 0.3)
         max_tok  = kwargs.get("max_tokens", GEMINI_MAX_OUTPUT)
         thinking = kwargs.get("thinking_budget", GEMINI_THINKING_BUDGET)
         model    = kwargs.get("model") or GEMINI_CHAT_MODEL
+
+        if self._cf:
+            try:
+                for chunk in self._cf.chat.completions.create(
+                    model=CLOUDFLARE_MODEL,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=temp,
+                    max_tokens=max_tok,
+                    stream=True,
+                ):
+                    if not chunk.choices:
+                        continue
+                    # Cloudflare's shim sends a chunk that is only a number as a
+                    # JSON number, so content arrives as int. The SSE endpoint
+                    # joins these into one string and would raise on it.
+                    delta = chunk.choices[0].delta.content
+                    if delta is not None and delta != "":
+                        yield delta if isinstance(delta, str) else str(delta)
+            except Exception as e:
+                print(f"⚠️  {CLOUDFLARE_MODEL} stream failed ({type(e).__name__}: {e})")
+            return
+
+        if not self._gemini:
+            return
         try:
             for chunk in self._gemini.models.generate_content_stream(
                 model=model,

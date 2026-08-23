@@ -132,8 +132,15 @@ PINECONE_API_KEY=your_key
 PINECONE_INDEX_NAME=your_index
 PINECONE_HOST=https://your-index-xxxxx.svc.region.pinecone.io
 
-# Embeddings + LLM
+# Text generation provider — GEMINI or CLOUDFLARE. Required, no default.
+LLM_MODEL=GEMINI
+
+# Embeddings (always Gemini) + generation when LLM_MODEL=GEMINI
 GEMINI_API_KEY=your_gemini_key
+
+# Cloudflare Workers AI — only required when LLM_MODEL=CLOUDFLARE
+CLOUDFLARE_ACCOUNT_ID=your_account_id
+CLOUDFLARE_API_TOKEN=your_workers_ai_token
 
 # Extraction — pluggable. Default textract; set to "pymupdf" for local text-layer read (no AWS calls).
 EXTRACT_METHOD=textract
@@ -149,6 +156,7 @@ JWT_SECRET=<python -c "import secrets; print(secrets.token_urlsafe(48))">
 # Optional
 ALLOWED_ORIGINS=https://your-frontend.onrender.com,http://localhost:5173  # CORS allow-list (comma-separated)
 MAX_UPLOAD_MB=3           # upload cap (MB), enforced while streaming
+DAILY_MESSAGE_CAP=5       # REQUIRED — messages per account per day (1 credit = question + answer)
 GEMINI_THINKING_BUDGET=2048  # fixed ceiling (default); 0 = off, -1 = dynamic
 GEMINI_FAST_MODEL=gemini-2.5-flash-lite   # classification + boundary detection
 CONTEXTUAL_CHUNKING=1     # attach per-document identity to each chunk (default 1, set 0 to disable)

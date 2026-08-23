@@ -34,6 +34,7 @@ multiprocess
 # and/or Grafana (no `langfuse` package). LLM tracing (LANGFUSE_* / GRAFANA_OTLP_*);
 # HTTP tracing + metrics (GRAFANA_OTLP_*). All no-ops unless the env vars are set.
 openinference-instrumentation-google-genai==1.4.1
+openinference-instrumentation-openai==0.1.54
 opentelemetry-instrumentation-fastapi==0.65b0
 opentelemetry-sdk==1.44.0
 opentelemetry-exporter-otlp-proto-http==1.44.0

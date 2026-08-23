@@ -55,7 +55,6 @@ def init_observability():
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-        from openinference.instrumentation.google_genai import GoogleGenAIInstrumentor
 
         provider = TracerProvider(resource=_resource())
         enabled = []
@@ -77,7 +76,17 @@ def init_observability():
             )))
             enabled.append("Grafana Cloud")
 
+        # Instrument whichever SDK actually makes the calls. LLM_MODEL=CLOUDFLARE
+        # routes generation through the openai client, which the google-genai
+        # instrumentor never sees — without this the LLM traces would go silently
+        # dark on that provider while HTTP spans kept flowing, which reads as a
+        # working exporter. Embeddings are Gemini on both, so genai stays on.
+        from openinference.instrumentation.google_genai import GoogleGenAIInstrumentor
         GoogleGenAIInstrumentor().instrument(tracer_provider=provider)
+        if os.getenv("LLM_MODEL", "").strip().upper() == "CLOUDFLARE":
+            from openinference.instrumentation.openai import OpenAIInstrumentor
+            OpenAIInstrumentor().instrument(tracer_provider=provider)
+            enabled.append("openai-sdk spans")
         _llm_provider = provider
         _llm_tracer = provider.get_tracer("chat")
         logger.info("LLM tracing enabled via OTLP: %s", ", ".join(enabled))

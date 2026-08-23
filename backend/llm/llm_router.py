@@ -15,7 +15,10 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 
-load_dotenv()
+# By explicit path, not cwd: this module raises on an unset LLM_MODEL, and a
+# bare load_dotenv() finds nothing when the process starts from the repo
+# root, turning "run a script from the wrong directory" into a hard crash.
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
 
 # Which provider generates text: "GEMINI" or "CLOUDFLARE" (Workers AI, through
 # its OpenAI-compatible endpoint). Required with no default — this picks which

@@ -1,5 +1,11 @@
 """
-Answer generation and embeddings, both via Gemini.
+Answer generation and embeddings.
+
+Generation runs on whichever provider LLM_MODEL selects; embeddings are always
+Gemini. That asymmetry is not a shortcut: the Pinecone index is built at
+EMBED_DIM from gemini-embedding-2, and another provider's vectors would occupy
+a different space, so moving embeddings means re-embedding every document
+rather than changing a setting.
 """
 
 import os
@@ -11,6 +17,18 @@ from google.genai import types
 
 load_dotenv()
 
+# Which provider generates text: "GEMINI" or "CLOUDFLARE" (Workers AI, through
+# its OpenAI-compatible endpoint). Required with no default — this picks which
+# account gets billed, and a fallback would quietly send real traffic to a
+# provider nobody chose.
+LLM_MODEL = (os.getenv("LLM_MODEL") or "").strip().upper()
+_PROVIDERS = ("GEMINI", "CLOUDFLARE")
+if LLM_MODEL not in _PROVIDERS:
+    raise RuntimeError(
+        f"LLM_MODEL must be one of {_PROVIDERS}, got {LLM_MODEL or '<unset>'!r}. "
+        "Set it in backend/.env and in the environment of whatever hosts this."
+    )
+
 GEMINI_API_KEY     = os.getenv("GEMINI_API_KEY", "").strip()
 
 GEMINI_CHAT_MODEL  = os.getenv("GEMINI_CHAT_MODEL", "gemini-2.5-flash")
@@ -19,6 +37,17 @@ GEMINI_FAST_MODEL  = os.getenv("GEMINI_FAST_MODEL", "gemini-2.5-flash-lite")
 
 GEMINI_THINKING_BUDGET = int(os.getenv("GEMINI_THINKING_BUDGET", "2048"))
 GEMINI_MAX_OUTPUT  = int(os.getenv("GEMINI_MAX_OUTPUT", "8192"))
+
+# One model serves both tiers. Chosen by measurement, not price: it is the only
+# candidate that is NOT a reasoning model, and reasoning models return
+# content=None at this repo's tight budgets (boundary detection runs at
+# max_tokens=8). Measured on the real prompts — answers 10/10, the rewriter's
+# meta-question check 8/8, classification and boundary both clean; gpt-oss-20b
+# and qwen3-30b each returned null on boundary detection. See the roadmap
+# before swapping it.
+CLOUDFLARE_MODEL      = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+CLOUDFLARE_ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
+CLOUDFLARE_API_TOKEN  = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
 
 GEMINI_EMBED_MODEL = "models/gemini-embedding-2"
 EMBED_DIM          = 768

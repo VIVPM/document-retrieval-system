@@ -59,7 +59,7 @@ from fastapi.responses import StreamingResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from auth import (LOGIN_LOCKOUT_MINUTES, MAX_LOGIN_FAILURES, REFRESH_TTL_DAYS,
                   create_token, get_current_user, hash_password,
@@ -256,6 +256,8 @@ def _normalise_email(v: str) -> str:
 
 
 class SignupRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     username: str
     password: str
 
@@ -278,6 +280,8 @@ class SignupRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     username: str
     password: str
 
@@ -291,10 +295,14 @@ class LoginRequest(BaseModel):
 
 
 class RefreshRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     refresh_token: str
 
 
 class RenameRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     title: str
 
     @field_validator("title")
@@ -307,12 +315,20 @@ class RenameRequest(BaseModel):
 
 
 class MessageRequest(BaseModel):
+    # alpha is bounded because _scale_vectors multiplies the sparse half by
+    # (1 - alpha): outside 0..1 that factor goes negative, which inverts the
+    # ranking on a dotproduct index and returns the WORST keyword matches
+    # first. It raises nothing -- the answer is simply wrong and looks normal.
+    # num_chunks is bounded so one request cannot pull a whole document into a
+    # priced prompt; `summarize` is the supported way to ask for that.
+    model_config = ConfigDict(extra="forbid")
+
     question: str
     filter_type: Optional[str] = None
     # 6, not 4: chunks shrank from 512 to 384 tokens, so the same k now
     # retrieves ~25% less text. Coverage is k x chunk_size, not k.
-    num_chunks: int = 6
-    alpha: float = 0.5
+    num_chunks: int = Field(default=6, ge=1, le=20)
+    alpha: float = Field(default=0.5, ge=0.0, le=1.0)
     # Whole-document summary: bypass top-k retrieval and feed every chunk.
     summarize: bool = False
 
@@ -925,7 +941,15 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
                 trace_flush()
                 record_message("ok" if ok else "error")
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    # X-Accel-Buffering disables proxy buffering: an nginx-class proxy will
+    # otherwise hold the whole SSE body and deliver it in one lump at the end,
+    # silently turning token streaming into a slow blocking request. Render's
+    # proxy does not do this today; a different host might.
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+    )
 
 
 @app.patch("/api/chats/{chat_id}")

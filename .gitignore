@@ -13,5 +13,5 @@ CLAUDE.md
 # Design FAQ kept local
 faq.txt
 
-# Scale-readiness audit kept local
-scale_readiness_audit.txt
+# Stage audit / scaling roadmap kept local
+v0-v1-v2_roadmap.txt

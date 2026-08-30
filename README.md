@@ -10,7 +10,7 @@ A multi-user RAG (Retrieval-Augmented Generation) application for PDF documents.
 
 *   **Accounts & persistent chats**: JWT auth over bcrypt, DB-backed login lockout, and conversations that survive a restart — including their source citations.
 *   **Session rehydration**: the in-process retriever is a pure cache. On a miss it rebuilds from Neon + Pinecone in **~11s** instead of re-ingesting the document (**~180s**), by persisting the fitted BM25 encoder and recomputing centroids from the index.
-*   **Asynchronous ingestion**: upload returns `202` and processes in the background with a pollable status, because extraction runs for minutes on a real packet.
+*   **Queued ingestion**: upload returns `202` and enqueues a job that a separate worker process runs, with a pollable status. Ingest used to run in a FastAPI background task, which dies with the API process — so any deploy or crash destroyed work in flight. A queued job is a row that outlives it.
 *   **Pluggable Extraction**: **AWS Textract** (TABLES + FORMS, default) or **PyMuPDF** (local, no-AI, text-layer only) via `EXTRACT_METHOD`. Contextual chunking attaches each chunk's document identity so entity-specific queries stay unambiguous.
 *   **Hybrid Search Engine**: A single **Pinecone** sparse-dense index holding `gemini-embedding-2` embeddings (768-dim) alongside **BM25** sparse vectors, fused by a tunable `alpha` (0.0 = pure keyword → 1.0 = pure semantic).
 *   **Conversational follow-ups**: a follow-up like *"and when does it lock?"* is condensed into a standalone question **before retrieval**, because retrieval runs before any LLM sees a prompt. History is read server-side from Neon.
@@ -44,7 +44,7 @@ graph TD
         REST["🗂️ Chat endpoints · POST /message → SSE · 202 async upload + polling"]
     end
 
-    subgraph INGEST ["3 · Ingest pipeline — background task"]
+    subgraph INGEST ["3 · Ingest pipeline — worker.py, from the job queue"]
         direction LR
         Ext["📄 Extract · Textract / PyMuPDF"] --> Split["🏷️ Classify + split · flash-lite"] --> Chunk["✂️ Chunk · tables atomic · contextual"] --> Emb["🧬 Embed · 768d"] --> Up["📤 BM25 fit + Pinecone upsert"]
     end
@@ -233,7 +233,7 @@ Every endpoint except signup and login requires `Authorization: Bearer <token>`.
 | `GET` | `/api/chats` | Sidebar list, newest first |
 | `POST` | `/api/chats/new` | Reuses an existing empty chat |
 | `GET` | `/api/chats/{id}` | Chat + full message history |
-| `POST` | `/api/chats/{id}/document` | **202** — ingests in the background |
+| `POST` | `/api/chats/{id}/document` | **202** — queues a job; the worker ingests it |
 | `GET` | `/api/chats/{id}/status` | Poll while `processing` |
 | `POST` | `/api/chats/{id}/message` | Ask a question. Returns `question_asked` and `question_searched` so a rewritten follow-up is diagnosable |
 | `PATCH` | `/api/chats/{id}` | Rename |

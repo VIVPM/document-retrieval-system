@@ -9,11 +9,17 @@ rather than changing a setting.
 """
 
 import os
+import random
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+
+from logging_setup import get_logger
+
+log = get_logger("drs.llm")
 
 # By explicit path, not cwd: this module raises on an unset LLM_MODEL, and a
 # bare load_dotenv() finds nothing when the process starts from the repo
@@ -41,6 +47,21 @@ GEMINI_FAST_MODEL  = os.getenv("GEMINI_FAST_MODEL", "gemini-2.5-flash-lite")
 GEMINI_THINKING_BUDGET = int(os.getenv("GEMINI_THINKING_BUDGET", "2048"))
 GEMINI_MAX_OUTPUT  = int(os.getenv("GEMINI_MAX_OUTPUT", "8192"))
 
+# Ceiling on ONE provider call. Without it a hung connection blocks the calling
+# thread for ever: an ingest thread stops making progress but keeps its job
+# lease, and an answer thread holds a request open with no way for the client to
+# learn anything went wrong. Generous, because a long answer with thinking
+# legitimately takes tens of seconds -- this bounds the hang, it does not tune
+# latency.
+LLM_TIMEOUT_S = int(os.getenv("LLM_TIMEOUT_S", "120"))
+
+# Whether a failed provider may fall back to the other one. On by default, but
+# inert unless the other provider's credentials are also present, so a
+# single-provider deployment is unaffected. Set 0 to pin traffic to LLM_MODEL
+# even during an outage -- which is what you want if the second provider bills
+# a budget you are not willing to spend.
+ALLOW_FAILOVER = os.getenv("ALLOW_FAILOVER", "1").strip() != "0"
+
 # One model serves both tiers. Chosen by measurement, not price: it is the only
 # candidate that is NOT a reasoning model, and reasoning models return
 # content=None at this repo's tight budgets (boundary detection runs at
@@ -48,14 +69,6 @@ GEMINI_MAX_OUTPUT  = int(os.getenv("GEMINI_MAX_OUTPUT", "8192"))
 # meta-question check 8/8, classification and boundary both clean; gpt-oss-20b
 # and qwen3-30b each returned null on boundary detection. See the roadmap
 # before swapping it.
-# Ceiling on ONE provider call. Without it a hung connection blocks the
-# calling thread for ever: an ingest thread stops making progress but keeps
-# its job lease, and an answer thread holds a request open with no way for
-# the client to learn anything went wrong. Generous, because a long answer
-# with thinking legitimately takes tens of seconds -- this bounds the hang,
-# it does not tune latency.
-LLM_TIMEOUT_S = int(os.getenv("LLM_TIMEOUT_S", "120"))
-
 CLOUDFLARE_MODEL      = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
 CLOUDFLARE_ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
 CLOUDFLARE_API_TOKEN  = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
@@ -63,6 +76,152 @@ CLOUDFLARE_API_TOKEN  = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
 GEMINI_EMBED_MODEL = "models/gemini-embedding-2"
 EMBED_DIM          = 768
 EMBED_CONCURRENCY  = int(os.getenv("EMBED_CONCURRENCY", "8"))
+
+
+# ── Resilience ────────────────────────────────────────────────────────────────
+# Retry the transport, never the reasoning. A 429 or a 503 is the provider
+# saying "not now"; a 400 or a refusal is it saying "not this", and retrying
+# that pays twice for the same answer.
+
+RETRY_ATTEMPTS = 3          # total tries, not extra ones
+RETRY_BASE_S = 0.5
+RETRY_MAX_S = 8.0
+
+# Worth another go: rate limits, overload, gateway and timeout classes.
+RETRYABLE_STATUS = frozenset((408, 409, 425, 429, 500, 502, 503, 504))
+# Deterministic. The same request will fail the same way, so a retry is pure
+# cost -- and on 401/403 it is also a good way to get an account flagged.
+TERMINAL_STATUS = frozenset((400, 401, 403, 404, 405, 413, 415, 422))
+
+# Consecutive failures before a provider is considered down, and how long it is
+# left alone afterwards. Consecutive rather than a rate, because a rate needs a
+# window and a window needs tuning -- five in a row is unambiguous.
+BREAKER_THRESHOLD = 5
+BREAKER_COOLDOWN_S = 60.0
+
+
+def _status_of(exc: Exception) -> int | None:
+    """HTTP status from either SDK's exception, or None.
+
+    google-genai puts it on .code, the OpenAI client on .status_code. Read by
+    attribute rather than by isinstance so this file does not have to import
+    both SDKs just to classify an error.
+    """
+    for attr in ("status_code", "code", "http_status"):
+        value = getattr(exc, attr, None)
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
+    return None
+
+
+def _is_retryable(exc: Exception) -> bool:
+    """Whether this failure is worth another attempt."""
+    status = _status_of(exc)
+    if status is not None:
+        if status in TERMINAL_STATUS:
+            return False
+        if status in RETRYABLE_STATUS:
+            return True
+        return status >= 500          # unknown 5xx: assume transient
+
+    # No status at all means the request never got an answer -- a timeout, a
+    # dropped connection, DNS. Those are the transport failures retries exist
+    # for. Matched on class NAME so neither SDK has to be imported here.
+    name = type(exc).__name__
+    return any(k in name for k in ("Timeout", "Connection", "Unavailable", "Socket"))
+
+
+class _Breaker:
+    """One provider's circuit breaker.
+
+    Stops hammering a provider that is down. Without it a queue full of jobs
+    burns its whole retry budget against an outage and turns a recoverable
+    blip into a pile of permanently failed documents.
+
+    Not thread-safe by lock, deliberately: the worst a race can do is miscount
+    a failure by one, and a lock on this path would serialise every LLM call in
+    the process for no real benefit.
+    """
+
+    def __init__(self, name: str):
+        self.name = name
+        self.consecutive_failures = 0
+        self.opened_at = 0.0
+
+    @property
+    def is_open(self) -> bool:
+        """True while the provider is being left alone."""
+        if self.consecutive_failures < BREAKER_THRESHOLD:
+            return False
+        if time.monotonic() - self.opened_at >= BREAKER_COOLDOWN_S:
+            # Cooldown elapsed: let ONE call through to test the water. It is
+            # half-open in effect -- a success resets, a failure re-arms.
+            return False
+        return True
+
+    def record_success(self) -> None:
+        if self.consecutive_failures:
+            log.info("provider recovered", extra={"provider": self.name,
+                                                  "after_failures": self.consecutive_failures})
+        self.consecutive_failures = 0
+        self.opened_at = 0.0
+
+    def record_failure(self) -> None:
+        self.consecutive_failures += 1
+        if self.consecutive_failures == BREAKER_THRESHOLD:
+            self.opened_at = time.monotonic()
+            log.error("circuit opened", extra={"provider": self.name,
+                                               "failures": self.consecutive_failures,
+                                               "cooldown_s": BREAKER_COOLDOWN_S})
+        elif self.consecutive_failures > BREAKER_THRESHOLD:
+            self.opened_at = time.monotonic()          # re-arm after a failed probe
+
+
+_breakers: dict[str, _Breaker] = {
+    "GEMINI": _Breaker("GEMINI"),
+    "CLOUDFLARE": _Breaker("CLOUDFLARE"),
+}
+
+
+def provider_down(provider: str | None = None) -> bool:
+    """Is this provider's circuit open? Read by the worker before it claims."""
+    return _breakers[(provider or LLM_MODEL)].is_open
+
+
+def _with_retries(fn, provider: str, what: str):
+    """Run fn(), retrying transport failures with jittered backoff.
+
+    Raises the last exception if every attempt fails, so the caller still
+    decides what a failure means -- this layer only decides whether to try
+    again.
+    """
+    breaker = _breakers[provider]
+    last: Exception | None = None
+
+    for attempt in range(1, RETRY_ATTEMPTS + 1):
+        try:
+            result = fn()
+            breaker.record_success()
+            return result
+        except Exception as exc:
+            last = exc
+            breaker.record_failure()
+            retryable = _is_retryable(exc)
+            log.warning("provider call failed", extra={
+                "provider": provider, "op": what, "attempt": attempt,
+                "of": RETRY_ATTEMPTS, "status": _status_of(exc),
+                "retryable": retryable, "error": f"{type(exc).__name__}: {exc}"[:200]})
+            if not retryable or attempt == RETRY_ATTEMPTS:
+                raise
+            # Exponential with full jitter. Without jitter every in-flight
+            # request retries on the same schedule and the second wave lands
+            # together, which is what turns a blip into an outage.
+            delay = min(RETRY_MAX_S, RETRY_BASE_S * (2 ** (attempt - 1)))
+            time.sleep(random.uniform(0, delay))
+
+    raise last                                          # unreachable
 
 
 class MockResponse:
@@ -113,6 +272,50 @@ class LLMRouter:
         else:
             print("⚠️  GEMINI_API_KEY not set — answer generation unavailable")
             self.label = "No LLM configured"
+
+    def _other_provider(self) -> str | None:
+        """The provider to fail over to, or None if it is not usable.
+
+        None is the common case and the safe one: failover needs the OTHER
+        provider's credentials present. Building it lazily means a deployment
+        configured for one provider pays nothing for this and behaves exactly
+        as it did before.
+        """
+        other = "CLOUDFLARE" if LLM_MODEL == "GEMINI" else "GEMINI"
+        if other == "GEMINI":
+            return "GEMINI" if GEMINI_API_KEY else None
+        return "CLOUDFLARE" if (CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN) else None
+
+    def _client_for(self, provider: str):
+        """Return (and build on first use) the client for one provider."""
+        if provider == "GEMINI":
+            if self._gemini is None:
+                self._gemini = genai.Client(
+                    api_key=GEMINI_API_KEY,
+                    http_options=types.HttpOptions(timeout=LLM_TIMEOUT_S * 1000),
+                )
+                log.info("built failover client", extra={"provider": "GEMINI"})
+            return self._gemini
+
+        if self._cf is None:
+            from openai import OpenAI
+            self._cf = OpenAI(
+                api_key=CLOUDFLARE_API_TOKEN,
+                base_url=f"https://api.cloudflare.com/client/v4/accounts/"
+                         f"{CLOUDFLARE_ACCOUNT_ID}/ai/v1",
+                timeout=LLM_TIMEOUT_S,
+                max_retries=0,        # retries are _with_retries' job, not a nested client's
+            )
+            log.info("built failover client", extra={"provider": "CLOUDFLARE"})
+        return self._cf
+
+    def _complete_on(self, provider: str, prompt: str, temp: float, max_tok: int,
+                     thinking: int, model: str) -> tuple[str, dict]:
+        """One completion on one named provider. Raises; retries live above."""
+        self._client_for(provider)
+        if provider == "CLOUDFLARE":
+            return self._cloudflare_complete(prompt, temp, max_tok)
+        return self._gemini_complete(prompt, temp, max_tok, thinking, model)
 
     def _cloudflare_complete(self, prompt: str, temperature: float,
                              max_tokens: int) -> tuple[str, dict]:
@@ -192,24 +395,36 @@ class LLMRouter:
         model    = kwargs.get("model") or (GEMINI_FAST_MODEL if kwargs.get("fast")
                                            else GEMINI_CHAT_MODEL)
 
-        if self._cf:
+        primary = LLM_MODEL
+        order = [primary]
+        if ALLOW_FAILOVER and self._other_provider() is not None:
+            order.append(self._other_provider())
+
+        last_error: Exception | None = None
+        for provider in order:
+            if provider != primary:
+                log.warning("failing over", extra={"from": primary, "to": provider})
+            if _breakers[provider].is_open:
+                log.warning("skipping provider, circuit open", extra={"provider": provider})
+                continue
             try:
-                text, usage = self._cloudflare_complete(prompt, temp, max_tok)
+                text, usage = _with_retries(
+                    lambda p=provider: self._complete_on(p, prompt, temp, max_tok,
+                                                         thinking, model),
+                    provider, "complete")
                 if text:
                     return MockResponse(text, usage)
+                # An empty completion is not a transport failure, so it does not
+                # trip the breaker and must not fail over -- both providers
+                # would return the same nothing for a prompt the model will not
+                # answer. answer_generator turns this into an explicit error.
+                return MockResponse("", usage)
             except Exception as e:
-                print(f"⚠️  {CLOUDFLARE_MODEL} failed ({type(e).__name__}: {e})")
-            return MockResponse("")
+                last_error = e
 
-        if self._gemini:
-            try:
-                text, usage = self._gemini_complete(
-                    prompt, temp, max_tok, thinking, model)
-                if text:
-                    return MockResponse(text, usage)
-            except Exception as e:
-                print(f"⚠️  {model} failed ({type(e).__name__}: {e})")
-
+        if last_error is not None:
+            log.error("all providers failed", extra={
+                "tried": order, "error": f"{type(last_error).__name__}: {last_error}"[:200]})
         return MockResponse("")
 
     def stream(self, prompt: str, **kwargs):

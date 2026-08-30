@@ -330,7 +330,9 @@ Everything is a no-op unless the env vars are set, and nothing raises — tracin
 3. **docker** — build both images (no push), so a broken Dockerfile fails here, not at deploy.
 4. **deploy** — only after all three pass, only on push to `main`: POSTs the Render deploy hooks (`RENDER_DEPLOY_HOOK_*` secrets), skipping gracefully if they're unset.
 
-`docker compose up --build` runs the stack locally: `backend/Dockerfile` (`python:3.12-slim` + uvicorn, non-root, `/api/health` probe) and `frontend/Dockerfile` (Vite build → nginx). Extraction runs on AWS Textract, so the backend image needs no GPU/GL libraries.
+`docker compose up --build` runs the stack locally: **three** services — `api` and `worker` from the same `backend/Dockerfile` (`python:3.12-slim`, non-root, `/api/health` probe) with different commands, plus `frontend/Dockerfile` (Vite build → nginx). Extraction runs on AWS Textract, so the backend image needs no GPU/GL libraries.
+
+**Deploying needs a second service for the worker.** It is the same image with `python worker.py` as its command. Without it uploads queue and are never processed — the API returns 202 and the chat sits on `processing` for ever.
 
 The backend runs with `--forwarded-allow-ips *` (in the Dockerfile CMD) so slowapi's per-IP rate limits key on the real client (`X-Forwarded-For`) behind a proxy/balancer rather than the proxy's own IP — otherwise every user shares one rate-limit bucket. On a non-Docker deploy, set `FORWARDED_ALLOW_IPS=*` in the service env instead (uvicorn reads it).
 

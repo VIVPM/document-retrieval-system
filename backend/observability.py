@@ -25,6 +25,8 @@ if not logger.handlers:
 _llm_provider = None   # unified TracerProvider for LLM spans, or None when disabled
 _llm_tracer = None     # tracer from that provider (for the per-message parent span)
 _message_counter = None
+_cost_counter = None
+_ttft_hist = None
 
 
 def _have_langfuse() -> bool:
@@ -220,7 +222,7 @@ def init_http_tracing(app):
 
 def init_metrics():
     """Export a chat_messages_total counter. A metric, not traces, so alerts are plain PromQL."""
-    global _message_counter
+    global _message_counter, _cost_counter, _ttft_hist
     if not _have_grafana():
         return
     try:
@@ -236,13 +238,46 @@ def init_metrics():
             export_interval_millis=15000,
         )
         provider = MeterProvider(resource=_resource(), metric_readers=[reader])
-        _message_counter = provider.get_meter("chat").create_counter(
+        meter = provider.get_meter("chat")
+        _message_counter = meter.create_counter(
             "chat_messages_total",
             description="Chat messages handled, by status (ok/error)",
+        )
+        # Cost as a COUNTER, so a dashboard can rate() it into spend-per-hour
+        # and a total. A gauge would only show the last answer's price, which
+        # answers nothing about a day.
+        _cost_counter = meter.create_counter(
+            "llm_cost_usd_total",
+            unit="USD",
+            description="Estimated LLM spend, by model",
+        )
+        # A HISTOGRAM, not a counter or a gauge: TTFT is a latency distribution
+        # and the tail is the part users complain about. A mean would hide it.
+        _ttft_hist = meter.create_histogram(
+            "llm_ttft_seconds",
+            unit="s",
+            description="Time to first token, by model",
         )
         logger.info("Grafana metrics enabled via OTLP.")
     except Exception:
         logger.exception("Grafana metrics init failed — continuing without it.")
+
+
+def record_llm_metrics(usage: dict, cost_usd: float | None, ttft_s: float | None):
+    """Feed cost and TTFT to Grafana.
+
+    Separate from the span attributes: a span answers "what did THIS request
+    do", a metric answers "what is happening overall". Alerting on spend or on
+    a TTFT tail needs the second, and a trace backend is the wrong shape for it.
+    """
+    model = (usage or {}).get("model") or "unknown"
+    try:
+        if _cost_counter is not None and cost_usd:
+            _cost_counter.add(cost_usd, {"model": model})
+        if _ttft_hist is not None and ttft_s is not None:
+            _ttft_hist.record(ttft_s, {"model": model})
+    except Exception as e:
+        logger.debug("record_llm_metrics failed: %s", e)
 
 
 def record_message(status: str):

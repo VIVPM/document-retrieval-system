@@ -102,6 +102,59 @@
           "instant": true
         }
       ]
+    },
+    {
+      "id": 5,
+      "title": "LLM spend per hour, by model",
+      "type": "timeseries",
+      "description": "Estimated spend. A counter, so this is rate() into $/hour — a gauge would only ever show the last answer's price.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROM}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (model) (rate(llm_cost_usd_total[$__rate_interval]) * 3600)",
+          "legendFormat": "{{model}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "LLM spend (24h)",
+      "type": "stat",
+      "description": "A FLOOR, not an invoice: thinking tokens are included at the output rate, but a model with no entry in PRICE_PER_MTOK contributes nothing.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROM}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(llm_cost_usd_total[24h]))",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Time to first token — p50 / p95",
+      "type": "timeseries",
+      "description": "TTFT, not total latency. The two move independently: a fast first token with a slow stream feels nothing like the reverse, and a single total hides both.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROM}" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (le, model) (rate(llm_ttft_seconds_bucket[$__rate_interval])))",
+          "legendFormat": "p50 {{model}}"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le, model) (rate(llm_ttft_seconds_bucket[$__rate_interval])))",
+          "legendFormat": "p95 {{model}}"
+        }
+      ]
     }
   ]
 }

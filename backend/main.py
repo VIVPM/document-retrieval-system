@@ -74,7 +74,8 @@ from db.models import (Account, ChatMessage, ChatSession, IngestJob,
 import job_queue
 from llm.llm_router import embed_model, estimate_cost_usd, llm as _llm
 from observability import (flush as trace_flush, init_http_tracing,
-                           record_cost, record_stream_quality,
+                           record_cost, record_llm_metrics,
+                           record_stream_quality,
                            init_metrics, init_observability, record_message,
                            set_output, trace_message)
 
@@ -957,7 +958,9 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
                 record_stream_quality(span, ttft, len(parts),
                                       time.monotonic() - stream_started,
                                       output_tokens=stream_usage.get("output_tokens"))
-                record_cost(span, stream_usage, estimate_cost_usd(stream_usage))
+                _cost = estimate_cost_usd(stream_usage)
+                record_cost(span, stream_usage, _cost)
+                record_llm_metrics(stream_usage, _cost, ttft)
 
                 answer = "".join(parts).strip()
                 if not answer:

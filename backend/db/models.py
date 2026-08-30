@@ -127,6 +127,14 @@ class IngestJob(Base):
     __tablename__ = "drs_ingest_jobs"
 
     id = Column(String, primary_key=True)            # uuid4 hex
+
+    # Deduplicates a resubmitted upload. UNIQUE, so a replay loses the
+    # insert rather than being waved through by a SELECT that raced it --
+    # a double-tap or a client retry after a timeout arrives as two
+    # near-simultaneous requests, which is exactly when a check-then-act
+    # dedupe fails. Nullable: rows predating this column have none.
+    idempotency_key = Column(String, unique=True, index=True)
+
     chat_id = Column(String, index=True, nullable=False)
     user_id = Column(Integer, index=True, nullable=False)
 

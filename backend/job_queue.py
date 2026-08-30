@@ -14,11 +14,13 @@ moves on. `FOR UPDATE SKIP LOCKED` does the same job in one statement and is
 what makes a second worker safe to start.
 """
 
+import hashlib
 import os
 import uuid
 from datetime import timedelta
 
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from db.database import SessionLocal
 from db.models import ChatSession, IngestJob, now_ist
@@ -34,15 +36,42 @@ LEASE_SECONDS = int(os.getenv("INGEST_LEASE_SECONDS", "1800"))
 MAX_ATTEMPTS = int(os.getenv("INGEST_MAX_ATTEMPTS", "3"))
 
 
-def enqueue(db, chat_id: str, user_id: int, filename: str, payload: bytes) -> str:
-    """Add one ingestion to the queue. Caller owns the transaction.
+def content_key(chat_id: str, payload: bytes) -> str:
+    """Idempotency key for an upload: the chat plus a hash of the bytes.
 
-    Does not commit: the API enqueues in the same transaction that flips the
-    chat to 'processing', so a job can never exist for a chat that was never
-    marked, nor the reverse.
+    Derived rather than client-supplied, so a client that does not send a
+    header still gets protection. Scoped to the chat because the same PDF in
+    two different chats is two legitimate ingests; re-sending the same bytes to
+    the SAME chat is the double-submit worth collapsing.
+
+    Deliberately not filename-based: a retry after a timeout resends identical
+    bytes, while a genuine re-upload of a corrected document has different ones.
     """
+    return f"{chat_id}:{hashlib.sha256(payload).hexdigest()[:32]}"
+
+
+def enqueue(db, chat_id: str, user_id: int, filename: str, payload: bytes,
+            idempotency_key: str | None = None) -> tuple[str, bool]:
+    """Add one ingestion to the queue. Returns (job_id, created).
+
+    Caller owns the transaction and this does not commit: the API enqueues in
+    the same transaction that flips the chat to 'processing', so a job can
+    never exist for a chat that was never marked, nor the reverse.
+
+    created=False means an identical job was already queued and this call did
+    nothing. The UNIQUE constraint is what decides, not the SELECT below --
+    two simultaneous submits would both read "nothing there" and both insert.
+    The read is a fast path; the savepoint around the insert is the guarantee.
+    """
+    key = idempotency_key or content_key(chat_id, payload)
+
+    existing = db.query(IngestJob).filter(IngestJob.idempotency_key == key).first()
+    if existing is not None:
+        return existing.id, False
+
     job = IngestJob(
         id=uuid.uuid4().hex,
+        idempotency_key=key,
         chat_id=chat_id,
         user_id=user_id,
         filename=filename,
@@ -51,8 +80,17 @@ def enqueue(db, chat_id: str, user_id: int, filename: str, payload: bytes) -> st
         attempts=0,
         max_attempts=MAX_ATTEMPTS,
     )
-    db.add(job)
-    return job.id
+    try:
+        # Nested so a duplicate rolls back only the insert. Without it the
+        # IntegrityError would poison the caller's whole transaction, taking
+        # the chat-status update down with it.
+        with db.begin_nested():
+            db.add(job)
+            db.flush()
+        return job.id, True
+    except IntegrityError:
+        loser = db.query(IngestJob).filter(IngestJob.idempotency_key == key).first()
+        return (loser.id if loser else job.id), False
 
 
 def claim(worker_id: str):

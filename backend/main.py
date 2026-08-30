@@ -705,11 +705,23 @@ async def upload_document(
         # One transaction for both, so a chat can never be left 'processing'
         # with no job to advance it, nor a job exist for a chat that was never
         # marked. That pairing is why enqueue does not commit for itself.
-        job_id = job_queue.enqueue(db, chat_id, chat.user_id, file.filename, bytes(buf))
+        # Idempotency-Key if the client sends one, otherwise a hash of the
+        # bytes. Deriving a default is what protects the common case: a browser
+        # double-tap, or a client retrying after a timeout on a request the
+        # server actually received. Without it each replay is a second Textract
+        # bill for the same document.
+        job_id, created = job_queue.enqueue(
+            db, chat_id, chat.user_id, file.filename, bytes(buf),
+            idempotency_key=(request.headers.get("Idempotency-Key") or "").strip() or None,
+        )
         db.commit()
 
-        print(f"📥 Queued job {job_id[:8]} for chat {chat_id} ({file.filename})")
-        return {"chat_id": chat_id, "status": "processing", "filename": file.filename}
+        if created:
+            print(f"📥 Queued job {job_id[:8]} for chat {chat_id} ({file.filename})")
+        else:
+            print(f"🔁 Duplicate upload for chat {chat_id}; reusing job {job_id[:8]}")
+        return {"chat_id": chat_id, "status": "processing",
+                "filename": file.filename, "duplicate": not created}
     finally:
         db.close()
 

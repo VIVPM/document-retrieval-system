@@ -315,6 +315,7 @@ OpenTelemetry over OTLP, wired programmatically (not the `opentelemetry-instrume
 * **LLM spans → Langfuse + Grafana.** Each message is one `chat-message` trace with the rewrite and answer generations nested under it, tagged with user + session.
 * **HTTP spans → Grafana** (a separate provider, so Langfuse stays LLM-only).
 * **`chat_messages_total` metric → Grafana**, with a paste-importable dashboard and a muted error-rate alert (`backend/grafana/`).
+* **Structured JSON logs with a correlation id.** Every request gets one (an inbound `X-Request-ID` wins) and it is stored on the job row, so the API line that queued an upload and the worker line that ingested it share a `request_id` — one grep answers "what happened to this upload" across both processes. `LOG_FORMAT=text` for a readable local terminal.
 
 Everything is a no-op unless the env vars are set, and nothing raises — tracing must never break a request. Set `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_HOST`, and `GRAFANA_OTLP_ENDPOINT` / `GRAFANA_OTLP_AUTH` (the full `Basic <base64>` header) / `OTEL_SERVICE_NAME`.
 

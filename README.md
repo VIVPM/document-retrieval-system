@@ -363,11 +363,14 @@ document-retrieval-system/
 │   ├── auth.py                      # JWT + bcrypt + refresh tokens
 │   ├── observability.py             # OpenTelemetry → Langfuse + Grafana
 │   ├── main.py                      # API entry point
+│   ├── worker.py                    # ingest worker — claims and runs queued jobs
+│   ├── job_queue.py                 # the queue: enqueue / claim / finish / reclaim
+│   ├── logging_setup.py             # JSON logs + correlation id
 │   ├── load_test.py                 # Capacity / responsiveness harness
 │   ├── Dockerfile                   # python:3.12-slim + uvicorn
 │   ├── migrations.sql               # Schema + housekeeping queries
 │   ├── requirements.txt
-│   └── .env                         # Keys, DB URL, worker URLs
+│   └── .env                         # Keys, DB URL, provider + queue settings
 ├── frontend/
 │   ├── src/
 │   │   ├── api.js                   # API client, owns the JWT

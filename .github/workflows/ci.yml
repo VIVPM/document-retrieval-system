@@ -1,8 +1,14 @@
 name: CI
 
 on:
+  # The working branches are listed explicitly, not '**': a push event runs the
+  # workflow file FROM THE PUSHED BRANCH, so each of these carries this list on
+  # its own copy. Deleting a branch here only stops its CI, nothing else.
+  #
+  # Safe for feature branches because the deploy job below is gated on
+  # github.ref == refs/heads/main, so they run the test jobs and never deploy.
   push:
-    branches: [main]
+    branches: [main, document-retreival-v0-v1, document-retreival-v2]
   pull_request:
 
 # A second push to main should cancel the first run's deploy rather than race it.

@@ -38,7 +38,7 @@ import logging_setup
 from core.document_store import EnhancedDocumentStoreHybrid
 from db.database import SessionLocal
 from db.models import Account, ChatSession, now_ist
-from llm.llm_router import embed_model, llm
+from llm.llm_router import BREAKER_COOLDOWN_S, embed_model, llm, provider_down
 
 logging_setup.configure()
 log = logging_setup.get_logger("drs.worker")
@@ -299,6 +299,20 @@ async def main() -> None:
         if len(running) >= MAX_CONCURRENT_JOBS:
             await asyncio.sleep(0.2)
             running = {t for t in running if not t.done()}
+            continue
+
+        # Do not claim while the provider is down. This is the half of the
+        # breaker that only a queue can have: without it a backlog burns its
+        # whole retry budget against an outage and a recoverable blip becomes a
+        # pile of permanently failed documents. Jobs stay queued instead, and
+        # are picked up when the circuit closes.
+        if provider_down():
+            log.warning("provider down, pausing claims",
+                        extra={"cooldown_s": BREAKER_COOLDOWN_S})
+            try:
+                await asyncio.wait_for(_shutdown.wait(), timeout=BREAKER_COOLDOWN_S)
+            except asyncio.TimeoutError:
+                pass
             continue
 
         try:

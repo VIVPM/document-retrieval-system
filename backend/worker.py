@@ -53,10 +53,13 @@ RECLAIM_EVERY = float(os.getenv("WORKER_RECLAIM_SECONDS", "60"))
 # succeeding just under its own timeout) would otherwise occupy a concurrency
 # slot indefinitely.
 #
-# Must sit BELOW job_queue.LEASE_SECONDS. If it were higher, the lease would
-# expire first and a second worker would claim a job this one is still running,
-# and two workers would write the same chat.
-INGEST_TIMEOUT_S = int(os.getenv("INGEST_TIMEOUT_S", "900"))
+# A constant, not an env var: it is half of an invariant with
+# job_queue.LEASE_SECONDS and must stay BELOW it. If it were higher the lease
+# would expire first, a second worker would claim a job this one is still
+# running, and both would write the same chat. Env vars let the two drift
+# apart in one environment and not another, which is exactly how a pair like
+# this breaks silently. The assert below is the backstop, not the rule.
+INGEST_TIMEOUT_S = 900
 if INGEST_TIMEOUT_S >= job_queue.LEASE_SECONDS:
     raise RuntimeError(
         f"INGEST_TIMEOUT_S ({INGEST_TIMEOUT_S}) must be below "

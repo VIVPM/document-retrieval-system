@@ -26,12 +26,18 @@ from db.database import SessionLocal
 from db.models import ChatSession, IngestJob, now_ist
 
 # How long a claim is good for. A worker that dies mid-ingest cannot release
-# its own job, so this is what lets another one take it. It must exceed the
-# slowest realistic ingest (a 50-page packet is minutes of Textract), or a
-# healthy worker's job gets stolen while it is still running -- which is worse
-# than the crash it protects against, because then two workers write the same
-# chat.
-LEASE_SECONDS = int(os.getenv("INGEST_LEASE_SECONDS", "1800"))
+# its own job, so this is what lets another one take it.
+#
+# A constant, not an env var, on purpose: it is not a deployment preference but
+# half of an invariant with worker.INGEST_TIMEOUT_S, which must stay below it.
+# Split across two environments those two drift independently, and the failure
+# is silent -- a lease expiring under a running job lets a second worker claim
+# it, and two workers then write the same chat. Change it here, with its pair.
+#
+# 1800s exceeds the slowest realistic ingest (a 50-page packet is minutes of
+# Textract). Raising it delays recovery from a dead worker; lowering it below
+# INGEST_TIMEOUT_S breaks the invariant and the worker refuses to start.
+LEASE_SECONDS = 1800
 
 MAX_ATTEMPTS = int(os.getenv("INGEST_MAX_ATTEMPTS", "3"))
 

@@ -293,7 +293,7 @@ All three retrieval modes over the same corpus and models — raw per-question o
 
 ## 🔥 Load testing & capacity
 
-`backend/load_test.py` spawns the **real** app with only the retrieval + LLM boundary stubbed, so a run is free and takes seconds — it exercises the async endpoints, the connection pool, JWT auth and SSE, not the model. Idle-vs-saturated phases, a `--ramp` capacity sweep, and `--calibrate` for a few real messages.
+`backend/load_test.py` spawns the **real** app with only the retrieval + LLM boundary stubbed, so a run is free and takes seconds — it exercises the async endpoints, the connection pool, JWT auth and SSE, not the model. Idle-vs-saturated phases, a `--ramp` capacity sweep, and `--calibrate` for a few real messages. The spawned server also runs the ingest worker in a background thread, because ingestion now lives in a separate process — without it `--calibrate` would upload a document and poll a chat that stays `processing` until its timeout.
 
 **Capacity** (live Render instance, `--ramp`, read mix):
 

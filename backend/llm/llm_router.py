@@ -48,6 +48,14 @@ GEMINI_MAX_OUTPUT  = int(os.getenv("GEMINI_MAX_OUTPUT", "8192"))
 # meta-question check 8/8, classification and boundary both clean; gpt-oss-20b
 # and qwen3-30b each returned null on boundary detection. See the roadmap
 # before swapping it.
+# Ceiling on ONE provider call. Without it a hung connection blocks the
+# calling thread for ever: an ingest thread stops making progress but keeps
+# its job lease, and an answer thread holds a request open with no way for
+# the client to learn anything went wrong. Generous, because a long answer
+# with thinking legitimately takes tens of seconds -- this bounds the hang,
+# it does not tune latency.
+LLM_TIMEOUT_S = int(os.getenv("LLM_TIMEOUT_S", "120"))
+
 CLOUDFLARE_MODEL      = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
 CLOUDFLARE_ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
 CLOUDFLARE_API_TOKEN  = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
@@ -84,11 +92,19 @@ class LLMRouter:
                 api_key=CLOUDFLARE_API_TOKEN,
                 base_url=f"https://api.cloudflare.com/client/v4/accounts/"
                          f"{CLOUDFLARE_ACCOUNT_ID}/ai/v1",
+                timeout=LLM_TIMEOUT_S,        # seconds, per the OpenAI client
+                max_retries=0,                # retries belong to the queue, not here
             )
             self.label = CLOUDFLARE_MODEL
             print(f"🔄 Cloudflare Workers AI configured ({CLOUDFLARE_MODEL})")
         elif GEMINI_API_KEY:
-            self._gemini = genai.Client(api_key=GEMINI_API_KEY)
+            # google-genai takes MILLISECONDS here, unlike every other
+            # timeout in this file. Passing seconds would set a 120ms
+            # deadline and fail every call.
+            self._gemini = genai.Client(
+                api_key=GEMINI_API_KEY,
+                http_options=types.HttpOptions(timeout=LLM_TIMEOUT_S * 1000),
+            )
             thinking = ("off" if GEMINI_THINKING_BUDGET == 0
                         else "dynamic" if GEMINI_THINKING_BUDGET < 0
                         else f"{GEMINI_THINKING_BUDGET} tokens")
@@ -254,7 +270,10 @@ class GeminiEmbeddingModel:
     def __init__(self, api_key: str):
         if not api_key:
             raise ValueError("GEMINI_API_KEY must be set in .env for embeddings.")
-        self.client = genai.Client(api_key=api_key)
+        self.client = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(timeout=LLM_TIMEOUT_S * 1000),
+        )
 
     def encode(self, texts: list[str], show_progress_bar: bool = False,
                task_type: str = "RETRIEVAL_DOCUMENT") -> list[list[float]]:

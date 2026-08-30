@@ -24,6 +24,7 @@ import signal
 import socket
 import sys
 import tempfile
+import time
 import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -41,6 +42,23 @@ from llm.llm_router import embed_model, llm
 MAX_CONCURRENT_JOBS = int(os.getenv("MAX_CONCURRENT_JOBS", "2"))
 POLL_SECONDS = float(os.getenv("WORKER_POLL_SECONDS", "2"))
 RECLAIM_EVERY = float(os.getenv("WORKER_RECLAIM_SECONDS", "60"))
+
+# Wall-clock ceiling on ONE ingest. Per-call timeouts in llm_router bound a
+# single hung request; this bounds the job as a whole, which is a different
+# failure -- a document that keeps making slow progress (many pages, each call
+# succeeding just under its own timeout) would otherwise occupy a concurrency
+# slot indefinitely.
+#
+# Must sit BELOW job_queue.LEASE_SECONDS. If it were higher, the lease would
+# expire first and a second worker would claim a job this one is still running,
+# and two workers would write the same chat.
+INGEST_TIMEOUT_S = int(os.getenv("INGEST_TIMEOUT_S", "900"))
+if INGEST_TIMEOUT_S >= job_queue.LEASE_SECONDS:
+    raise RuntimeError(
+        f"INGEST_TIMEOUT_S ({INGEST_TIMEOUT_S}) must be below "
+        f"INGEST_LEASE_SECONDS ({job_queue.LEASE_SECONDS}), or a job's lease "
+        "expires while it is still running and a second worker claims it."
+    )
 
 # hostname + a random suffix: the host tells you WHICH box a job ran on, the
 # suffix keeps two workers on one box distinct. socket.gethostname works on
@@ -93,6 +111,24 @@ def run_job(job: dict) -> None:
     """
     chat_id, filename = job["chat_id"], job["filename"]
     last_attempt = job["attempts"] >= job["max_attempts"]
+    deadline = time.monotonic() + INGEST_TIMEOUT_S
+
+    def stage(key: str) -> None:
+        """Record progress, and abort if the job has run out of wall clock.
+
+        Cooperative on purpose. A thread cannot be killed from outside, so
+        asyncio.wait_for would report a timeout and then still block until the
+        thread finished -- freeing nothing. Raising from inside the thread is
+        what actually ends it: process_pdf catches it and returns a clean
+        failure, so teardown and requeue happen on the normal error path.
+
+        Granularity is one stage. A hang INSIDE a stage is bounded instead by
+        LLM_TIMEOUT_S on each provider call, which is the realistic case.
+        """
+        if time.monotonic() > deadline:
+            raise TimeoutError(
+                f"Ingest exceeded INGEST_TIMEOUT_S ({INGEST_TIMEOUT_S}s) at stage {key!r}.")
+        _set_stage(chat_id, key)
 
     tmp_path = None
     db = SessionLocal()
@@ -112,7 +148,7 @@ def run_job(job: dict) -> None:
                                             chat_id=chat_id)
         success, stats = store.process_pdf(
             tmp_path, filename=filename, embed_model=embed_model,
-            on_stage=lambda k: _set_stage(chat_id, k),
+            on_stage=stage,
         )
 
         # _set_stage wrote `stage` on a separate session, so this one's copy is
@@ -208,6 +244,9 @@ async def _run_one(job: dict, sem: asyncio.Semaphore) -> None:
         jid = job["id"][:8]
         print(f"▶️  job {jid}: ingesting {job['filename']} for chat {job['chat_id']}")
         try:
+            # No wait_for here: run_job enforces its own deadline from inside
+            # the thread. Wrapping this in wait_for would report a timeout and
+            # then block on the thread anyway, freeing no slot.
             await asyncio.to_thread(run_job, job)
             job_queue.finish(job["id"], ok=True)
         except Exception as e:
@@ -223,7 +262,8 @@ async def _run_one(job: dict, sem: asyncio.Semaphore) -> None:
 async def main() -> None:
     print(f"🟢 Ingest worker {WORKER_ID} up "
           f"(concurrency={MAX_CONCURRENT_JOBS}, poll={POLL_SECONDS}s, "
-          f"lease={job_queue.LEASE_SECONDS}s, llm={llm.label})")
+          f"job timeout={INGEST_TIMEOUT_S}s, lease={job_queue.LEASE_SECONDS}s, "
+          f"llm={llm.label})")
 
     sem = asyncio.Semaphore(MAX_CONCURRENT_JOBS)
     running: set[asyncio.Task] = set()

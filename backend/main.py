@@ -54,8 +54,8 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 from fastapi import (Depends, FastAPI, File, HTTPException,
                      Request, UploadFile)
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from fastapi.responses import JSONResponse, StreamingResponse
+from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -72,10 +72,12 @@ from db.database import Base, SessionLocal, engine
 from db.models import (Account, ChatMessage, ChatSession, IngestJob,
                        LoginFailure, RefreshToken, now_ist)
 import job_queue
-from llm.llm_router import embed_model
+from llm.llm_router import embed_model, llm as _llm
 from observability import (flush as trace_flush, init_http_tracing,
                            init_metrics, init_observability, record_message,
                            set_output, trace_message)
+
+import contextlib
 
 import logging_setup
 
@@ -188,10 +190,31 @@ def sanitize(obj):
 
 
 # ── App & CORS ────────────────────────────────────────────────────────────────
+@contextlib.asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Startup/shutdown. The shutdown half is what SIGTERM needs.
+
+    Render (and any orchestrator) sends SIGTERM and then waits before SIGKILL.
+    Uvicorn already stops accepting connections and lets in-flight requests
+    finish, which matters most for a streaming answer -- cutting one mid-stream
+    loses tokens the user already paid for. What was missing is flushing the
+    span exporters: without it the last traces of a deploy are dropped in the
+    buffer, and those are exactly the ones worth having when a deploy goes bad.
+    """
+    log.info("api up", extra={"version": _app.version, "llm": _llm.label})
+    yield
+    log.info("api shutting down; flushing telemetry")
+    try:
+        trace_flush()
+    except Exception:
+        log.exception("telemetry flush failed during shutdown")
+
+
 app = FastAPI(
     title="Document Retrieval System API",
     description="Hybrid RAG pipeline for intelligent multi-document Q&A",
     version="2.0.0",
+    lifespan=lifespan,
 )
 
 # CORS — origins from env (comma-separated); default keeps the deployed frontend
@@ -231,7 +254,32 @@ init_metrics()            # chat_messages_total counter -> Grafana Cloud
 # its own; upgrade_roadmap.txt PART 3 has the Redis version.
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+def _rate_limited(request: Request, exc: RateLimitExceeded):
+    """429 with Retry-After, so a client knows WHEN to retry rather than guessing.
+
+    slowapi's stock handler sends no Retry-After at all, which leaves a polite
+    client to invent a backoff and an impolite one to hammer the endpoint that
+    just told it to stop. The window is parsed from the limit itself
+    ("5/hour" -> 3600) so the header cannot drift from the rule it describes.
+    """
+    limit = getattr(exc, "limit", None)
+    window = getattr(getattr(limit, "limit", None), "GRANULARITY", None)
+    seconds = getattr(window, "seconds", None) or 60
+    retry_after = str(int(seconds))
+
+    log.warning("rate limited", extra={"path": request.url.path,
+                                       "client": get_remote_address(request),
+                                       "limit": str(getattr(exc, "detail", "")),
+                                       "retry_after_s": retry_after})
+    return JSONResponse(
+        status_code=429,
+        content={"detail": f"Rate limit exceeded: {exc.detail}. "
+                           f"Retry in about {retry_after}s."},
+        headers={"Retry-After": retry_after},
+    )
+
+
+app.add_exception_handler(RateLimitExceeded, _rate_limited)
 
 
 @app.middleware("http")

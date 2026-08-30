@@ -155,6 +155,22 @@
           "legendFormat": "p95 {{model}}"
         }
       ]
+    },
+    {
+      "id": 8,
+      "title": "Ingest queue depth",
+      "type": "timeseries",
+      "description": "Backlog by status. This is the signal to scale workers on — NOT CPU: the worker is I/O-bound on Textract and Gemini, so it sits near-idle while the queue grows.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROM}" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status) (ingest_queue_depth)",
+          "legendFormat": "{{status}}"
+        }
+      ]
     }
   ]
 }

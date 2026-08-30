@@ -27,6 +27,7 @@ _llm_tracer = None     # tracer from that provider (for the per-message parent s
 _message_counter = None
 _cost_counter = None
 _ttft_hist = None
+_queue_depth_cb = None
 
 
 def _have_langfuse() -> bool:
@@ -222,7 +223,7 @@ def init_http_tracing(app):
 
 def init_metrics():
     """Export a chat_messages_total counter. A metric, not traces, so alerts are plain PromQL."""
-    global _message_counter, _cost_counter, _ttft_hist
+    global _message_counter, _cost_counter, _ttft_hist, _queue_depth_cb
     if not _have_grafana():
         return
     try:
@@ -257,6 +258,27 @@ def init_metrics():
             "llm_ttft_seconds",
             unit="s",
             description="Time to first token, by model",
+        )
+
+        # An OBSERVABLE gauge, not a counter: depth is a level, not an event.
+        # The callback runs on the export interval, so the number is sampled
+        # rather than pushed -- nothing has to remember to report it, and a
+        # worker that dies stops contributing without leaving a stale value.
+        def _observe_depth(_options):
+            from opentelemetry.metrics import Observation
+            try:
+                import job_queue
+                return [Observation(n, {"status": st})
+                        for st, n in job_queue.depth().items()]
+            except Exception:
+                # A metrics callback must never raise: it runs on the exporter's
+                # thread and would take the whole export down with it.
+                return []
+
+        _queue_depth_cb = meter.create_observable_gauge(
+            "ingest_queue_depth",
+            callbacks=[_observe_depth],
+            description="Ingest jobs by status (queued/running/failed)",
         )
         logger.info("Grafana metrics enabled via OTLP.")
     except Exception:

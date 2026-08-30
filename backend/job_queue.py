@@ -108,6 +108,20 @@ def claim(worker_id: str):
     statement that updates it, and a second worker's identical query passes
     over the locked row instead of blocking on it or claiming it twice.
 
+    Round-robin across users, not FIFO. Strict FIFO lets one person uploading a
+    batch occupy every slot until it drains, and DAILY_MESSAGE_CAP does not
+    help: it caps MESSAGES, and is never consulted on upload -- the only limit
+    on queueing work is RATE_UPLOAD, currently 10/hour. So a single user can
+    put ten documents in front of everyone else, each one minutes of Textract.
+
+    The rank is a correlated subquery rather than ROW_NUMBER() because Postgres
+    rejects "FOR UPDATE is not allowed with window functions", and SKIP LOCKED
+    is what makes a second worker safe. Verified against the live database.
+
+    ponytail: that subquery is O(n^2) in QUEUED jobs. Fine at a depth of tens
+    or hundreds; if the backlog ever reaches thousands, replace it with a
+    per-user last_served timestamp on its own table and order by that.
+
     Returns a detached snapshot (id, chat_id, user_id, filename, payload), not
     an ORM object -- the session closes here, and the worker holds this while
     it ingests for minutes. Keeping a live session open for that long would
@@ -125,7 +139,20 @@ def claim(worker_id: str):
              WHERE id = (
                    SELECT id FROM drs_ingest_jobs
                     WHERE status = 'queued'
-                    ORDER BY created_at
+                    ORDER BY (
+                        -- When this user was last served, across ALL their
+                        -- jobs. NULL means never, and NULLS FIRST puts a new
+                        -- user at the head -- so every user's turn comes round
+                        -- before anyone gets a second one.
+                        --
+                        -- Counting a user's QUEUED jobs was tried first and is
+                        -- wrong: the count collapses as their jobs leave the
+                        -- queue, so after the batch owner's first job is
+                        -- claimed their second ranks 0 again and wins on age.
+                        -- Measured: it produced AAAAAAAABC, i.e. strict FIFO.
+                        SELECT MAX(peer.claimed_at) FROM drs_ingest_jobs peer
+                         WHERE peer.user_id = drs_ingest_jobs.user_id
+                    ) NULLS FIRST, created_at
                     LIMIT 1
                     FOR UPDATE SKIP LOCKED
              )
@@ -180,8 +207,10 @@ def finish(job_id: str, ok: bool, error: str | None = None) -> None:
         if job.status in ("done", "failed"):
             job.payload = b""
 
-        job.claimed_by = None
-        job.claimed_at = None
+        # claimed_at is NOT cleared: it is the fairness signal the claim orders
+        # by, so blanking it would make a user who just ran ten jobs look like
+        # they had never been served. Safe because reclaim_stale only considers
+        # rows still in 'running', which a finished job is not.
         job.updated_at = now_ist()
         db.commit()
     except Exception:
@@ -219,8 +248,8 @@ def reclaim_stale() -> int:
                 job.status = "failed"
                 job.error = "Worker stopped responding and no attempts remain."
                 _fail_chat(db, job.chat_id, job.error)
-            job.claimed_by = None
-            job.claimed_at = None
+            # Kept, as in finish(): the fairness ordering reads it, and a
+            # requeued job's user did consume a slot.
             job.updated_at = now_ist()
         if stale:
             db.commit()

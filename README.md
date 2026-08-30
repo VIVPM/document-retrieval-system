@@ -165,7 +165,11 @@ CONTEXTUAL_CHUNKING=1     # attach per-document identity to each chunk (default 
 MAX_CONCURRENT_JOBS=2       # ingests one worker runs at once
 INGEST_MAX_ATTEMPTS=3       # tries before a job is failed for good
 INGEST_LEASE_SECONDS=1800   # claim lease; must exceed the slowest ingest
+INGEST_TIMEOUT_S=900        # wall-clock ceiling per job; MUST be < the lease
 WORKER_POLL_SECONDS=2       # idle poll interval
+
+# Timeouts
+LLM_TIMEOUT_S=120           # ceiling on one provider call (both providers)
 TOKEN_TTL_HOURS=24
 
 # Observability (optional — all tracing stays off unless these are set)

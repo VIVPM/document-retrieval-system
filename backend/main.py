@@ -72,12 +72,14 @@ from db.database import Base, SessionLocal, engine
 from db.models import (Account, ChatMessage, ChatSession, IngestJob,
                        LoginFailure, RefreshToken, now_ist)
 import job_queue
-from llm.llm_router import embed_model, llm as _llm
+from llm.llm_router import embed_model, estimate_cost_usd, llm as _llm
 from observability import (flush as trace_flush, init_http_tracing,
+                           record_cost, record_stream_quality,
                            init_metrics, init_observability, record_message,
                            set_output, trace_message)
 
 import contextlib
+import time
 
 import logging_setup
 
@@ -931,15 +933,31 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
                 _STOP = object()
                 gen = stream_answer(search_query, retrieved)
                 parts = []
+                # TTFT is measured from the moment generation starts, not from
+                # the request, so it reports the model's latency rather than
+                # retrieval's. Both are already on the span separately.
+                stream_started = time.monotonic()
+                ttft = None
                 try:
                     while True:
                         tok = await asyncio.to_thread(_next_or_stop, gen, _STOP)
                         if tok is _STOP:
                             break
+                        if ttft is None:
+                            ttft = time.monotonic() - stream_started
                         parts.append(tok)
                         yield _sse("token", tok)
                 except Exception:
                     log.exception("message stream failed", extra={"chat_id": chat_id})
+
+                # Usage comes off the stream's final chunk, so a streamed
+                # answer is both priceable and measurable in real tokens
+                # rather than in SSE chunks.
+                stream_usage = getattr(_llm, "last_stream_usage", None) or {}
+                record_stream_quality(span, ttft, len(parts),
+                                      time.monotonic() - stream_started,
+                                      output_tokens=stream_usage.get("output_tokens"))
+                record_cost(span, stream_usage, estimate_cost_usd(stream_usage))
 
                 answer = "".join(parts).strip()
                 if not answer:

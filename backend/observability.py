@@ -126,6 +126,66 @@ def set_output(span, text: str):
         logger.debug("set_output failed: %s", e)
 
 
+def record_stream_quality(span, ttft_s: float | None, chunks: int, total_s: float,
+                          output_tokens: int | None = None):
+    """Attach streaming quality to the message span.
+
+    TTFT and throughput are recorded SEPARATELY, and separately from total
+    latency, because they move independently: a fast first token with a slow
+    stream and a slow first token with a fast stream feel completely different
+    to a user and are indistinguishable inside one total. Only the total was
+    traced before.
+
+    Throughput uses OUTPUT TOKENS when the provider reports them, and falls
+    back to SSE chunks otherwise. The distinction matters more than it looks:
+    providers chunk differently -- measured on the same prompt, Gemini sent 3
+    chunks for 88 tokens and Cloudflare 46 for 101 -- so chunks/sec compares
+    chunking strategy, not speed, and would make one provider look 25x faster
+    than the other for no real reason.
+    """
+    if span is None:
+        return
+    try:
+        if ttft_s is not None:
+            span.set_attribute("gen_ai.stream.ttft_s", round(ttft_s, 3))
+        span.set_attribute("gen_ai.stream.chunks", chunks)
+        span.set_attribute("gen_ai.stream.duration_s", round(total_s, 3))
+        if total_s > 0:
+            if output_tokens:
+                span.set_attribute("gen_ai.stream.tokens_per_s",
+                                   round(output_tokens / total_s, 2))
+            else:
+                span.set_attribute("gen_ai.stream.chunks_per_s",
+                                   round(chunks / total_s, 2))
+    except Exception as e:
+        logger.debug("record_stream_quality failed: %s", e)
+
+
+def record_cost(span, usage: dict, cost_usd: float | None):
+    """Attach token counts and estimated cost to the message span.
+
+    Cost rather than tokens alone: rates differ per model and thinking tokens
+    bill at the output rate, so a token count cannot answer "what did today
+    cost" without a spreadsheet. A None cost sets no attribute at all, so an
+    unpriced model shows as missing rather than as free.
+    """
+    if span is None or not usage:
+        return
+    try:
+        for key, attr in (("model", "gen_ai.request.model"),
+                          ("prompt_tokens", "gen_ai.usage.input_tokens"),
+                          ("output_tokens", "gen_ai.usage.output_tokens"),
+                          ("thinking_tokens", "gen_ai.usage.thinking_tokens"),
+                          ("neurons", "gen_ai.usage.neurons")):
+            value = usage.get(key)
+            if value:
+                span.set_attribute(attr, value)
+        if cost_usd is not None:
+            span.set_attribute("gen_ai.usage.cost_usd", round(cost_usd, 6))
+    except Exception as e:
+        logger.debug("record_cost failed: %s", e)
+
+
 def flush():
     """Force-send buffered spans. Render can freeze the instance and drop the last trace."""
     if _llm_provider is None:

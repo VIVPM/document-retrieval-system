@@ -78,6 +78,56 @@ EMBED_DIM          = 768
 EMBED_CONCURRENCY  = int(os.getenv("EMBED_CONCURRENCY", "8"))
 
 
+# ── Cost ──────────────────────────────────────────────────────────────────────
+# Tokens are not money. Rates differ per model, and THINKING tokens bill at the
+# OUTPUT rate -- which for this app is the largest single line on a query's
+# bill, because answers run with a 2048-token thinking budget.
+#
+# Rates are USD per MILLION tokens, checked against the provider pricing pages.
+# They will drift; treat a number here as "last verified", not as truth. The
+# 4.0x flash/flash-lite ratio these produce matches the repo's own measured
+# $/q in the model sweep, which is the sanity check that they are not nonsense.
+PRICE_PER_MTOK = {
+    "gemini-2.5-flash":       {"in": 0.30, "out": 2.50},
+    "gemini-2.5-flash-lite":  {"in": 0.10, "out": 0.40},
+    "gemini-3.5-flash-lite":  {"in": 0.30, "out": 2.50},   # "lite" tracks the
+                                                           # generation, not the
+                                                           # old price point
+    "gemini-3.6-flash":       {"in": 1.00, "out": 8.00},
+}
+
+# Workers AI bills NEURONS, not tokens, so its cost cannot be derived from the
+# token counts. The API returns a neuron count per call; this converts it.
+# 10,000 neurons/day are free, and that allowance is per ACCOUNT -- shared with
+# anything else on it -- so a cost of 0 here does not mean a call was free, only
+# that it came out of an allowance something else may also be spending.
+USD_PER_1K_NEURONS = 0.011
+
+
+def estimate_cost_usd(usage: dict) -> float | None:
+    """Cost of one call from its usage dict, or None when it cannot be priced.
+
+    None rather than 0.0 for an unknown model: a zero would quietly under-report
+    a real bill and look like a free call, which is worse than an obvious gap.
+    """
+    if not usage:
+        return None
+
+    neurons = usage.get("neurons")
+    if neurons:
+        return (neurons / 1000.0) * USD_PER_1K_NEURONS
+
+    rates = PRICE_PER_MTOK.get(usage.get("model") or "")
+    if rates is None:
+        return None
+
+    # Thinking tokens are billed at the OUTPUT rate and are reported SEPARATELY
+    # from output tokens, so they have to be added rather than assumed included.
+    billed_out = (usage.get("output_tokens") or 0) + (usage.get("thinking_tokens") or 0)
+    return ((usage.get("prompt_tokens") or 0) / 1e6 * rates["in"]
+            + billed_out / 1e6 * rates["out"])
+
+
 # ── Resilience ────────────────────────────────────────────────────────────────
 # Retry the transport, never the reasoning. A 429 or a 503 is the provider
 # saying "not now"; a 400 or a refusal is it saying "not this", and retrying
@@ -238,6 +288,9 @@ class LLMRouter:
     def __init__(self):
         self._gemini = None
         self._cf = None
+        # Usage from the most recent stream() call. Streaming yields text,
+        # so the counts cannot be returned -- they are left here instead.
+        self.last_stream_usage: dict = {}
         if LLM_MODEL == "CLOUDFLARE":
             missing = [n for n, v in (("CLOUDFLARE_ACCOUNT_ID", CLOUDFLARE_ACCOUNT_ID),
                                       ("CLOUDFLARE_API_TOKEN", CLOUDFLARE_API_TOKEN)) if not v]
@@ -342,6 +395,9 @@ class LLMRouter:
             "output_tokens": getattr(u, "completion_tokens", None) or 0,
             "thinking_tokens": 0,
             "cached_tokens": 0,
+            # Workers AI bills neurons, not tokens; without this the call
+            # cannot be priced at all.
+            "neurons": getattr(u, "neurons", None) or 0,
         }
         return text, usage
 
@@ -413,6 +469,17 @@ class LLMRouter:
                                                          thinking, model),
                     provider, "complete")
                 if text:
+                    # Cost per call, tagged with the correlation id. Summing by
+                    # request_id then answers "what did this cost" for a message
+                    # AND for an ingest -- which a span cannot, because ingest
+                    # runs its LLM calls in raw thread pools that do not carry
+                    # the tracing context.
+                    cost = estimate_cost_usd(usage)
+                    log.info("llm call", extra={
+                        "provider": provider, "model": usage.get("model"),
+                        "in": usage.get("prompt_tokens"), "out": usage.get("output_tokens"),
+                        "thinking": usage.get("thinking_tokens"),
+                        "cost_usd": None if cost is None else round(cost, 6)})
                     return MockResponse(text, usage)
                 # An empty completion is not a transport failure, so it does not
                 # trip the breaker and must not fail over -- both providers
@@ -441,6 +508,10 @@ class LLMRouter:
         thinking = kwargs.get("thinking_budget", GEMINI_THINKING_BUDGET)
         model    = kwargs.get("model") or GEMINI_CHAT_MODEL
 
+        # Cleared per stream: reading a previous answer's usage would misreport
+        # cost silently, which is worse than reporting none.
+        self.last_stream_usage = {}
+
         if self._cf:
             try:
                 for chunk in self._cf.chat.completions.create(
@@ -455,6 +526,16 @@ class LLMRouter:
                     # Cloudflare's shim sends a chunk that is only a number as a
                     # JSON number, so content arrives as int. The SSE endpoint
                     # joins these into one string and would raise on it.
+                    u = getattr(chunk, "usage", None)
+                    if u is not None:
+                        self.last_stream_usage = {
+                            "model": CLOUDFLARE_MODEL,
+                            "prompt_tokens": getattr(u, "prompt_tokens", None) or 0,
+                            "output_tokens": getattr(u, "completion_tokens", None) or 0,
+                            "thinking_tokens": 0,
+                            "cached_tokens": 0,
+                            "neurons": getattr(u, "neurons", None) or 0,
+                        }
                     delta = chunk.choices[0].delta.content
                     if delta is not None and delta != "":
                         yield delta if isinstance(delta, str) else str(delta)
@@ -474,6 +555,18 @@ class LLMRouter:
                     thinking_config=types.ThinkingConfig(thinking_budget=thinking),
                 ),
             ):
+                # The final chunk carries usage_metadata, so a streamed answer
+                # CAN be priced -- it just has to be picked up on the way past.
+                # last_stream_usage is how the caller reads it afterwards.
+                m = getattr(chunk, "usage_metadata", None)
+                if m is not None:
+                    self.last_stream_usage = {
+                        "model": model,
+                        "prompt_tokens": getattr(m, "prompt_token_count", None) or 0,
+                        "output_tokens": getattr(m, "candidates_token_count", None) or 0,
+                        "thinking_tokens": getattr(m, "thoughts_token_count", None) or 0,
+                        "cached_tokens": getattr(m, "cached_content_token_count", None) or 0,
+                    }
                 if chunk.text:
                     yield chunk.text
         except Exception as e:

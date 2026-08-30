@@ -160,6 +160,12 @@ DAILY_MESSAGE_CAP=5       # REQUIRED — messages per account per day (1 credit 
 GEMINI_THINKING_BUDGET=2048  # fixed ceiling (default); 0 = off, -1 = dynamic
 GEMINI_FAST_MODEL=gemini-2.5-flash-lite   # classification + boundary detection
 CONTEXTUAL_CHUNKING=1     # attach per-document identity to each chunk (default 1, set 0 to disable)
+
+# Ingest queue / worker (all optional — defaults shown)
+MAX_CONCURRENT_JOBS=2       # ingests one worker runs at once
+INGEST_MAX_ATTEMPTS=3       # tries before a job is failed for good
+INGEST_LEASE_SECONDS=1800   # claim lease; must exceed the slowest ingest
+WORKER_POLL_SECONDS=2       # idle poll interval
 TOKEN_TTL_HOURS=24
 
 # Observability (optional — all tracing stays off unless these are set)
@@ -172,7 +178,28 @@ OTEL_SERVICE_NAME=document-retrieval-system
 ```
 
 
-### 4. Running the Frontend
+### 4. Running the Backend and the Ingest Worker
+
+Two processes. The API serves requests; the worker runs ingestion.
+
+```bash
+# API
+python -m uvicorn main:app --app-dir backend --port 8000
+
+# Ingest worker — in a second terminal
+python backend/worker.py
+```
+
+**Uploads queue but never finish without the worker running.** Ingestion is a
+row in `drs_ingest_jobs`, not a background task inside the API, so a deploy or
+crash of the API no longer destroys work in flight — restarting the worker just
+returns its jobs to the queue. `docker compose up` starts both.
+
+Run more than one worker if ingest is the bottleneck: the claim is a conditional
+`UPDATE ... FOR UPDATE SKIP LOCKED`, so a second worker takes different jobs
+rather than duplicating the first one's.
+
+### 5. Running the Frontend
 1.  Navigate to the frontend directory:
     ```bash
     cd frontend

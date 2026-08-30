@@ -100,6 +100,24 @@ def serve_mode(port, msg_seconds):
 
     import main
 
+    # Ingestion moved out of the API into worker.py, so the spawned server no
+    # longer finishes an upload on its own -- --calibrate would poll a chat
+    # that stays 'processing' until its 900s timeout. Run the worker loop in a
+    # daemon thread so a load-test server stays self-contained. Only
+    # --calibrate ingests; the other phases never enqueue, so this thread just
+    # polls an empty queue.
+    import asyncio as _asyncio
+    import threading as _threading
+
+    def _worker_thread():
+        import worker
+        try:
+            _asyncio.run(worker.main())
+        except Exception as e:
+            print(f"load-test worker stopped: {type(e).__name__}: {e}")
+
+    _threading.Thread(target=_worker_thread, daemon=True, name="ingest-worker").start()
+
     def stub_stream(*_a, **_k):
         # Sync generator: send_message pumps it through asyncio.to_thread, so a
         # real sleep here simulates generation latency without blocking the loop.

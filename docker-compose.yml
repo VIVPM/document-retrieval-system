@@ -14,6 +14,19 @@ services:
       - "8000:8000"
     restart: unless-stopped
 
+  # Same image as the API, different command. Ingestion is a separate process
+  # so a deploy or crash of the API cannot destroy work in flight -- restarting
+  # this one only returns its jobs to the queue.
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file: backend/.env
+    command: ["python", "worker.py"]
+    restart: unless-stopped
+    depends_on:
+      - api
+
   frontend:
     build:
       context: .

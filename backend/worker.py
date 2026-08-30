@@ -236,7 +236,7 @@ async def _reclaim_loop() -> None:
             n = job_queue.reclaim_stale()
             if n:
                 log.warning("reclaimed stale jobs", extra={"count": n})
-        except Exception as e:
+        except Exception:
             log.exception("reclaim failed")
         try:
             await asyncio.wait_for(_shutdown.wait(), timeout=RECLAIM_EVERY)
@@ -300,7 +300,7 @@ async def main() -> None:
 
         try:
             job = await asyncio.to_thread(job_queue.claim, WORKER_ID)
-        except Exception as e:
+        except Exception:
             log.exception("claim failed")
             job = None
 

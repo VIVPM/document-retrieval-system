@@ -124,7 +124,7 @@ def _recover_orphaned_ingests() -> None:
         left = len(stranded) - orphaned
         if left:
             log.info("chats left to the worker", extra={"count": left})
-    except Exception as e:
+    except Exception:
         db.rollback()
         log.exception("could not reconcile stranded ingests")
     finally:
@@ -920,7 +920,7 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
                 except HTTPException as e:
                     yield _sse("error", e.detail)
                     return
-                except Exception as e:
+                except Exception:
                     log.exception("message prepare failed", extra={"chat_id": chat_id})
                     yield _sse("error", "Something went wrong while preparing your answer.")
                     return
@@ -938,7 +938,7 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
                             break
                         parts.append(tok)
                         yield _sse("token", tok)
-                except Exception as e:
+                except Exception:
                     log.exception("message stream failed", extra={"chat_id": chat_id})
 
                 answer = "".join(parts).strip()
@@ -951,7 +951,7 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
 
                 try:
                     saved = await asyncio.to_thread(_save, answer, sources)
-                except Exception as e:
+                except Exception:
                     log.exception("message save failed", extra={"chat_id": chat_id})
                     yield _sse("error", "Your answer was generated but could not be saved.")
                     return

@@ -11,7 +11,8 @@ ownership and ingest status, so it cannot be derived from the messages table.
 
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import Column, DateTime, Index, Integer, String, Text
+from sqlalchemy import (Column, DateTime, Index, Integer, LargeBinary,
+                        String, Text)
 from sqlalchemy.dialects.postgresql import JSONB
 
 from db.database import Base
@@ -106,7 +107,50 @@ class ChatMessage(Base):
     created_at = Column(DateTime(timezone=True), default=now_ist)
 
 
+class IngestJob(Base):
+    """One queued ingestion. The queue is this table, claimed by conditional
+    UPDATE — no broker, because Neon is already here and a second service is
+    not (upgrade_roadmap.txt PART 4 has the Redis line).
+
+    The PDF itself lives in `payload` rather than on disk. A temp-file path
+    only works while the worker shares a filesystem with the API, and a job
+    whose bytes vanish on restart is not a durable queue. At MAX_UPLOAD_MB the
+    row stays small enough for Postgres to hold comfortably.
+
+    status: queued -> running -> done | failed
+    A crashed worker leaves a row in 'running' forever, so `claimed_at` is a
+    lease: reclaim_stale() returns anything past it to 'queued' while attempts
+    remain, and fails it after that. Without the lease a dead worker's job is
+    invisible and permanent.
+    """
+
+    __tablename__ = "drs_ingest_jobs"
+
+    id = Column(String, primary_key=True)            # uuid4 hex
+    chat_id = Column(String, index=True, nullable=False)
+    user_id = Column(Integer, index=True, nullable=False)
+
+    filename = Column(String, nullable=False)
+    payload = Column(LargeBinary, nullable=False)
+
+    status = Column(String, default="queued", index=True, nullable=False)
+    attempts = Column(Integer, default=0, nullable=False)
+    max_attempts = Column(Integer, default=3, nullable=False)
+    error = Column(Text)
+
+    # Who holds the lease and since when. claimed_by is for debugging only —
+    # the claim itself is decided by the UPDATE, never by reading this.
+    claimed_by = Column(String)
+    claimed_at = Column(DateTime(timezone=True))
+
+    created_at = Column(DateTime(timezone=True), default=now_ist)
+    updated_at = Column(DateTime(timezone=True), default=now_ist)
+
+
 # The common read is "all messages of one chat, in order".
 Index("ix_drs_messages_chat_id_id", ChatMessage.chat_id, ChatMessage.id)
 # The common list is "my chats, most recent first".
 Index("ix_drs_sessions_user_updated", ChatSession.user_id, ChatSession.updated_at)
+# The claim query is "oldest queued job", and the reclaim sweep is
+# "running jobs past their lease" — both ride this index.
+Index("ix_drs_jobs_status_created", IngestJob.status, IngestJob.created_at)

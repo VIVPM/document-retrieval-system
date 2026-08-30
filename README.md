@@ -170,6 +170,11 @@ WORKER_POLL_SECONDS=2       # idle poll interval
 
 # Timeouts
 LLM_TIMEOUT_S=120           # ceiling on one provider call (both providers)
+
+# Logging — JSON by default so lines are machine-readable in a log drain.
+# LOG_FORMAT=text gives a readable line for a local terminal.
+LOG_FORMAT=json             # json | text
+LOG_LEVEL=INFO
 TOKEN_TTL_HOURS=24
 
 # Observability (optional — all tracing stays off unless these are set)

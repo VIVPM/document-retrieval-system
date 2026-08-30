@@ -86,7 +86,16 @@ def claim(worker_id: str):
          RETURNING id, chat_id, user_id, filename, payload, attempts, max_attempts
         """), {"worker": worker_id, "now": now_ist()}).mappings().first()
         db.commit()
-        return dict(row) if row else None
+        if row is None:
+            return None
+        job = dict(row)
+        # psycopg hands bytea back as a memoryview. It writes to a file fine,
+        # which is why this went unnoticed, but it is not what the signature
+        # promises and it fails anything bytes-specific (startswith, hashing,
+        # equality against bytes). Normalise once, here, rather than leaving
+        # every caller to discover it.
+        job["payload"] = bytes(job["payload"])
+        return job
     except Exception:
         db.rollback()
         raise
@@ -116,6 +125,14 @@ def finish(job_id: str, ok: bool, error: str | None = None) -> None:
         else:
             job.status = "failed"
             job.error = (error or "")[:2000]
+
+        # Drop the PDF once the job can no longer run. The row is kept as the
+        # audit trail (attempts, error, timings) but the bytes are dead weight,
+        # and at one blob per upload the table would otherwise grow without
+        # bound. A requeued job keeps its payload -- it still needs it.
+        if job.status in ("done", "failed"):
+            job.payload = b""
+
         job.claimed_by = None
         job.claimed_at = None
         job.updated_at = now_ist()

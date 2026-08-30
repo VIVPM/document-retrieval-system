@@ -27,7 +27,6 @@ import asyncio
 import json
 import os
 import re
-import tempfile
 import uuid
 from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
@@ -52,7 +51,7 @@ from dotenv import load_dotenv
 # import time.
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
-from fastapi import (BackgroundTasks, Depends, FastAPI, File, HTTPException,
+from fastapi import (Depends, FastAPI, File, HTTPException,
                      Request, UploadFile)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -70,8 +69,9 @@ from core.answer_generator import (LLM_EMPTY_ANSWER, build_sources,
 from core.document_store import EnhancedDocumentStoreHybrid
 from core.query_rewriter import MAX_HISTORY_MESSAGES, rewrite_standalone
 from db.database import Base, SessionLocal, engine
-from db.models import (Account, ChatMessage, ChatSession, LoginFailure,
-                       RefreshToken, now_ist)
+from db.models import (Account, ChatMessage, ChatSession, IngestJob,
+                       LoginFailure, RefreshToken, now_ist)
+import job_queue
 from llm.llm_router import embed_model
 from observability import (flush as trace_flush, init_http_tracing,
                            init_metrics, init_observability, record_message,
@@ -80,38 +80,51 @@ from observability import (flush as trace_flush, init_http_tracing,
 Base.metadata.create_all(bind=engine)
 
 
-def _reap_stranded_ingests() -> None:
-    """Flip every 'processing' chat to 'failed' at startup.
+def _recover_orphaned_ingests() -> None:
+    """Reconcile chats stuck on 'processing' with the queue, at startup.
 
-    Ingest runs in a FastAPI BackgroundTask, which lives and dies with the
-    worker process. So any chat still 'processing' when this process starts has
-    no task advancing it — its worker is gone. Left alone it would poll forever
-    and, with the delete-while-processing guard, be undeletable. Runs once at
-    import, needs no scheduler.
+    Ingest used to run in a BackgroundTask, so a restart meant the work was
+    genuinely gone and the only honest move was to fail every 'processing'
+    chat. With a queue the work is a row, so failing them would throw away
+    jobs a worker is about to run. Now only chats with NO live job are failed;
+    the rest are left for the worker, which owns them.
 
-    ponytail: flips ALL processing chats, which is correct for one worker. With
-    several workers on one box a fresh worker could clobber another's in-flight
-    ingest — revisit when there is a second instance (that is the Redis line).
+    Still needed despite the queue: a crash between the upload commit and the
+    enqueue is impossible (one transaction), but a chat whose job row was
+    manually removed, or predates the queue entirely, would otherwise poll for
+    ever and resist deletion.
     """
     db = SessionLocal()
     try:
         stranded = db.query(ChatSession).filter(
             ChatSession.status == "processing").all()
+        orphaned = 0
         for chat in stranded:
+            live = db.query(IngestJob).filter(
+                IngestJob.chat_id == chat.id,
+                IngestJob.status.in_(("queued", "running")),
+            ).first()
+            if live is not None:
+                continue
             chat.status = "failed"
-            chat.error = "Ingestion was interrupted by a server restart. Re-upload the document."
+            chat.stage = None
+            chat.error = "Ingestion was interrupted and has no queued job. Re-upload the document."
             chat.updated_at = now_ist()
-        if stranded:
+            orphaned += 1
+        if orphaned:
             db.commit()
-            print(f"🧹 Reaped {len(stranded)} chat(s) stranded on 'processing'.")
+            print(f"🧹 Failed {orphaned} chat(s) processing with no queued job.")
+        left = len(stranded) - orphaned
+        if left:
+            print(f"⏳ {left} chat(s) still processing with a live job — the worker owns them.")
     except Exception as e:
         db.rollback()
-        print(f"⚠️  Could not reap stranded ingests: {type(e).__name__}: {e}")
+        print(f"⚠️  Could not reconcile stranded ingests: {type(e).__name__}: {e}")
     finally:
         db.close()
 
 
-_reap_stranded_ingests()
+_recover_orphaned_ingests()
 
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "3"))
 MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
@@ -424,77 +437,6 @@ def _get_retriever(db, chat: ChatSession) -> EnhancedDocumentStoreHybrid:
     return store
 
 
-def _ingest(chat_id: str, tmp_path: str, filename: str) -> None:
-    """Background ingestion. Owns the temp file and the chat's terminal status.
-
-    Runs after the response is sent, so nothing here may raise into a request.
-    Every exit path must leave status at 'ready' or 'failed' — a chat stuck on
-    'processing' looks identical to one still working.
-    """
-    def _set_stage(key: str) -> None:
-        """Write the current sub-step so /status can surface it. Its own session
-        and swallowing every error — a progress write must never break ingest."""
-        try:
-            s = SessionLocal()
-            try:
-                s.query(ChatSession).filter(ChatSession.id == chat_id).update(
-                    {ChatSession.stage: key})
-                s.commit()
-            finally:
-                s.close()
-        except Exception:
-            pass
-
-    db = SessionLocal()
-    try:
-        chat = db.query(ChatSession).filter(ChatSession.id == chat_id).first()
-        if chat is None:
-            return
-
-        store = EnhancedDocumentStoreHybrid(namespace=_ns(db, chat.user_id),
-                                            chat_id=chat_id)
-        success, stats = store.process_pdf(
-            tmp_path, filename=filename, embed_model=embed_model, on_stage=_set_stage
-        )
-
-        # Refresh: _set_stage wrote `stage` on a separate session, so this one's
-        # copy is stale. Clearing it here (part of the terminal commit) wins.
-        db.refresh(chat)
-        chat.stage = None
-        if success:
-            chat.status = "ready"
-            chat.error = None
-            chat.doc_stats = sanitize(stats)
-            chat.bm25_params = store.export_bm25_params()
-            if chat.title == "New Chat":
-                chat.title = filename[:120]
-            _retrievers[chat_id] = store
-        else:
-            chat.status = "failed"
-            chat.error = str(stats.get("error", "Processing failed."))[:2000]
-            # Half-built vectors would compete for top_k on every later
-            # query, so drop them rather than leave them behind.
-            store.retriever.delete_chat()
-
-        chat.updated_at = now_ist()
-        db.commit()
-
-    except Exception as e:
-        db.rollback()
-        chat = db.query(ChatSession).filter(ChatSession.id == chat_id).first()
-        if chat is not None:
-            chat.status = "failed"
-            chat.stage = None
-            chat.error = f"{type(e).__name__}: {e}"[:2000]
-            chat.updated_at = now_ist()
-            db.commit()
-        print(f"❌ Ingestion failed for {chat_id}: {type(e).__name__}: {e}")
-    finally:
-        db.close()
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
-
-
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
 def _issue_refresh_token(db, user_id: int) -> str:
@@ -704,16 +646,19 @@ def chat_status(chat_id: str, current_user: dict = Depends(get_current_user)):
 async def upload_document(
     request: Request,
     chat_id: str,
-    background: BackgroundTasks,
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user),
 ):
     """
-    Attach a PDF to a chat and start ingestion in the background.
+    Attach a PDF to a chat and queue it for ingestion.
 
     Returns 202 immediately — ingestion runs for minutes (Textract per-page,
     one LLM call per page for classification, one embedding call per chunk),
     which no HTTP client should be asked to hold open. Poll /status.
+
+    The work goes on the queue, not into this process: a BackgroundTask dies
+    with the API, so a deploy mid-ingest used to lose the document outright.
+    A queued job survives, and `worker.py` runs it.
     """
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are accepted.")
@@ -732,40 +677,38 @@ async def upload_document(
                 namespace=_ns(db, chat.user_id), chat_id=chat_id
             ).retriever.delete_chat()
 
-        # Stream to disk with a running size check — never read the whole upload
-        # into memory just to measure it.
-        tmp_path = None
-        total = 0
-        try:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-                tmp_path = tmp.name
-                while chunk := await file.read(1024 * 1024):
-                    total += len(chunk)
-                    if total > MAX_UPLOAD_BYTES:
-                        raise HTTPException(
-                            status_code=413,
-                            detail=f"File is larger than the {MAX_UPLOAD_MB} MB limit.",
-                        )
-                    tmp.write(chunk)
-        except Exception:
-            if tmp_path and os.path.exists(tmp_path):
-                os.remove(tmp_path)
-            raise
+        # Read with a running size check so an oversized upload is rejected
+        # mid-stream rather than after it has all arrived. The cap is small
+        # (MAX_UPLOAD_MB), which is what makes holding it in memory reasonable —
+        # it goes straight into the job row, so there is no temp file to leak
+        # if this process dies between here and the commit.
+        buf = bytearray()
+        while chunk := await file.read(1024 * 1024):
+            buf.extend(chunk)
+            if len(buf) > MAX_UPLOAD_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"File is larger than the {MAX_UPLOAD_MB} MB limit.",
+                )
 
-        if total == 0:
-            os.remove(tmp_path)
+        if not buf:
             raise HTTPException(status_code=400, detail="The uploaded file is empty.")
 
         chat.status = "processing"
-        chat.stage = None          # cleared; the ingest task sets each sub-step
+        chat.stage = None          # cleared; the worker sets each sub-step
         chat.error = None
         chat.filename = file.filename
         chat.doc_stats = None
         chat.bm25_params = None
         chat.updated_at = now_ist()
+
+        # One transaction for both, so a chat can never be left 'processing'
+        # with no job to advance it, nor a job exist for a chat that was never
+        # marked. That pairing is why enqueue does not commit for itself.
+        job_id = job_queue.enqueue(db, chat_id, chat.user_id, file.filename, bytes(buf))
         db.commit()
 
-        background.add_task(_ingest, chat_id, tmp_path, file.filename)
+        print(f"📥 Queued job {job_id[:8]} for chat {chat_id} ({file.filename})")
         return {"chat_id": chat_id, "status": "processing", "filename": file.filename}
     finally:
         db.close()
@@ -973,10 +916,10 @@ def delete_chat(chat_id: str, current_user: dict = Depends(get_current_user)):
     try:
         chat = _owned_chat(db, chat_id, current_user["user_id"])
 
-        # Ingest is a background task holding this chat's namespace and id
-        # prefix. Deleting now would remove the rows and then let that task
-        # finish writing vectors nothing owns — the UI disables the button,
-        # but the API is the boundary that has to enforce it.
+        # A queued or running job holds this chat's namespace and id prefix.
+        # Deleting now would remove the rows and then let the worker finish
+        # writing vectors nothing owns — the UI disables the button, but the
+        # API is the boundary that has to enforce it.
         if chat.status == "processing":
             raise HTTPException(
                 status_code=409,
@@ -992,6 +935,10 @@ def delete_chat(chat_id: str, current_user: dict = Depends(get_current_user)):
         ).retriever.delete_chat()
 
         db.query(ChatMessage).filter(ChatMessage.chat_id == chat_id).delete()
+        # Finished job rows outlive the ingest they describe; without this they
+        # would outlive the chat too, referencing a chat_id that no longer
+        # resolves. In-flight jobs cannot be here — the guard above returned 409.
+        db.query(IngestJob).filter(IngestJob.chat_id == chat_id).delete()
         db.delete(chat)
         db.commit()
         return {"success": True}

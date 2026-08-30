@@ -171,6 +171,9 @@ WORKER_POLL_SECONDS=2       # idle poll interval
 
 # Timeouts
 LLM_TIMEOUT_S=120           # ceiling on one provider call (both providers)
+ALLOW_FAILOVER=1            # on a provider outage, retry on the other one if
+                            # its credentials are set. 0 pins traffic to
+                            # LLM_MODEL even during an outage.
 
 # Logging — JSON by default so lines are machine-readable in a log drain.
 # LOG_FORMAT=text gives a readable line for a local terminal.
@@ -316,6 +319,7 @@ OpenTelemetry over OTLP, wired programmatically (not the `opentelemetry-instrume
 * **LLM spans → Langfuse + Grafana.** Each message is one `chat-message` trace with the rewrite and answer generations nested under it, tagged with user + session.
 * **HTTP spans → Grafana** (a separate provider, so Langfuse stays LLM-only).
 * **`chat_messages_total` metric → Grafana**, with a paste-importable dashboard and a muted error-rate alert (`backend/grafana/`).
+* **Cost and TTFT.** Estimated spend per call is a counter (`llm_cost_usd_total`) and time-to-first-token a histogram (`llm_ttft_seconds`), both by model, with dashboard panels. Cost rather than tokens because rates differ per model and thinking tokens bill at the *output* rate — measured here, 134 thinking tokens against 37 output on one answer. TTFT is recorded separately from total latency because they move independently; throughput is counted in output tokens, not SSE chunks, since providers chunk differently (Gemini 3 chunks for 88 tokens, Cloudflare 46 for 101).
 * **Structured JSON logs with a correlation id.** Every request gets one (an inbound `X-Request-ID` wins) and it is stored on the job row, so the API line that queued an upload and the worker line that ingested it share a `request_id` — one grep answers "what happened to this upload" across both processes. `LOG_FORMAT=text` for a readable local terminal.
 
 Everything is a no-op unless the env vars are set, and nothing raises — tracing must never break a request. Set `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_HOST`, and `GRAFANA_OTLP_ENDPOINT` / `GRAFANA_OTLP_AUTH` (the full `Basic <base64>` header) / `OTEL_SERVICE_NAME`.

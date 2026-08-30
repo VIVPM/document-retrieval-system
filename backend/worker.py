@@ -34,10 +34,14 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 import job_queue
+import logging_setup
 from core.document_store import EnhancedDocumentStoreHybrid
 from db.database import SessionLocal
 from db.models import Account, ChatSession, now_ist
 from llm.llm_router import embed_model, llm
+
+logging_setup.configure()
+log = logging_setup.get_logger("drs.worker")
 
 MAX_CONCURRENT_JOBS = int(os.getenv("MAX_CONCURRENT_JOBS", "2"))
 POLL_SECONDS = float(os.getenv("WORKER_POLL_SECONDS", "2"))
@@ -135,7 +139,8 @@ def run_job(job: dict) -> None:
     try:
         chat = db.query(ChatSession).filter(ChatSession.id == chat_id).first()
         if chat is None:
-            print(f"   job {job['id'][:8]}: chat {chat_id} is gone, dropping")
+            log.warning("chat gone, dropping job",
+                        extra={"job_id": job["id"], "chat_id": chat_id})
             return
 
         # The bytes live in the job row, so write them somewhere process_pdf
@@ -165,7 +170,8 @@ def run_job(job: dict) -> None:
                 chat.title = filename[:120]
             chat.updated_at = now_ist()
             db.commit()
-            print(f"   job {job['id'][:8]}: {chat_id} ready ({filename})")
+            log.info("chat ready", extra={"job_id": job["id"], "chat_id": chat_id,
+                                          "chunks": (stats or {}).get("total_chunks")})
             return
 
         # Half-built vectors would compete for top_k on every later query, so
@@ -229,9 +235,9 @@ async def _reclaim_loop() -> None:
         try:
             n = job_queue.reclaim_stale()
             if n:
-                print(f"🧹 Reclaimed {n} stale job(s) from dead workers.")
+                log.warning("reclaimed stale jobs", extra={"count": n})
         except Exception as e:
-            print(f"⚠️  Reclaim failed: {type(e).__name__}: {e}")
+            log.exception("reclaim failed")
         try:
             await asyncio.wait_for(_shutdown.wait(), timeout=RECLAIM_EVERY)
         except asyncio.TimeoutError:
@@ -241,29 +247,43 @@ async def _reclaim_loop() -> None:
 async def _run_one(job: dict, sem: asyncio.Semaphore) -> None:
     """Run a claimed job in a thread and record its outcome."""
     async with sem:
-        jid = job["id"][:8]
-        print(f"▶️  job {jid}: ingesting {job['filename']} for chat {job['chat_id']}")
+        jid = job["id"]
+        # Adopt the id the API logged this upload under. Without it the worker
+        # lines are a separate island and nothing connects an upload to the
+        # ingest it caused.
+        logging_setup.set_correlation_id(job.get("request_id") or jid[:16])
+        started = time.monotonic()
+        log.info("ingest started", extra={"job_id": jid, "chat_id": job["chat_id"],
+                                          "filename": job["filename"],
+                                          "attempt": job["attempts"],
+                                          "max_attempts": job["max_attempts"]})
         try:
             # No wait_for here: run_job enforces its own deadline from inside
             # the thread. Wrapping this in wait_for would report a timeout and
             # then block on the thread anyway, freeing no slot.
             await asyncio.to_thread(run_job, job)
             job_queue.finish(job["id"], ok=True)
+            log.info("ingest finished", extra={
+                "job_id": jid, "chat_id": job["chat_id"],
+                "duration_s": round(time.monotonic() - started, 1)})
         except Exception as e:
-            msg = f"{type(e).__name__}: {e}"
-            print(f"❌ job {jid}: {msg}")
+            will_retry = job["attempts"] < job["max_attempts"]
+            log.error("ingest failed", exc_info=True, extra={
+                "job_id": jid, "chat_id": job["chat_id"],
+                "attempt": job["attempts"], "will_retry": will_retry,
+                "duration_s": round(time.monotonic() - started, 1)})
             # finish() decides retry vs fail from the attempt count.
             try:
-                job_queue.finish(job["id"], ok=False, error=msg)
-            except Exception as e2:
-                print(f"⚠️  job {jid}: could not record failure: {e2}")
+                job_queue.finish(job["id"], ok=False, error=f"{type(e).__name__}: {e}")
+            except Exception:
+                log.exception("could not record job failure", extra={"job_id": jid})
 
 
 async def main() -> None:
-    print(f"🟢 Ingest worker {WORKER_ID} up "
-          f"(concurrency={MAX_CONCURRENT_JOBS}, poll={POLL_SECONDS}s, "
-          f"job timeout={INGEST_TIMEOUT_S}s, lease={job_queue.LEASE_SECONDS}s, "
-          f"llm={llm.label})")
+    log.info("worker up", extra={
+        "worker_id": WORKER_ID, "concurrency": MAX_CONCURRENT_JOBS,
+        "poll_s": POLL_SECONDS, "job_timeout_s": INGEST_TIMEOUT_S,
+        "lease_s": job_queue.LEASE_SECONDS, "llm": llm.label})
 
     sem = asyncio.Semaphore(MAX_CONCURRENT_JOBS)
     running: set[asyncio.Task] = set()
@@ -281,7 +301,7 @@ async def main() -> None:
         try:
             job = await asyncio.to_thread(job_queue.claim, WORKER_ID)
         except Exception as e:
-            print(f"⚠️  Claim failed: {type(e).__name__}: {e}")
+            log.exception("claim failed")
             job = None
 
         if job is None:
@@ -300,14 +320,18 @@ async def main() -> None:
     # them here would strand their chats on 'processing' until a lease expired,
     # which is the exact failure the queue exists to remove.
     if running:
-        print(f"⏳ Draining {len(running)} in-flight job(s); no new claims.")
+        log.info("draining before shutdown", extra={"in_flight": len(running)})
         await asyncio.gather(*running, return_exceptions=True)
     reclaimer.cancel()
-    print("👋 Ingest worker stopped cleanly.")
+    log.info("worker stopped cleanly")
 
 
 def _handle_signal(signum, _frame) -> None:
-    print(f"\n🛑 Signal {signum} received — finishing in-flight jobs, then exiting.")
+    # print, not log, on purpose: logging takes a lock, and a signal arriving
+    # while another thread holds it deadlocks the handler. Everything else in
+    # this module logs; this one line stays a write.
+    print(f"Signal {signum} received - finishing in-flight jobs, then exiting.",
+          flush=True)
     try:
         asyncio.get_running_loop().call_soon_threadsafe(_shutdown.set)
     except RuntimeError:

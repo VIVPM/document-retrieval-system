@@ -138,6 +138,10 @@ class IngestJob(Base):
     chat_id = Column(String, index=True, nullable=False)
     user_id = Column(Integer, index=True, nullable=False)
 
+    # The API request that created this job. The worker adopts it, so one
+    # grep follows an upload across both processes.
+    request_id = Column(String, index=True)
+
     filename = Column(String, nullable=False)
     payload = Column(LargeBinary, nullable=False)
 

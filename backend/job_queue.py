@@ -51,7 +51,8 @@ def content_key(chat_id: str, payload: bytes) -> str:
 
 
 def enqueue(db, chat_id: str, user_id: int, filename: str, payload: bytes,
-            idempotency_key: str | None = None) -> tuple[str, bool]:
+            idempotency_key: str | None = None,
+            request_id: str | None = None) -> tuple[str, bool]:
     """Add one ingestion to the queue. Returns (job_id, created).
 
     Caller owns the transaction and this does not commit: the API enqueues in
@@ -72,6 +73,7 @@ def enqueue(db, chat_id: str, user_id: int, filename: str, payload: bytes,
     job = IngestJob(
         id=uuid.uuid4().hex,
         idempotency_key=key,
+        request_id=request_id,
         chat_id=chat_id,
         user_id=user_id,
         filename=filename,
@@ -121,7 +123,8 @@ def claim(worker_id: str):
                     LIMIT 1
                     FOR UPDATE SKIP LOCKED
              )
-         RETURNING id, chat_id, user_id, filename, payload, attempts, max_attempts
+         RETURNING id, chat_id, user_id, filename, payload, attempts,
+                   max_attempts, request_id
         """), {"worker": worker_id, "now": now_ist()}).mappings().first()
         db.commit()
         if row is None:

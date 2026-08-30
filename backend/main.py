@@ -77,6 +77,11 @@ from observability import (flush as trace_flush, init_http_tracing,
                            init_metrics, init_observability, record_message,
                            set_output, trace_message)
 
+import logging_setup
+
+logging_setup.configure()
+log = logging_setup.get_logger("drs.api")
+
 Base.metadata.create_all(bind=engine)
 
 
@@ -113,13 +118,13 @@ def _recover_orphaned_ingests() -> None:
             orphaned += 1
         if orphaned:
             db.commit()
-            print(f"🧹 Failed {orphaned} chat(s) processing with no queued job.")
+            log.warning("failed orphaned chats", extra={"count": orphaned})
         left = len(stranded) - orphaned
         if left:
-            print(f"⏳ {left} chat(s) still processing with a live job — the worker owns them.")
+            log.info("chats left to the worker", extra={"count": left})
     except Exception as e:
         db.rollback()
-        print(f"⚠️  Could not reconcile stranded ingests: {type(e).__name__}: {e}")
+        log.exception("could not reconcile stranded ingests")
     finally:
         db.close()
 
@@ -227,6 +232,21 @@ init_metrics()            # chat_messages_total counter -> Grafana Cloud
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+@app.middleware("http")
+async def correlation_middleware(request: Request, call_next):
+    """Give every request an id and echo it back.
+
+    Honours an inbound X-Request-ID so a proxy's or a client's id wins and one
+    trace spans the whole hop; generates one otherwise. Echoed in the response
+    so a user reporting a failure can quote the exact id to grep for.
+    """
+    rid = (request.headers.get("X-Request-ID") or "").strip()[:64] or uuid.uuid4().hex[:16]
+    logging_setup.set_correlation_id(rid)
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = rid
+    return response
 
 RATE_SIGNUP = os.getenv("RATE_SIGNUP", "5/hour")
 RATE_LOGIN = os.getenv("RATE_LOGIN", "10/minute")
@@ -424,7 +444,7 @@ def _get_retriever(db, chat: ChatSession) -> EnhancedDocumentStoreHybrid:
 
     while len(_retrievers) >= MAX_CACHED_RETRIEVERS:
         evicted, _ = _retrievers.popitem(last=False)
-        print(f"♻️ Evicting cached retriever {evicted} (vectors are untouched)")
+        log.info("evicted cached retriever", extra={"chat_id": evicted})
 
     store = EnhancedDocumentStoreHybrid.rehydrate(
         namespace=_ns(db, chat.user_id),
@@ -713,13 +733,14 @@ async def upload_document(
         job_id, created = job_queue.enqueue(
             db, chat_id, chat.user_id, file.filename, bytes(buf),
             idempotency_key=(request.headers.get("Idempotency-Key") or "").strip() or None,
+            request_id=logging_setup.correlation_id.get(),
         )
         db.commit()
 
-        if created:
-            print(f"📥 Queued job {job_id[:8]} for chat {chat_id} ({file.filename})")
-        else:
-            print(f"🔁 Duplicate upload for chat {chat_id}; reusing job {job_id[:8]}")
+        log.info("upload queued" if created else "upload deduplicated",
+                 extra={"job_id": job_id, "chat_id": chat_id, "user_id": chat.user_id,
+                        "filename": file.filename, "bytes": len(buf),
+                        "duplicate": not created})
         return {"chat_id": chat_id, "status": "processing",
                 "filename": file.filename, "duplicate": not created}
     finally:
@@ -852,7 +873,7 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
                     yield _sse("error", e.detail)
                     return
                 except Exception as e:
-                    print(f"⚠️  message prepare failed: {type(e).__name__}: {e}")
+                    log.exception("message prepare failed", extra={"chat_id": chat_id})
                     yield _sse("error", "Something went wrong while preparing your answer.")
                     return
 
@@ -870,7 +891,7 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
                         parts.append(tok)
                         yield _sse("token", tok)
                 except Exception as e:
-                    print(f"⚠️  message stream failed: {type(e).__name__}: {e}")
+                    log.exception("message stream failed", extra={"chat_id": chat_id})
 
                 answer = "".join(parts).strip()
                 if not answer:
@@ -883,7 +904,7 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
                 try:
                     saved = await asyncio.to_thread(_save, answer, sources)
                 except Exception as e:
-                    print(f"⚠️  message save failed: {type(e).__name__}: {e}")
+                    log.exception("message save failed", extra={"chat_id": chat_id})
                     yield _sse("error", "Your answer was generated but could not be saved.")
                     return
                 if not saved:

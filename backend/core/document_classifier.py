@@ -40,6 +40,42 @@ VALID_DOC_TYPES = [
 # Document type classification
 # ---------------------------------------------------------------------------
 
+def _validate_doc_type(raw: str) -> str:
+    """Coerce a model reply to one of VALID_DOC_TYPES, or "Other".
+
+    Replaces a two-way substring test that was wrong in one direction. The old
+    check also asked whether the REPLY was contained in a label, so a one-token
+    answer matched by accident: "a" classified as Mortgage, "e" as Resume, "I"
+    as Discount Notice. Those are silent -- a wrong type strands the answer in a
+    bucket nobody searches.
+
+    Containment is now one-way (a label appears in the reply), which is what
+    handles a model that answers in a sentence, and a reply naming two labels is
+    treated as no answer rather than resolved by list order.
+    """
+    text = (raw or "").strip()
+    if not text:
+        print("Classification returned nothing; using Other")
+        return "Other"
+
+    lowered = text.lower()
+    for valid in VALID_DOC_TYPES:
+        if lowered == valid.lower():
+            return valid
+
+    hits = [v for v in VALID_DOC_TYPES if v.lower() in lowered]
+    if len(hits) == 1:
+        return hits[0]
+    if len(hits) > 1:
+        # Ambiguous by construction: "Other" is the documented fail-safe and is
+        # honest, where picking the first would look confident and be arbitrary.
+        print(f"Classification named several types {hits}; using Other")
+        return "Other"
+
+    print(f"Classification did not match any type ({text[:60]!r}); using Other")
+    return "Other"
+
+
 def classify_document_type(text: str, max_length: int = 1500) -> str:
     """
     Classify the document type based on its textual content.
@@ -90,20 +126,7 @@ def classify_document_type(text: str, max_length: int = 1500) -> str:
         # 32 tokens fits the longest label, "Preliminary Title Report".
         response = gemma_llm.complete(prompt, temperature=0, fast=True,
                                       thinking_budget=0, max_tokens=32)
-        doc_type = response.text.strip()
-
-        # Exact match (case-insensitive)
-        for valid_type in VALID_DOC_TYPES:
-            if doc_type.lower() == valid_type.lower():
-                return valid_type
-
-        # Fuzzy / partial match
-        doc_type_lower = doc_type.lower()
-        for valid_type in VALID_DOC_TYPES:
-            if valid_type.lower() in doc_type_lower or doc_type_lower in valid_type.lower():
-                return valid_type
-
-        return "Other"
+        return _validate_doc_type(response.text or "")
 
     except Exception as e:
         print(f"Classification error: {e}")
@@ -162,7 +185,21 @@ def detect_document_boundary(
         # Runs once per page, so it dominates ingest token cost.
         response = gemma_llm.complete(prompt, temperature=0, fast=True,
                                       thinking_budget=0, max_tokens=8)
-        return response.text.strip().lower().startswith("yes")
+        answer = (response.text or "").strip().lower()
+        if answer.startswith("yes"):
+            return True
+        if answer.startswith("no"):
+            return False
+
+        # Neither: fail SAFE, the same way the exception path does. This used to
+        # fall through to "not yes" -> False -> split, so an empty reply split
+        # the document instead of keeping it whole -- the opposite of the
+        # documented default, and silent. It matters because an empty reply is a
+        # real failure mode here: a reasoning model returns content=None at
+        # max_tokens=8, which would have split EVERY page.
+        print(f"Boundary detection unparseable ({(response.text or '')[:40]!r}); "
+              "keeping pages together")
+        return True
     except Exception as e:
         print(f"Boundary detection error: {e}")
         # Default: keep pages together if uncertain

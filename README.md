@@ -248,6 +248,15 @@ Every endpoint except signup and login requires `Authorization: Bearer <token>`.
 | `PATCH` | `/api/chats/{id}` | Rename |
 | `DELETE` | `/api/chats/{id}` | Drops the namespace **and** the rows |
 
+### Request and response headers
+
+| Header | Direction | Notes |
+|---|---|---|
+| `Idempotency-Key` | request | Optional, on `POST /document`. A resubmitted upload otherwise ingests twice and bills Textract twice. When absent the server derives a key from the chat id plus a hash of the bytes, so a double-tap or a client retry after a timeout is deduplicated with no client change. The response carries `duplicate: true` when a job was reused. |
+| `X-Request-ID` | both | Echoed on every response. Send one to have it used as the correlation id; otherwise the server generates it. The same id is stored on the job row and adopted by the worker, so one value follows an upload across both processes. |
+| `Retry-After` | response | Sent with every `429`, in seconds, derived from the limit that tripped. |
+
+
 **Chat lifecycle:** `awaiting_document → processing → ready | failed`
 
 A chat that belongs to another user returns **404, not 403** — a 403 would confirm the id exists.

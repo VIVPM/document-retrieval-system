@@ -1,13 +1,13 @@
 {
   "base": "http://127.0.0.1:8021",
-  "duration": 8.0,
+  "duration": 15,
   "mix": "read",
-  "estimated_ceiling": 100,
+  "estimated_ceiling": 40,
   "levels": [
     {
-      "clients": 5,
-      "fast_p50_ms": 938.0,
-      "fast_p95_ms": 2734.0,
+      "clients": 3,
+      "fast_p50_ms": 937.0,
+      "fast_p95_ms": 1219.0,
       "login_p95_ms": null,
       "req_s": 4,
       "error_pct": 0.0,
@@ -15,51 +15,51 @@
       "err_samples": []
     },
     {
-      "clients": 15,
-      "fast_p50_ms": 1141.0,
-      "fast_p95_ms": 3234.0,
+      "clients": 5,
+      "fast_p50_ms": 922.0,
+      "fast_p95_ms": 1172.0,
       "login_p95_ms": null,
-      "req_s": 10,
+      "req_s": 7,
+      "error_pct": 0.0,
+      "throttled": 0,
+      "err_samples": []
+    },
+    {
+      "clients": 10,
+      "fast_p50_ms": 937.0,
+      "fast_p95_ms": 1406.0,
+      "login_p95_ms": null,
+      "req_s": 13,
+      "error_pct": 0.0,
+      "throttled": 0,
+      "err_samples": []
+    },
+    {
+      "clients": 15,
+      "fast_p50_ms": 922.0,
+      "fast_p95_ms": 1313.0,
+      "login_p95_ms": null,
+      "req_s": 20,
       "error_pct": 0.0,
       "throttled": 0,
       "err_samples": []
     },
     {
       "clients": 25,
-      "fast_p50_ms": 937.0,
-      "fast_p95_ms": 2422.0,
+      "fast_p50_ms": 921.0,
+      "fast_p95_ms": 1188.0,
       "login_p95_ms": null,
-      "req_s": 22,
+      "req_s": 33,
       "error_pct": 0.0,
       "throttled": 0,
       "err_samples": []
     },
     {
-      "clients": 50,
-      "fast_p50_ms": 1610.0,
-      "fast_p95_ms": 2875.0,
+      "clients": 40,
+      "fast_p50_ms": 1203.0,
+      "fast_p95_ms": 2063.0,
       "login_p95_ms": null,
-      "req_s": 31,
-      "error_pct": 0.0,
-      "throttled": 0,
-      "err_samples": []
-    },
-    {
-      "clients": 75,
-      "fast_p50_ms": 1922.0,
-      "fast_p95_ms": 3813.0,
-      "login_p95_ms": null,
-      "req_s": 35,
-      "error_pct": 0.0,
-      "throttled": 0,
-      "err_samples": []
-    },
-    {
-      "clients": 100,
-      "fast_p50_ms": 2547.0,
-      "fast_p95_ms": 6719.0,
-      "login_p95_ms": null,
-      "req_s": 31,
+      "req_s": 39,
       "error_pct": 0.0,
       "throttled": 0,
       "err_samples": []

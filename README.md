@@ -310,6 +310,19 @@ All three retrieval modes over the same corpus and models — raw per-question o
 
 Healthy to **~25 concurrent browse clients**, **zero errors even at 100** (it degrades in latency, never fails). The ceiling is the DB connection pool: an A/B raising it from 15 → 30 (`pool_size=10 + max_overflow=20`) roughly **doubled** read throughput (~18 → ~33 req/s) and pushed the knee from ~50 to ~100. Streaming a `/message` competes for pooled connections with browse reads (`_prepare` / `_save`), so heavy answering degrades browsing ~1.4–2.3× — the pool is the lever.
 
+
+**This branch, measured on one dev box (`--ramp`, read mix).** Compared against `main` re-run in the same session on the same machine — the Render figures above are months old and from a different environment, so a difference read across them would have been noise:
+
+| Concurrent browse clients | p95 `main` | p95 this branch | req/s (both) | errors |
+|---|---|---|---|---|
+| 3 | 1219ms | 1187ms | 4 | 0 |
+| 10 | 1406ms | 1218ms | 13 | 0 |
+| 25 | 1188ms | 1219ms | 33 | 0 |
+| 40 | 2063ms | 2031ms | 39 | 0 |
+
+**The queue, the worker and the v2 instrumentation together cost nothing measurable.** Throughput is identical at every level, the ceiling is ~40 on both, and errors are zero throughout. Retries, the circuit breaker, cost accounting and TTFT capture all sit on the request path and none of them show up here.
+
+One number needs reading carefully. Under saturation this branch reports `chats` p95 **1375 → 2156ms (×1.6)** against `main`'s **968 → 2109ms (×2.2)**, which looks like an improvement and is not: the *saturated* values are the same (2156 vs 2109), and the ratio only shrank because this run's **idle** baseline happened to land higher. The ratio moved because the denominator moved. Read the saturated figure, not the multiplier.
 ---
 
 ## 📈 Observability

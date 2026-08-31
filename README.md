@@ -308,7 +308,7 @@ All three retrieval modes over the same corpus and models — raw per-question o
 | 50 | 1578ms | 6828ms | 0 |
 | 100 | 3031ms | 8640ms | 0 |
 
-Healthy to **~25 concurrent browse clients**, **zero errors even at 100** (it degrades in latency, never fails). The ceiling is the DB connection pool: an A/B raising it from 15 → 30 (`pool_size=10 + max_overflow=20`) roughly **doubled** read throughput (~18 → ~33 req/s) and pushed the knee from ~50 to ~100. Streaming a `/message` competes for pooled connections with browse reads (`_prepare` / `_save`), so heavy answering degrades browsing ~1.4–2.3× — the pool is the lever.
+Healthy to **~25 concurrent browse clients**, **zero errors even at 100** (it degrades in latency, never fails). The ceiling is the DB connection pool: an A/B raising it from 15 → 30 (`pool_size=10 + max_overflow=20`) roughly **doubled** read throughput (~18 → ~33 req/s) and pushed the knee from ~50 to ~100. Streaming a `/message` competes for pooled connections with browse reads (`_prepare` / `_save`), so heavy answering degrades browsing ~1.6–2.2× — the pool is the lever. **The `/health` half of that finding no longer reproduces:** it was recorded at 31 → 94ms (~3×) and now measures flat (32 → 31ms on `main`, 16 → 16ms here), so the asyncio thread-pool pressure it was attributed to is not visible on this machine. `/api/chats` still degrades, and that is the pool.
 
 
 **This branch, measured on one dev box (`--ramp`, read mix).** Compared against `main` re-run in the same session on the same machine — the Render figures above are months old and from a different environment, so a difference read across them would have been noise:

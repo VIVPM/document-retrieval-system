@@ -8,7 +8,7 @@ on:
   # Safe for feature branches because the deploy job below is gated on
   # github.ref == refs/heads/main, so they run the test jobs and never deploy.
   push:
-    branches: [main, document-retreival-v0-v1, document-retreival-v2]
+    branches: [main, document-retrieval-v012]
   pull_request:
 
 # A second push to main should cancel the first run's deploy rather than race it.

@@ -1,0 +1,260 @@
+========================================================================
+v0 / v1 / v2  —  Queue, Hardening, and Resilience
+========================================================================
+
+Branch: document-retrieval-v012  (v0 + v1 + v2)
+
+Builds on main. The former v0-v1 branch (document-retreival-v0-v1) was
+deleted — its work is a subset of this one.
+
+
+========================================================================
+PART 1: IMPLEMENTED
+========================================================================
+
+------------------------------------------------------------------------
+v0  —  Queue infrastructure  (7/7)
+------------------------------------------------------------------------
+
+1. AUTH (pre-existing, counted toward the v0 audit)
+   JWT access + refresh tokens, signup/login/logout, DB-backed lockout.
+
+2. SUBMIT / OBSERVE
+   POST .../document returns 202 and enqueues.  GET .../status returns the
+   chat's current state + stage.  Polling, not WebSocket.
+
+3. QUEUE — Postgres-as-broker
+   drs_ingest_jobs table.  The PDF bytes live in the row itself (not a temp
+   path — a temp file left by a dead process is a leak nobody cleans up).
+   MAX_UPLOAD_MB bounds the payload; finish() blanks it on done/failed so the
+   table does not grow one blob per upload for ever.
+
+   The claim is UPDATE … WHERE id = (SELECT … FOR UPDATE SKIP LOCKED).
+   Two workers see the same oldest row, so the SELECT cannot decide ownership;
+   the UPDATE does.  Verified: 8 threads racing 10 jobs → 10 unique claims.
+
+4. ONE WORKER  (worker.py)
+   Runs beside the API, not inside it.  A deploy or crash of the API no longer
+   destroys in-flight ingests — the work is a row that outlives the process.
+   docker-compose.yml starts both (same image, different command).
+
+   Concurrency is asyncio + threads (MAX_CONCURRENT_JOBS, default 2).  The
+   real ceiling is provider rate limits, not CPU — the worker spends nearly all
+   wall-clock time waiting on Textract and Gemini.
+
+5. HOT STORE
+   Pinecone is the primary store and persists beyond the process. Chat metadata
+   in Neon (Postgres).  No cold/archive tier.
+
+6. POLLING
+   GET /api/chats/{id}/status returns status + stage.  The frontend polls this
+   during ingestion.
+
+7. PYDANTIC BOUNDS
+   Upload limits (MAX_UPLOAD_MB), filename validation, chat/message IDs
+   validated at the boundary.
+
+
+------------------------------------------------------------------------
+v1  —  Hardening  (8/8, prompt caching closed on measurement)
+------------------------------------------------------------------------
+
+1. IDEMPOTENT UPLOADS
+   Key = chat_id + SHA-256 of the bytes (derived, not client-supplied).
+   A UNIQUE constraint on idempotency_key decides, not a SELECT — two
+   simultaneous submits both read "nothing there" and both insert, which is
+   exactly the shape a double-tap takes.  A savepoint wraps the insert so a
+   duplicate rolls back only itself, not the transaction that also flips the
+   chat to 'processing'.  Verified: 6 concurrent submits → 1 row.
+
+2. DURABLE STORE
+   The queue IS the durable store.  A job survives a process crash.
+   claimed_at is a lease; reclaim_stale() returns anything past LEASE_SECONDS
+   (1800) to 'queued' while attempts remain.  The chat is failed only on the
+   LAST attempt — flipping it while the job is still queued for retry tells
+   the user the work is lost at the moment a worker is about to retry it.
+   Startup recovery (_recover_orphaned_ingests) fails only chats with NO
+   queued or running job, instead of blanket-failing every 'processing' chat.
+
+3. WALL-CLOCK LIMITS
+   Two layers, neither interchangeable:
+   - LLM_TIMEOUT_S (120) bounds ONE provider call.  google-genai takes
+     MILLISECONDS, the OpenAI client takes seconds — passing seconds to Gemini
+     sets a 120ms deadline and fails every call.
+   - INGEST_TIMEOUT_S (900) bounds a whole job.  A document making slow
+     progress across many pages, each call finishing under its own limit,
+     would otherwise occupy a slot indefinitely.
+   The job timeout is COOPERATIVE: raised from the on_stage callback INSIDE
+   the thread.  asyncio.wait_for around asyncio.to_thread was tried first and
+   does not work — measured 60.1s against a 5s limit — because a thread cannot
+   be cancelled.
+   Both are constants in code (not env vars): they are one invariant and env
+   vars let the two halves drift apart.  The worker refuses to start if
+   INGEST_TIMEOUT_S ≥ LEASE_SECONDS.
+
+4. RATE LIMITS WITH RETRY-AFTER
+   slowapi's stock 429 sends no Retry-After.  The custom handler derives the
+   window from the limit definition ("5/hour" → 3600) so the header cannot
+   drift from the rule.
+
+5. PROMPT CACHING — closed, not skipped
+   SYSTEM_RULES is 419 tokens.  Gemini needs a 1,024-token prefix for both
+   implicit and explicit caching.  Padding to qualify costs ~600 junk tokens
+   for a 1,024-token discount — a net loss.  SYSTEM_RULES is kept first in
+   the prompt (context second) because that is the only order any cache could
+   use, but no padding is added.
+
+6. STRUCTURED-OUTPUT VALIDATION — two silent bugs found and fixed
+   - Classification tested containment BOTH ways, so a one-token reply matched
+     by accident: 'a' → Mortgage, 'e' → Resume.  Now one-way; a reply naming
+     two labels → "Other".
+   - Boundary detection returned "not yes" → False, so an empty reply SPLIT
+     the document — the opposite of the documented default.  A reasoning model
+     returning content=None at max_tokens=8 would have split every page.
+     Now matches yes/no explicitly; anything else → keep together (True).
+   Both bugs were backported to main (adapted to main's print idiom, since
+   logging_setup does not exist there).
+
+7. GRACEFUL SHUTDOWN
+   Worker: SIGTERM stops claiming and drains in-flight jobs.
+   API: lifespan context manager flushes OTel span exporters on shutdown, so
+   the last traces before a deploy are not lost in the buffer.
+
+8. STRUCTURED LOGS  (logging_setup.py)
+   JSON (prod) or text (local), controlled by LOG_FORMAT.  Every log line
+   carries the correlation id.
+   - An inbound X-Request-ID wins; it is echoed in the response.
+   - The id is stored on the job row so the worker adopts it — one grep
+     follows an upload across both processes.
+   - A ContextVar, not a global, because the API serves requests concurrently.
+   - json.dumps(default=str) so a stray type cannot crash a log call.
+   - One print survives (signal handler), because logging takes a lock and a
+     signal arriving while another thread holds it deadlocks the handler.
+
+
+------------------------------------------------------------------------
+v2  —  Resilience, cost, observability  (4 done + 1 partial)
+------------------------------------------------------------------------
+
+1. RETRIES + CIRCUIT BREAKER  (llm_router.py)
+   Retries are transport-only: 429/503/timeouts with exponential backoff +
+   full jitter.  400/401/403/404/422 are never retried — they are
+   deterministic and a retry pays twice for the same failure.
+
+   Full jitter is load-bearing: without it every in-flight request retries on
+   the same schedule and the second wave lands together.
+
+   The breaker counts CONSECUTIVE failures (5), not a rate.  After a cooldown
+   it half-opens: one probe goes through, success closes it, failure re-arms.
+   Not lock-protected — worst case is a miscount by one, and a lock would
+   serialise every LLM call.
+
+   THE QUEUE HALF: the worker stops CLAIMING while the circuit is open.
+   Without it an outage drains the backlog through the breaker, each job
+   burning its three attempts, and a recoverable blip becomes a pile of
+   permanently failed documents.
+
+2. CROSS-PROVIDER FAILOVER  (llm_router.py)
+   Primary → failover (GEMINI ↔ CLOUDFLARE) with retries on each.
+   ALLOW_FAILOVER=0 pins to primary.
+
+   Two deliberate refusals:
+   - Embeddings NEVER fail over — a different provider's vectors are a
+     different space, so failover silently corrupts retrieval.
+   - An empty completion never fails over and never trips the breaker — both
+     providers return the same nothing for a prompt the model will not answer.
+
+3. COST + TTFT DASHBOARDS  (observability.py, grafana/dashboard.json)
+   Metrics:
+   - llm_cost_usd_total (counter — rate() into $/hour; a gauge shows only the
+     last answer's price).
+   - llm_ttft_seconds (histogram — the tail is what users complain about; a
+     mean hides it).
+   - ingest_queue_depth (observable gauge by status).
+
+   Four Grafana panels: LLM spend/hour, LLM spend 24h (labelled a floor, not
+   an invoice — an unpriced model contributes nothing), TTFT p50/p95, queue
+   depth.
+
+   Cost accounting:
+   - estimate_cost_usd returns None (not 0.0) for an unknown model.
+   - Thinking tokens bill at the OUTPUT rate and are reported separately.
+   - Recorded on the span AND per-call in the structured log — the log is the
+     only way to price an ingest (those LLM calls run in raw thread pools with
+     no OTel context).
+   - TTFT recorded separately from total latency (they move independently).
+   - Throughput in OUTPUT TOKENS, not SSE chunks — providers chunk differently
+     (Gemini 3 chunks/88 tokens vs Cloudflare 46/101), and chunks/sec would
+     compare chunking strategy, not speed.
+
+4. PER-TENANT FAIRNESS  (job_queue.py)
+   Claim ordering is round-robin by when a user was last served
+   (MAX(claimed_at), NULLS FIRST so a new user goes to the head), then age.
+   Measured: 8 jobs from user A + 1 each from B, C → ABCAAAAAAA (was
+   AAAAAAAABC under FIFO).
+
+   The first attempt (ranking by queued-job count) was wrong: the count
+   collapses as jobs leave the queue, so the batch owner's second job ranks 0
+   after the first is claimed and wins on age.  Measured as exactly strict FIFO.
+
+   claimed_at is never cleared on finish or requeue — it IS the fairness
+   signal.  Blanking it would make a user who just ran ten jobs look
+   never-served.  Safe because reclaim_stale only looks at rows still in
+   'running'.
+
+   The rank is a correlated subquery (not ROW_NUMBER(), which Postgres rejects
+   with FOR UPDATE).  O(n²) in queued jobs — fine at this scale; at thousands,
+   move to a per-user last_served table.
+
+5. QUEUE-DEPTH EXPORT  (observability.py)  — partial
+   The depth is exported as an observable gauge and has a Grafana panel.
+   The SCALING half (auto-start a second worker when the backlog grows) needs
+   a Render plan that supports autoscaling.  At DAILY_MESSAGE_CAP=5 there is
+   no traffic that would trigger it — MAX_CONCURRENT_JOBS is the lever at
+   this size.  The panel notes not to scale on CPU: the worker is I/O-bound
+   on Textract and Gemini.
+
+
+========================================================================
+PART 2: NOT IMPLEMENTED
+========================================================================
+
+------------------------------------------------------------------------
+v0  —  nothing remaining
+------------------------------------------------------------------------
+
+All 7 items complete.
+
+
+------------------------------------------------------------------------
+v1  —  nothing remaining
+------------------------------------------------------------------------
+
+All 8 items complete (prompt caching closed on measurement, not deferred).
+
+Two related capabilities were investigated and closed:
+
+- BATCH EMBEDDING is impossible, not skipped.  gemini-embedding-2 is
+  special-cased in models.embed_content: it folds N inputs into one
+  multi-part content and returns a single vector, silently.  Concurrent
+  single-text calls (EMBED_CONCURRENCY) are the correct answer and are
+  already built.
+
+- TOOL SANDBOXING is N/A.  There are no tools, no agent loop, and no
+  model-triggered side effects, so egress allowlists and approval gates
+  describe a system this one is not.
+
+
+------------------------------------------------------------------------
+v2  —  one partial item
+------------------------------------------------------------------------
+
+QUEUE-DEPTH AUTOSCALING  (the scaling half of the depth story)
+   Seeing and alerting on the backlog is done (the gauge + panel).  Automatic
+   scaling — starting a second worker instance when the queue grows — requires
+   a Render paid plan that supports autoscaling, or a migration to Cloud Run /
+   Fly.io / Railway / ECS.  Under the Render free tier with
+   DAILY_MESSAGE_CAP=5, traffic is too low to trigger any autoscaler and
+   MAX_CONCURRENT_JOBS is the actual ceiling.
+
+   Not a code gap: the signal is there; the infra to act on it is not.

@@ -336,6 +336,29 @@ The saturated figure is **2156ms in both runs of this branch** — identical to 
 
 One caveat on that re-run: the 25-client level reported 4.1% errors, and they are **not** the app. The spawned server's log shows `psycopg2.OperationalError: could not translate host name … neon.tech` — intermittent DNS on this machine, measured at roughly 1 failure in 12 `getaddrinfo` calls during the same session, and the reason the run had to be started three times. A level showing errors while the level above it shows none is the signature of an environment flap, not a capacity knee.
 
+### The two modes that had never been run
+
+**`--msg-seconds` at a realistic value.** Every saturated run above simulates generation at the default **2.0s**, but `--calibrate` measures the real figure at **~9s** — and feeding it back is the whole reason that mode prints *"feed a value near p50 to `--msg-seconds`"*. Done at last:
+
+| generation time | saturated `chats` p95 | answers streamed | errors |
+|---|---|---|---|
+| 2.0s (default) | 2156ms | 45 | 0 |
+| **8.9s (measured)** | **2312ms** | 27 | 0 |
+
+**A 4.5× longer generation costs browsing about 7%.** That is the useful result: pool contention is driven by how often a message *starts and finishes* — `_prepare` and `_save` are the bookends that take connections — not by how long the model streams in between. So the cheap default is not lying to you, and the realistic run mainly costs throughput (27 answers vs 45).
+
+**`--mix all`**, which adds login to every cycle and is the only way to get login numbers at all:
+
+| endpoint | idle p95 | saturated p95 | ratio |
+|---|---|---|---|
+| login | 3594ms | 3640ms | ×1.0 |
+| chats | 1594ms | 2515ms | ×1.6 |
+| health | 15ms | 16ms | ×1.1 |
+
+**Login is by far the slowest endpoint (~3.6s) and completely flat under load.** That combination is the point: the cost is bcrypt burning CPU, not the connection pool, so streaming answers do not touch it. It does halve browse throughput when included (6 → 3 req/s), which is why `--mix read` remains the right default for reading the *streaming* signal.
+
+Two notes for whoever runs these next. `login` reported real samples (n=15 idle, n=11 saturated) with **0 throttled** — the spawned server lifts rate limits, so the empty-bucket/`null` case the harness guards against does not arise here. And `health` printed `xnan` because its idle p95 was 0ms; the JSON report is still valid (`null`, no bare `NaN` token), so that is a terminal-display artifact, not the JSON bug that was fixed earlier.
+
 **End to end on live providers (`--calibrate 3`).** The figures above stub the LLM boundary; this run does not. Against a real API + worker, with real Textract, Gemini and Pinecone:
 
 | | |
@@ -347,6 +370,17 @@ One caveat on that re-run: the 25-client level reported 4.1% errors, and they ar
 | Cost | ~$0.03–0.05 for the run — 7 Textract pages plus a handful of Flash calls |
 
 This is also the first confirmation that one correlation id spans both processes on live traffic: `3e16af72` appears on the API's `upload queued` and the worker's `ingest started` for the same document. Note `--calibrate` needs an API **and** a worker already running (`docker compose up`); unlike `--ramp`, it does not spawn them.
+
+**A second calibrate run accidentally became the best test of the retry path we have.** Gemini returned `429 RESOURCE_EXHAUSTED` mid-ingest — a real quota exhaustion, not a simulated fault — and the job failed on attempt 1 (66.5s), failed again on attempt 2 (57.3s), and **succeeded on attempt 3 of 3** (71.3s). Answers were unaffected: p50 8.9s, p95 12.5s, matching the clean run's 9.3s / 12.8s.
+
+Everything the queue is supposed to do under a provider outage, it did:
+
+* **`ready` took 207s instead of 64s** — the retries are visible in the wall clock and nowhere else.
+* **The chat was never flipped to `failed`** while attempts remained, so the user never saw "your upload is lost" during work that was about to succeed.
+* **Teardown ran between attempts** (`Deleted 0 vectors` each time), so no partial document accumulated across retries.
+* It used its **last attempt**. `INGEST_MAX_ATTEMPTS=3` is the whole margin against a provider having a bad minute.
+
+One rough edge this exposed: `calibrate()` calls `cleanup()` after printing results, and that call is not resilient to a transient DB blip — a DNS flap killed it, so the run reported its numbers and *then* traced back, leaving the load user behind. The numbers were already correct; re-run `--cleanup` and move on.
 
 ---
 

@@ -6,8 +6,8 @@
   "levels": [
     {
       "clients": 3,
-      "fast_p50_ms": 937.0,
-      "fast_p95_ms": 1187.0,
+      "fast_p50_ms": 906.0,
+      "fast_p95_ms": 1156.0,
       "login_p95_ms": null,
       "req_s": 4,
       "error_pct": 0.0,
@@ -16,8 +16,8 @@
     },
     {
       "clients": 5,
-      "fast_p50_ms": 938.0,
-      "fast_p95_ms": 1219.0,
+      "fast_p50_ms": 906.0,
+      "fast_p95_ms": 1156.0,
       "login_p95_ms": null,
       "req_s": 7,
       "error_pct": 0.0,
@@ -26,18 +26,18 @@
     },
     {
       "clients": 10,
-      "fast_p50_ms": 937.0,
-      "fast_p95_ms": 1218.0,
+      "fast_p50_ms": 921.0,
+      "fast_p95_ms": 1282.0,
       "login_p95_ms": null,
-      "req_s": 13,
+      "req_s": 14,
       "error_pct": 0.0,
       "throttled": 0,
       "err_samples": []
     },
     {
       "clients": 15,
-      "fast_p50_ms": 937.0,
-      "fast_p95_ms": 1203.0,
+      "fast_p50_ms": 922.0,
+      "fast_p95_ms": 1359.0,
       "login_p95_ms": null,
       "req_s": 20,
       "error_pct": 0.0,
@@ -46,20 +46,24 @@
     },
     {
       "clients": 25,
-      "fast_p50_ms": 937.0,
-      "fast_p95_ms": 1219.0,
+      "fast_p50_ms": 906.0,
+      "fast_p95_ms": 1188.0,
       "login_p95_ms": null,
-      "req_s": 33,
-      "error_pct": 0.0,
+      "req_s": 36,
+      "error_pct": 4.1,
       "throttled": 0,
-      "err_samples": []
+      "err_samples": [
+        "chats 500 Internal Server Error",
+        "chats 500 Internal Server Error",
+        "chat ReadError"
+      ]
     },
     {
       "clients": 40,
-      "fast_p50_ms": 1219.0,
-      "fast_p95_ms": 2031.0,
+      "fast_p50_ms": 1218.0,
+      "fast_p95_ms": 2078.0,
       "login_p95_ms": null,
-      "req_s": 39,
+      "req_s": 40,
       "error_pct": 0.0,
       "throttled": 0,
       "err_samples": []

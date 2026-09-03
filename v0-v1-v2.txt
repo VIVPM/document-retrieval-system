@@ -306,3 +306,30 @@ this branch against a live API + worker:
   chat row, the job row or the worker's own output said so — the job simply
   sat claimed until its lease expired.  Worth remembering as the shape of
   the failure, not just the bug: a queue makes a crash look like slowness.
+
+
+  THE STUBBED MODES WERE RE-RUN LOCALLY IN THE SAME SESSION
+  (--messages 15 --concurrency 5 --seed-messages 30, and --ramp over
+  3/5/10/15/25/40).  These spawn their own server, so unlike --calibrate
+  they need nothing running first, and they cost nothing.
+
+    saturated   health 16 -> 16ms (x1.0)   chats p95 938 -> 2156ms (x2.3)
+                chat 1641 -> 1672ms (x1.0), 45 answers streamed, 0 errors
+    ramp        3/5/10/15/40 clients at 0% errors, ceiling ~40,
+                req/s 4 / 7 / 14 / 20 / 40
+
+  The saturated number is the point.  Against the 2026-08-31 run of this
+  same branch, with no code change between them, chats p95 saturated at
+  2156ms BOTH TIMES — identical to the millisecond — while the ratio moved
+  x1.6 -> x2.3 purely because the idle baseline landed at 938 instead of
+  1375.  That is the "read the saturated figure, not the multiplier" trap
+  reproducing on demand, which is better evidence for it than the original
+  observation was.  /health measured flat a third time.
+
+  ONE NUMBER IN THAT RAMP IS NOT OURS.  The 25-client level reported 4.1%
+  errors while 40 clients reported 0%.  A real capacity knee is monotonic;
+  this was the box's DNS flapping (`could not translate host name …
+  neon.tech`, ~1 in 12 getaddrinfo calls, which also killed the three runs
+  before this one).  The spawned server.log carries the traceback.  Check
+  it before recording an error rate — the shape, errors BELOW a clean
+  level, is the giveaway.

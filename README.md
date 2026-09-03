@@ -324,6 +324,18 @@ Healthy to **~25 concurrent browse clients**, **zero errors even at 100** (it de
 
 One number needs reading carefully. Under saturation this branch reports `chats` p95 **1375 → 2156ms (×1.6)** against `main`'s **968 → 2109ms (×2.2)**, which looks like an improvement and is not: the *saturated* values are the same (2156 vs 2109), and the ratio only shrank because this run's **idle** baseline happened to land higher. The ratio moved because the denominator moved. Read the saturated figure, not the multiplier.
 
+**A re-run three days later confirmed exactly that.** Same branch, same box, no code change between them:
+
+| run | idle p95 | saturated p95 | ratio |
+|---|---|---|---|
+| `main`, 2026-08-31 | 968ms | 2109ms | ×2.2 |
+| this branch, 2026-08-31 | 1375ms | 2156ms | ×1.6 |
+| this branch, 2026-09-03 | 938ms | **2156ms** | ×2.3 |
+
+The saturated figure is **2156ms in both runs of this branch** — identical to the millisecond — while the ratio swung ×1.6 → ×2.3 purely on where the idle baseline landed. `/health` also measured flat again (16 → 16ms, ×1.0), which is the third independent run agreeing that the old ~3× `/health` degradation does not reproduce. The ramp re-run held its shape too: 0 errors at 3/5/10/15/40 clients, ceiling ~40.
+
+One caveat on that re-run: the 25-client level reported 4.1% errors, and they are **not** the app. The spawned server's log shows `psycopg2.OperationalError: could not translate host name … neon.tech` — intermittent DNS on this machine, measured at roughly 1 failure in 12 `getaddrinfo` calls during the same session, and the reason the run had to be started three times. A level showing errors while the level above it shows none is the signature of an environment flap, not a capacity knee.
+
 **End to end on live providers (`--calibrate 3`).** The figures above stub the LLM boundary; this run does not. Against a real API + worker, with real Textract, Gemini and Pinecone:
 
 | | |

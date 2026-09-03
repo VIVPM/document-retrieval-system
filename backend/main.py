@@ -790,7 +790,7 @@ async def upload_document(
 
         log.info("upload queued" if created else "upload deduplicated",
                  extra={"job_id": job_id, "chat_id": chat_id, "user_id": chat.user_id,
-                        "filename": file.filename, "bytes": len(buf),
+                        "doc_filename": file.filename, "bytes": len(buf),
                         "duplicate": not created})
         return {"chat_id": chat_id, "status": "processing",
                 "filename": file.filename, "duplicate": not created}

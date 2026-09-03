@@ -256,8 +256,10 @@ async def _run_one(job: dict, sem: asyncio.Semaphore) -> None:
         # ingest it caused.
         logging_setup.set_correlation_id(job.get("request_id") or jid[:16])
         started = time.monotonic()
+        # doc_filename, not filename: LogRecord already owns `filename` (the
+        # source file) and stdlib logging raises KeyError on the collision.
         log.info("ingest started", extra={"job_id": jid, "chat_id": job["chat_id"],
-                                          "filename": job["filename"],
+                                          "doc_filename": job["filename"],
                                           "attempt": job["attempts"],
                                           "max_attempts": job["max_attempts"]})
         try:

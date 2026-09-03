@@ -41,6 +41,34 @@ _STD = frozenset((
 ))
 
 
+class _SafeLogger(logging.Logger):
+    """A logger whose `extra=` cannot raise.
+
+    stdlib logging raises KeyError if an `extra` key collides with a field
+    LogRecord already owns, and several reserved names -- `filename`,
+    `module`, `process`, `name`, `message` -- are exactly what you would call
+    a log field. This is not theoretical: `extra={"filename": ...}` on the
+    'ingest started' line killed _run_one() before any work ran, so every job
+    was claimed and then silently abandoned until its 1800s lease expired.
+    The log call, not the ingest, was the failure.
+
+    Colliding keys are suffixed rather than dropped, so the value still
+    reaches the output instead of disappearing to make room for the record's.
+    """
+
+    def makeRecord(self, name, level, fn, lno, msg, args, exc_info,
+                   func=None, extra=None, sinfo=None):
+        if extra:
+            extra = {(f"{k}_" if k in _STD else k): v for k, v in extra.items()}
+        return super().makeRecord(name, level, fn, lno, msg, args, exc_info,
+                                  func, extra, sinfo)
+
+
+# Installed at import, before configure() or get_logger() can run, so every
+# logger this module hands out is the safe one.
+logging.setLoggerClass(_SafeLogger)
+
+
 class JsonFormatter(logging.Formatter):
     """One JSON object per line, with the correlation id and any extras."""
 
@@ -109,3 +137,16 @@ def get_logger(name: str) -> logging.Logger:
 
 def set_correlation_id(value: str) -> None:
     correlation_id.set(value)
+
+
+if __name__ == "__main__":
+    # python logging_setup.py -- the reserved-key guard, which is the one piece
+    # of logic here that can take a request down if it regresses.
+    _rec = _SafeLogger("t").makeRecord(
+        "t", logging.INFO, "f", 1, "m", (), None,
+        extra={"filename": "a.pdf", "module": "m", "job_id": "ok"})
+    assert _rec.filename == "f", "record's own field must win"
+    assert _rec.filename_ == "a.pdf", "colliding value must survive, suffixed"
+    assert _rec.module_ == "m"
+    assert _rec.job_id == "ok", "non-colliding keys must pass through unchanged"
+    print("logging_setup selftest OK")

@@ -130,6 +130,18 @@ v1  —  Hardening  (8/8, prompt caching closed on measurement)
    - json.dumps(default=str) so a stray type cannot crash a log call.
    - One print survives (signal handler), because logging takes a lock and a
      signal arriving while another thread holds it deadlocks the handler.
+   - extra= KEYS MUST NOT COLLIDE WITH LogRecord FIELDS, and the logger now
+     enforces it.  stdlib logging raises KeyError if `extra` carries a name
+     the record already owns, and `filename` — the source file — is exactly
+     what both the API's "upload queued" and the worker's "ingest started"
+     line passed.  The worker's was fatal: it is the first statement in
+     _run_one, so a job was claimed and abandoned before any stage ran, the
+     chat sat at 'processing' with stage NULL until the 1800s lease expired,
+     and each retry died at the same line — three attempts, over an hour, no
+     error recorded anywhere.  Both are now doc_filename, and _SafeLogger
+     suffixes any colliding key rather than raising, because several reserved
+     names (filename, module, process, name, message) are what a caller
+     naturally reaches for.  `python backend/logging_setup.py` checks it.
 
 
 ------------------------------------------------------------------------
@@ -258,3 +270,39 @@ QUEUE-DEPTH AUTOSCALING  (the scaling half of the depth story)
    MAX_CONCURRENT_JOBS is the actual ceiling.
 
    Not a code gap: the signal is there; the infra to act on it is not.
+
+
+========================================================================
+PART 3: END-TO-END VERIFICATION  (--calibrate, live providers)
+========================================================================
+
+Everything above is measured with the LLM boundary stubbed.  `--calibrate`
+is the one run that does not stub it: it uploads Test Blob File.pdf and
+sends real questions through real Textract, Gemini and Pinecone.  Run on
+this branch against a live API + worker:
+
+  ingest      upload -> ready in 64s  (58.5s inside the worker)
+              7 pages -> 3 logical documents -> 18 chunks
+              contextual chunking + BM25 fit both ran
+  answers     3 real questions, p50 9.3s  p95 12.8s  (min 8.9, max 12.8)
+  rewriter    2 calls for 3 messages — the first question has no history
+              to condense — at $0.00023 and $0.000242
+  cost        ~$0.03-0.05 for the whole run (7 Textract pages + a handful
+              of Flash calls); the $0.75/50-page figure elsewhere is the
+              EVAL packet, not this one
+
+  What this run actually proved, beyond the numbers: one correlation id
+  (3e16af72) appears on the API's "upload queued" and the worker's
+  "ingest started" for the same upload, which is the only thing the id was
+  added for and the first time it was confirmed across two live processes.
+  The lease also fired for real — a job orphaned by the crash below was
+  reclaimed on schedule and then correctly dropped as "chat gone", rather
+  than being retried against a deleted chat.
+
+  IT TOOK TWO FAILED ATTEMPTS TO GET HERE, AND BOTH WERE THE SAME BUG.
+  --calibrate hung twice with the chat stuck at 'processing'.  The cause
+  was the extra={"filename": ...} KeyError recorded under v1 item 8: the
+  worker claimed each job and died on its first log line.  Nothing in the
+  chat row, the job row or the worker's own output said so — the job simply
+  sat claimed until its lease expired.  Worth remembering as the shape of
+  the failure, not just the bug: a queue makes a crash look like slowness.

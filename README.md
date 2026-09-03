@@ -323,6 +323,19 @@ Healthy to **~25 concurrent browse clients**, **zero errors even at 100** (it de
 **The queue, the worker and the v2 instrumentation together cost nothing measurable.** Throughput is identical at every level, the ceiling is ~40 on both, and errors are zero throughout. Retries, the circuit breaker, cost accounting and TTFT capture all sit on the request path and none of them show up here.
 
 One number needs reading carefully. Under saturation this branch reports `chats` p95 **1375 → 2156ms (×1.6)** against `main`'s **968 → 2109ms (×2.2)**, which looks like an improvement and is not: the *saturated* values are the same (2156 vs 2109), and the ratio only shrank because this run's **idle** baseline happened to land higher. The ratio moved because the denominator moved. Read the saturated figure, not the multiplier.
+
+**End to end on live providers (`--calibrate 3`).** The figures above stub the LLM boundary; this run does not. Against a real API + worker, with real Textract, Gemini and Pinecone:
+
+| | |
+|---|---|
+| Ingest | upload → `ready` in **64s** (58.5s inside the worker) |
+| Pipeline | 7 pages → 3 logical documents → 18 chunks, contextual chunking + BM25 fit |
+| Answers | 3 real questions — **p50 9.3s**, p95 12.8s (min 8.9, max 12.8) |
+| Rewriter | 2 calls for 3 messages (the first has no history), $0.00023 / $0.000242 |
+| Cost | ~$0.03–0.05 for the run — 7 Textract pages plus a handful of Flash calls |
+
+This is also the first confirmation that one correlation id spans both processes on live traffic: `3e16af72` appears on the API's `upload queued` and the worker's `ingest started` for the same document. Note `--calibrate` needs an API **and** a worker already running (`docker compose up`); unlike `--ramp`, it does not spawn them.
+
 ---
 
 ## 📈 Observability
@@ -334,7 +347,7 @@ OpenTelemetry over OTLP, wired programmatically (not the `opentelemetry-instrume
 * **`chat_messages_total` metric → Grafana**, with a paste-importable dashboard and a muted error-rate alert (`backend/grafana/`).
 * **Ingest queue depth** (`ingest_queue_depth`, by status) as an observable gauge, with a panel. This is the signal to scale workers on — not CPU, which stays near-idle while the queue grows because the worker is I/O-bound on Textract and Gemini.
 * **Cost and TTFT.** Estimated spend per call is a counter (`llm_cost_usd_total`) and time-to-first-token a histogram (`llm_ttft_seconds`), both by model, with dashboard panels. Cost rather than tokens because rates differ per model and thinking tokens bill at the *output* rate — measured here, 134 thinking tokens against 37 output on one answer. TTFT is recorded separately from total latency because they move independently; throughput is counted in output tokens, not SSE chunks, since providers chunk differently (Gemini 3 chunks for 88 tokens, Cloudflare 46 for 101).
-* **Structured JSON logs with a correlation id.** Every request gets one (an inbound `X-Request-ID` wins) and it is stored on the job row, so the API line that queued an upload and the worker line that ingested it share a `request_id` — one grep answers "what happened to this upload" across both processes. `LOG_FORMAT=text` for a readable local terminal.
+* **Structured JSON logs with a correlation id.** Every request gets one (an inbound `X-Request-ID` wins) and it is stored on the job row, so the API line that queued an upload and the worker line that ingested it share a `request_id` — one grep answers "what happened to this upload" across both processes. `LOG_FORMAT=text` for a readable local terminal. **Never name an `extra=` key after a `LogRecord` field** (`filename`, `module`, `process`, `name`, `message`): stdlib logging raises `KeyError` on the collision. `extra={"filename": ...}` on the worker's first log line meant every job was claimed and then abandoned before any work ran, invisibly, until its 1800s lease expired. `_SafeLogger` now suffixes a colliding key instead of raising, so a log call can no longer be what fails.
 
 Everything is a no-op unless the env vars are set, and nothing raises — tracing must never break a request. Set `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_HOST`, and `GRAFANA_OTLP_ENDPOINT` / `GRAFANA_OTLP_AUTH` (the full `Basic <base64>` header) / `OTEL_SERVICE_NAME`.
 

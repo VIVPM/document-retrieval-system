@@ -333,3 +333,46 @@ this branch against a live API + worker:
   before this one).  The spawned server.log carries the traceback.  Check
   it before recording an error rate — the shape, errors BELOW a clean
   level, is the giveaway.
+
+
+  A SECOND CALIBRATE RUN BECAME THE BEST TEST OF THE RETRY PATH WE HAVE,
+  by accident.  Gemini returned 429 RESOURCE_EXHAUSTED mid-ingest — real
+  quota exhaustion, not a fault injected to prove a point.  The job failed
+  on attempt 1 (66.5s), failed on attempt 2 (57.3s), and succeeded on
+  ATTEMPT 3 OF 3 (71.3s).  Answers afterwards were normal: p50 8.9s,
+  p95 12.5s, against the clean run's 9.3s / 12.8s.
+
+  Every v0 guarantee held, under a real outage rather than a simulated one:
+    - ready took 207s instead of 64s.  The retries are visible in the wall
+      clock and nowhere else, which is the point of the design.
+    - the chat was NEVER flipped to 'failed' while attempts remained, so
+      the user was not told the work was lost during work that then
+      succeeded.  That invariant had only been reasoned about before.
+    - teardown ran between attempts (`Deleted 0 vectors` each time), so no
+      partial document accumulated across three passes.
+    - it used its LAST attempt.  INGEST_MAX_ATTEMPTS=3 is the whole margin
+      against a provider having a bad minute; this run spent all of it.
+
+  One rough edge exposed: calibrate() calls cleanup() after printing, and
+  that call is not crash-safe.  A DNS blip there tracebacks AFTER the
+  results are on screen, leaving the load user behind.  The numbers are
+  still good; re-run --cleanup.
+
+  THE LAST TWO UNRUN MODES, both on a spawned local server:
+    --msg-seconds 8.9 (the measured p50, instead of the 2.0s default —
+      closing the loop --calibrate's own closing line asks for):
+      saturated chats p95 2156 -> 2312ms, ~7%, 0 errors, 27 answers vs 45.
+      A 4.5x longer generation costs browsing almost nothing, because pool
+      contention tracks how often a message STARTS and FINISHES (_prepare
+      and _save hold the connections) rather than how long it streams in
+      between.  The cheap default is not lying to you.
+    --mix all (the only mode that yields login numbers at all):
+      login p95 3594 -> 3640ms x1.0, chats 1594 -> 2515ms x1.6,
+      health 15 -> 16ms.  Login is the slowest endpoint by a wide margin
+      AND completely flat under load — the cost is bcrypt on CPU, not the
+      pool, so streaming answers never touch it.  It halves browse
+      throughput (6 -> 3 req/s), which is why --mix read stays the default
+      for reading the streaming signal.
+      Correcting an older note: login was NOT throttled to n:0/null here.
+      The spawned server lifts rate limits, so real samples came back
+      (n=15 idle, n=11 saturated, 0 throttled).

@@ -259,7 +259,29 @@ All three retrieval modes over the same corpus and models — raw per-question o
 | 50 | 1578ms | 6828ms | 0 |
 | 100 | 3031ms | 8640ms | 0 |
 
-Healthy to **~25 concurrent browse clients**, **zero errors even at 100** (it degrades in latency, never fails). The ceiling is the DB connection pool: an A/B raising it from 15 → 30 (`pool_size=10 + max_overflow=20`) roughly **doubled** read throughput (~18 → ~33 req/s) and pushed the knee from ~50 to ~100. Streaming a `/message` competes for pooled connections with browse reads (`_prepare` / `_save`), so heavy answering degrades browsing ~2.2× — the pool is the lever. **The `/health` half of that finding no longer reproduces:** it was recorded at 31 → 94ms (~3×) and now measures flat (32 → 31ms), so the asyncio thread-pool pressure it was attributed to is not visible on this machine. `/api/chats` still degrades, and that is the pool.
+Healthy to **~25 concurrent browse clients**, **zero errors even at 100** (it degrades in latency, never fails). The ceiling is the DB connection pool: an A/B raising it from 15 → 30 (`pool_size=10 + max_overflow=20`) roughly **doubled** read throughput (~18 → ~33 req/s) and pushed the knee from ~50 to ~100. Streaming a `/message` competes for pooled connections with browse reads (`_prepare` / `_save`) — the pool is the lever. **The `/health` half of that finding no longer reproduces:** it was recorded at 31 → 94ms (~3×) and now measures flat (32 → 31ms), so the asyncio thread-pool pressure it was attributed to is not visible on this machine. `/api/chats` still degrades, and that is the pool.
+
+**Measured on one dev box**, the runs behind `backend/load_test_results/`. Absolute numbers are remote-Neon-from-a-laptop and mean little on their own; co-located on Render the floor collapses.
+
+Saturated — 15 streaming answers, 5 browse clients, read mix (`api_2026-08-31_20-44-10.json`):
+
+| endpoint | idle p95 | saturated p95 |
+|---|---|---|
+| `chats` | 968ms | **2109ms** |
+| `chat` | 1672ms | 1688ms |
+| `health` | 32ms | 31ms |
+
+45 answers streamed, 0 errors. Capacity ramp (`ramp_2026-08-31_20-46-39.json`), read mix:
+
+| clients | 3 | 5 | 10 | 15 | 25 | 40 |
+|---|---|---|---|---|---|---|
+| p95 | 1219ms | 1172ms | 1406ms | 1313ms | 1188ms | 2063ms |
+| req/s | 4 | 7 | 13 | 20 | 33 | 39 |
+
+0% errors at every level; estimated ceiling ~40.
+
+> [!NOTE]
+> **Quote the saturated figure, not the multiplier.** It is tempting to compress the first table into a ratio (`968 → 2109` is ×2.2), but the idle baseline wanders between runs on an unloaded box while the saturated value is stable — so the ratio moves even when nothing changed, and a *lower* ratio can mean a slower idle run rather than a faster loaded one. Repeat runs on this harness have disagreed on the multiplier while agreeing on the saturated milliseconds. Compare `2109ms`, not `×2.2`.
 
 ---
 

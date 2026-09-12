@@ -290,7 +290,11 @@
 }
 .upload-view h3 { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.025em; }
 .upload-view-sub { font-size: 0.82rem; color: var(--text-secondary); }
-.upload-view .upload-zone { width: 100%; max-width: 420px; }
+/* The zone and its button share one column, rather than the button spanning
+   the whole panel under a 420px zone. */
+.upload-view .upload-zone,
+.upload-view > .btn { width: 100%; max-width: 420px; }
+.upload-view .upload-zone:not(:hover):not(.drag-over) { background: var(--bg-card); }
 .upload-failed {
   max-width: 460px;
   display: flex;

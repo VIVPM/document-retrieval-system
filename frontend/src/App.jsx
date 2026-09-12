@@ -296,7 +296,7 @@ export default function App() {
             </p>
             <div className="modal-actions">
               <button
-                className="btn"
+                className="btn btn-secondary"
                 onClick={() => setPendingDelete(null)}
                 disabled={deleting}
                 autoFocus

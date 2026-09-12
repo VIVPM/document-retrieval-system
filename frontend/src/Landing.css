@@ -1,7 +1,12 @@
 /* Landing page — Linear aesthetic on the app's light tokens.
    Soft off-white canvas, hairline-bordered white panels, one blue accent,
    tight display type. Motion: staggered fade-in, scroll reveal, a streamed
-   answer mock — all gated on prefers-reduced-motion. */
+   answer mock — all gated on prefers-reduced-motion.
+
+   The nav (.lp-nav, .lp-wordmark), .btn-ghost / .btn-lg and the gradient
+   (.lp-mesh) are shared: the login screen and the app header use them too, so
+   every page carries the same look. This file is imported through App -> Landing
+   and therefore always in the bundle. */
 
 .lp {
   min-height: 100vh;
@@ -11,7 +16,9 @@
   color: var(--text-primary);
   overflow-x: clip;
 }
-.lp .btn { width: auto; }
+/* .btn is full-width by default (sidebar buttons); in the landing page and in
+   any nav that reuses its look, buttons size to their label. */
+.lp .btn, .lp-nav .btn { width: auto; }
 
 /* Nav */
 .lp-nav {
@@ -62,17 +69,22 @@
   margin: 0 auto;
   padding: 84px 24px 72px;
 }
-.lp-hero::before {
+.lp-hero::before,
+.lp-mesh::before {
   content: '';
   position: absolute;
   inset: -20% -40vw 10% -40vw;
   z-index: -1;
+  pointer-events: none;
   background:
     radial-gradient(38% 50% at 20% 12%, rgba(53,99,217,0.12) 0%, transparent 60%),
     radial-gradient(34% 48% at 78% 4%, rgba(124,58,237,0.09) 0%, transparent 58%),
     radial-gradient(40% 55% at 60% 60%, rgba(53,99,217,0.06) 0%, transparent 62%);
   animation: lp-mesh-drift 20s ease-in-out infinite alternate;
 }
+/* Any full-screen page can opt into the landing gradient. */
+.lp-mesh { position: relative; isolation: isolate; overflow: hidden; }
+.lp-mesh::before { inset: -30% -20%; }
 @keyframes lp-mesh-drift {
   from { transform: translateX(0) scale(1); }
   to   { transform: translateX(-3%) scale(1.05); }
@@ -335,22 +347,9 @@
 .lp-stagger-1.lp-in { transition-delay: 110ms; }
 .lp-stagger-2.lp-in { transition-delay: 220ms; }
 
-/* Auth back link (shown when the auth form is reached from the landing page) */
-.auth-back {
-  align-self: flex-start;
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  font-size: 0.84rem;
-  cursor: pointer;
-  padding: 0;
-  margin-bottom: 4px;
-}
-.auth-back:hover { color: var(--text-primary); }
-
 @media (prefers-reduced-motion: reduce) {
   .lp-fade, .lp-word, .lp-cite { opacity: 1; animation: none; transform: none; filter: none; }
-  .lp-hero::before { animation: none; }
+  .lp-hero::before, .lp-mesh::before { animation: none; }
   .lp-typing, .lp-caret { display: none; }
   .lp-msg.bot { min-height: 0; }
   .lp-reveal { opacity: 1; transform: none; transition: none; }

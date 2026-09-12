@@ -247,7 +247,7 @@ export default function ChatPanel({ chat, onChatChanged, addToast }) {
 
   if (chat.status === 'processing') {
     return (
-      <section className="chat-panel">
+      <section className="chat-panel lp-mesh">
         <ProcessingView filename={chat.filename || 'your document'} since={uploadStartedAt} stage={stage} />
       </section>
     )
@@ -255,7 +255,7 @@ export default function ChatPanel({ chat, onChatChanged, addToast }) {
 
   if (chat.status !== 'ready') {
     return (
-      <section className="chat-panel">
+      <section className="chat-panel lp-mesh">
         <UploadView
           chat={chat}
           addToast={addToast}

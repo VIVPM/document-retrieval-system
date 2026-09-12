@@ -1,5 +1,5 @@
-/* Landing page — Linear aesthetic on the app's dark tokens.
-   Near-black canvas, hairline-bordered charcoal panels, one blue accent,
+/* Landing page — Linear aesthetic on the app's light tokens.
+   Soft off-white canvas, hairline-bordered white panels, one blue accent,
    tight display type. Motion: staggered fade-in, scroll reveal, a streamed
    answer mock — all gated on prefers-reduced-motion. */
 
@@ -68,9 +68,9 @@
   inset: -20% -40vw 10% -40vw;
   z-index: -1;
   background:
-    radial-gradient(38% 50% at 20% 12%, var(--accent-glow) 0%, transparent 60%),
-    radial-gradient(34% 48% at 78% 4%, rgba(124,58,237,0.16) 0%, transparent 58%),
-    radial-gradient(40% 55% at 60% 60%, rgba(91,138,240,0.10) 0%, transparent 62%);
+    radial-gradient(38% 50% at 20% 12%, rgba(53,99,217,0.12) 0%, transparent 60%),
+    radial-gradient(34% 48% at 78% 4%, rgba(124,58,237,0.09) 0%, transparent 58%),
+    radial-gradient(40% 55% at 60% 60%, rgba(53,99,217,0.06) 0%, transparent 62%);
   animation: lp-mesh-drift 20s ease-in-out infinite alternate;
 }
 @keyframes lp-mesh-drift {
@@ -118,7 +118,7 @@
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: 0 24px 60px rgba(0,0,0,0.45), 0 0 0 1px rgba(91,138,240,0.05);
+  box-shadow: var(--shadow-lg);
   overflow: hidden;
 }
 .lp-mock-bar {

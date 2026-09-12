@@ -510,7 +510,7 @@
   background: var(--accent);
   color: #fff;
 }
-.btn-primary:hover:not(:disabled) { background: #4a78e0; transform: translateY(-1px); }
+.btn-primary:hover:not(:disabled) { background: var(--accent-hover); transform: translateY(-1px); }
 .btn-secondary {
   background: var(--bg-tertiary);
   color: var(--text-primary);
@@ -607,7 +607,7 @@ select, .select {
   cursor: pointer;
   appearance: none;
   -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24'%3E%3Cpath fill='%239ba3bf' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24'%3E%3Cpath fill='%237b8599' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 10px center;
   padding-right: 28px;
@@ -791,14 +791,15 @@ input[type=range]::-webkit-slider-thumb {
   transition: all var(--transition);
   flex-shrink: 0;
 }
-.send-btn:hover:not(:disabled) { background: #4a78e0; transform: translateY(-1px); }
+.send-btn:hover:not(:disabled) { background: var(--accent-hover); transform: translateY(-1px); }
 .send-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
 
 /* ── Spinner ─────────────────────────────────────────────────────── */
 .spinner {
   width: 16px; height: 16px;
-  border: 2px solid rgba(255,255,255,0.3);
-  border-top-color: white;
+  /* currentColor, so it shows on a white panel and inside a blue button alike */
+  border: 2px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-top-color: currentColor;
   border-radius: 50%;
   animation: spin .7s linear infinite;
   display: inline-block;
@@ -843,7 +844,7 @@ input[type=range]::-webkit-slider-thumb {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(4, 8, 16, 0.66);
+  background: rgba(15, 23, 42, 0.32);
   backdrop-filter: blur(2px);
   display: flex;
   align-items: center;
@@ -855,11 +856,11 @@ input[type=range]::-webkit-slider-thumb {
 
 .modal {
   width: min(26rem, 100%);
-  background: var(--panel, #131a24);
-  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 1.35rem 1.4rem 1.15rem;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--shadow-lg);
   animation: modal-rise 140ms ease-out;
 }
 
@@ -873,7 +874,7 @@ input[type=range]::-webkit-slider-thumb {
   margin: 0 0 1.25rem;
   font-size: 0.88rem;
   line-height: 1.55;
-  color: rgba(226, 232, 240, 0.72);
+  color: var(--text-secondary);
 }
 
 .modal-actions {

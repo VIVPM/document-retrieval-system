@@ -33,54 +33,58 @@ export default function Login({ onAuthenticated, onBack, initialMode = 'login' }
   }
 
   return (
-    <div className="auth-screen">
-      <form className="auth-card" onSubmit={submit}>
+    <div className="auth-page lp-mesh">
+      <nav className="lp-nav">
+        <span className="lp-wordmark"><span className="lp-logo">📄</span> DocQA</span>
         {onBack && (
-          <button type="button" className="auth-back" onClick={onBack}>← Back</button>
+          <button type="button" className="btn btn-ghost" onClick={onBack}>← Back</button>
         )}
-        <div className="auth-brand">
-          <span className="auth-logo">📄</span>
-          <h1>{isSignup ? 'Create your account' : 'Welcome back'}</h1>
-          <p>Ask questions about a document. One conversation per file.</p>
-        </div>
+      </nav>
+      <div className="auth-screen">
+        <form className="auth-card" onSubmit={submit}>
+          <div className="auth-brand">
+            <h1>{isSignup ? 'Create your account' : 'Welcome back'}</h1>
+            <p>Ask questions about a document. One conversation per file.</p>
+          </div>
 
-        <label className="auth-field">
-          <span>Username</span>
-          <input
-            type="email"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            autoComplete="username"
-            placeholder="you@gmail.com"
-            pattern="[^@\s]+@gmail\.com"
-            title="Must be a Gmail address ending in @gmail.com"
-            autoFocus
-            required
-          />
-        </label>
+          <label className="auth-field">
+            <span>Username</span>
+            <input
+              type="email"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              autoComplete="username"
+              placeholder="you@gmail.com"
+              pattern="[^@\s]+@gmail\.com"
+              title="Must be a Gmail address ending in @gmail.com"
+              autoFocus
+              required
+            />
+          </label>
 
-        <label className="auth-field">
-          <span>Password</span>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete={isSignup ? 'new-password' : 'current-password'}
-            required
-          />
-          {isSignup && <span className="auth-hint">At least 8 characters.</span>}
-        </label>
+          <label className="auth-field">
+            <span>Password</span>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete={isSignup ? 'new-password' : 'current-password'}
+              required
+            />
+            {isSignup && <span className="auth-hint">At least 8 characters.</span>}
+          </label>
 
-        {error && <div className="auth-error">{error}</div>}
+          {error && <div className="auth-error">{error}</div>}
 
-        <button className="btn btn-primary auth-submit" disabled={busy || !username || !password}>
-          {busy ? <><span className="spinner" /> Please wait…</> : (isSignup ? 'Create account' : 'Log in')}
-        </button>
+          <button className="btn btn-primary auth-submit" disabled={busy || !username || !password}>
+            {busy ? <><span className="spinner" /> Please wait…</> : (isSignup ? 'Create account' : 'Log in')}
+          </button>
 
-        <button type="button" className="auth-swap" onClick={swap}>
-          {isSignup ? 'Already have an account? Log in' : "New here? Create an account"}
-        </button>
-      </form>
+          <button type="button" className="auth-swap" onClick={swap}>
+            {isSignup ? 'Already have an account? Log in' : "New here? Create an account"}
+          </button>
+        </form>
+      </div>
     </div>
   )
 }

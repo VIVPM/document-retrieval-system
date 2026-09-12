@@ -2,20 +2,15 @@
 .app {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100vh;
 }
 
+/* The app header IS the landing nav (.lp-nav supplies padding, blur and the
+   wordmark); this only adds the hairline that separates it from the workspace. */
 .header {
-  padding: 18px 28px;
+  flex: none;
   border-bottom: 1px solid var(--border);
-  background: var(--bg-secondary);
-  display: flex;
-  align-items: center;
-  gap: 14px;
 }
-.header-icon { font-size: 28px; }
-.header h1 { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.3px; }
-.header p  { font-size: 0.78rem; color: var(--text-secondary); margin-top: 2px; }
 
 .header-user {
   margin-left: auto;
@@ -50,8 +45,8 @@
   grid-template-columns: 260px 1fr;
   gap: 0;
   flex: 1;
+  min-height: 0;   /* fill what the header leaves, without a hardcoded header height */
   overflow: hidden;
-  height: calc(100vh - 73px);
 }
 
 /* ── Chat rail ──────────────────────────────────────────────────── */
@@ -150,11 +145,17 @@
 }
 
 /* ── Auth screen ────────────────────────────────────────────────── */
-.auth-screen {
+.auth-page {
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+}
+.auth-screen {
+  flex: 1;
   display: grid;
   place-items: center;
-  padding: 24px;
+  padding: 24px 24px 72px;
 }
 .auth-card {
   width: 100%;
@@ -168,10 +169,10 @@
   gap: 16px;
   box-shadow: var(--shadow);
 }
-.auth-brand { text-align: center; display: flex; flex-direction: column; gap: 4px; }
-.auth-logo { font-size: 34px; }
-.auth-brand h1 { font-size: 1.3rem; font-weight: 700; letter-spacing: -0.3px; }
-.auth-brand p { font-size: 0.8rem; color: var(--text-secondary); }
+.auth-brand { text-align: center; display: flex; flex-direction: column; gap: 6px; margin-bottom: 4px; }
+/* Landing display type, one step down. */
+.auth-brand h1 { font-size: 1.55rem; font-weight: 700; letter-spacing: -0.03em; line-height: 1.15; }
+.auth-brand p { font-size: 0.86rem; color: var(--text-secondary); }
 
 .auth-field { display: flex; flex-direction: column; gap: 5px; }
 .auth-field > span:first-child {
@@ -287,7 +288,7 @@
   padding: 32px;
   text-align: center;
 }
-.upload-view h3 { font-size: 1.05rem; font-weight: 600; }
+.upload-view h3 { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.025em; }
 .upload-view-sub { font-size: 0.82rem; color: var(--text-secondary); }
 .upload-view .upload-zone { width: 100%; max-width: 420px; }
 .upload-failed {
@@ -746,9 +747,9 @@ input[type=range]::-webkit-slider-thumb {
   color: var(--text-muted);
   text-align: center;
 }
-.empty-chat .empty-icon { font-size: 56px; opacity: 0.4; }
-.empty-chat h3 { font-size: 1.1rem; font-weight: 600; color: var(--text-secondary); }
-.empty-chat p  { font-size: 0.82rem; max-width: 360px; }
+.empty-chat .empty-icon { font-size: 48px; opacity: 0.55; }
+.empty-chat h3 { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.025em; color: var(--text-primary); }
+.empty-chat p  { font-size: 0.9rem; max-width: 360px; color: var(--text-secondary); }
 
 /* ── Chat Input ─────────────────────────────────────────────────── */
 .chat-input-bar {

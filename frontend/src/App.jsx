@@ -225,12 +225,8 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="header">
-        <span className="header-icon">📄</span>
-        <div>
-          <h1>Document Q&amp;A</h1>
-          <p>One conversation per document</p>
-        </div>
+      <header className="lp-nav header">
+        <span className="lp-wordmark"><span className="lp-logo">📄</span> DocQA</span>
         <div className="header-user">
           {credits && (
             <span
@@ -277,7 +273,7 @@ export default function App() {
             addToast={addToast}
           />
         ) : (
-          <section className="chat-panel">
+          <section className="chat-panel lp-mesh">
             <div className="empty-chat">
               <div className="empty-icon">📄</div>
               <h3>No conversation selected</h3>

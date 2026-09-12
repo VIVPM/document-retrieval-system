@@ -6,27 +6,33 @@
   padding: 0;
 }
 
+/* Light theme. Every surface in the app reads these tokens, so the palette
+   lives here and nowhere else — a hardcoded colour elsewhere is a bug. */
 :root {
-  --bg-primary:    #0d0f14;
-  --bg-secondary:  #13161d;
-  --bg-tertiary:   #1a1e28;
-  --bg-card:       #1e2330;
-  --bg-hover:      #252a38;
-  --border:        #2d3347;
-  --border-focus:  #5b8af0;
-  --accent:        #5b8af0;
-  --accent-glow:   rgba(91,138,240,0.18);
+  color-scheme: light;
+  --bg-primary:    #f6f7fb;
+  --bg-secondary:  #ffffff;
+  --bg-tertiary:   #f0f2f7;
+  --bg-card:       #ffffff;
+  --bg-hover:      #eaedf4;
+  --border:        #e1e5ee;
+  --border-focus:  #3563d9;
+  /* Darker than the old #5b8af0 so white button text clears 4.5:1 on it. */
+  --accent:        #3563d9;
+  --accent-hover:  #2a52bb;
+  --accent-glow:   rgba(53,99,217,0.10);
   --accent-2:      #7c3aed;
-  --green:         #22c55e;
-  --red:           #ef4444;
-  --yellow:        #f59e0b;
-  --text-primary:  #e8eaf2;
-  --text-secondary:#9ba3bf;
-  --text-muted:    #5a6382;
+  --green:         #16a34a;
+  --red:           #dc2626;
+  --yellow:        #d97706;
+  --text-primary:  #0f172a;
+  --text-secondary:#475569;
+  --text-muted:    #7b8599;
   --radius-sm:     6px;
   --radius-md:     10px;
   --radius-lg:     14px;
-  --shadow:        0 4px 24px rgba(0,0,0,0.4);
+  --shadow:        0 4px 24px rgba(15,23,42,0.08);
+  --shadow-lg:     0 24px 60px rgba(15,23,42,0.12);
   --transition:    0.18s ease;
 }
 

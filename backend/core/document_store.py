@@ -108,6 +108,7 @@ class EnhancedDocumentStoreHybrid:
             self.processing_stats = {
                 'filename': filename,
                 'total_pages': len(self.pages_info),
+                'empty_pages': [p.page_num + 1 for p in self.pages_info if not p.text.strip()],
                 'documents_found': len(self.logical_docs),
                 'total_chunks': len(self.chunks_metadata),
                 'document_types': list(set(doc.doc_type for doc in self.logical_docs)),

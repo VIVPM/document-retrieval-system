@@ -458,6 +458,11 @@ export default function ChatPanel({ chat, onChatChanged, addToast }) {
           <span className="doc-meta">
             {stats.total_pages} pages · {stats.documents_found} documents · {stats.total_chunks} chunks
           </span>
+          {stats.empty_pages?.length > 0 && (
+            <span className="doc-warn" title="Scanned pages have no text layer. Textract extraction can read them.">
+              ⚠ No readable text on page{stats.empty_pages.length > 1 ? 's' : ''} {stats.empty_pages.join(', ')}. Not searched or reviewed.
+            </span>
+          )}
         </div>
         {review && (
           <div className="file-tabs" role="tablist">

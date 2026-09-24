@@ -225,6 +225,7 @@
   text-overflow: ellipsis;
 }
 .doc-meta { font-size: 0.72rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.doc-warn { font-size: 0.72rem; font-weight: 600; color: var(--yellow); }
 .doc-strip-btn {
   margin-left: auto;
   background: none;

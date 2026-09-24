@@ -524,3 +524,33 @@ ChatPanel stage poll).
 Rationale that lived in comments now lives only in CLAUDE.md and
 upgrade_roadmap.txt.
 For main: apply the same rule to main's files (not a copy of v012's).
+
+======================================================================
+22. FIXES BROUGHT BACK FROM MAIN                                 [v012]
+======================================================================
+Main's port (main's log, sections 22-24) found bugs that were also here.
+Applied by taking main's version of each file. The earlier comparison showed these
+files differed from main only by those fixes (diff sizes matched):
+review.py, pdf_processor.py, answer_generator.py, retriever.py,
+document_store.py, eval/model_eval.py, ChatPanel.jsx, App.css; plus
+the summary-source page fix by hand in main.py (upload code differs).
+
+1. Citation pages were 0-based (sources, the prompt, summary source,
+   eval prompt): answers cited one page early. Now +1 everywhere.
+2. Review grounding ignored "|" table separators poorly: a value quoted
+   from a table row never matched. _flat() drops them both sides.
+3. Review list items wrapped as {"value": ..} were dropped as
+   ungrounded (lost all 8 bank transactions on main). Now unwrapped.
+   2 and 3 have selftest cases.
+4. A PDF with no text anywhere was indexed blank; now the ingest fails
+   with a clear "looks scanned" message.
+5. doc_stats.empty_pages + file-header warning for pages with no text.
+6. PyMuPDF find_tables() -> "table" blocks (kept whole by the chunker).
+7. PyMuPDF only: boundary detection gets table text with separators
+   flattened (with them, 2 of 7 boundaries were wrong 3/3 times).
+Already on v012, so not ported back: retries (main got v012's).
+
+Verified (v012): ruff, review/chunker/logging/load_test selftests,
+eslint, build; real run with API + worker (pymupdf): 5 documents split
+correctly, review matches answer_key.md, answer "$2,845.31" cited
+"Pay Slip pages 3-4" (was 0-based before). Test chat deleted.

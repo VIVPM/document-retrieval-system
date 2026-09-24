@@ -1,6 +1,7 @@
 """pdf_processor.py — PDF extraction and multi-document analysis pipeline."""
 
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Tuple
 
@@ -108,6 +109,29 @@ def _extract_textract(file_path: str) -> dict:
     return pages
 
 
+def _flatten_tables(text: str) -> str:
+    """Table cell separators replaced by spaces, for the boundary check on
+    PyMuPDF text: with "a | b" rows the model called different documents the same."""
+    return re.sub(r"[ \t]*(?:\|[ \t]*)+", " ", text)
+
+
+def _pymupdf_tables(page) -> list:
+    """Tables on a page as {bbox, content}, rows joined with " | " like Textract's."""
+    try:
+        found = page.find_tables().tables
+    except Exception as e:
+        print(f"⚠️ Table detection failed on page {page.number + 1}: {e}")
+        return []
+    out = []
+    for t in found:
+        rows = [" | ".join((c or "").replace("\n", " ").strip() for c in row)
+                for row in t.extract()]
+        content = "\n".join(r for r in rows if r.replace("|", "").strip())
+        if content:
+            out.append({"bbox": tuple(t.bbox), "content": content})
+    return out
+
+
 def _extract_pymupdf(file_path: str, y_tol: float = 3.0) -> dict:
     """Local, NO-AI extraction (PyMuPDF)."""
     import fitz
@@ -116,10 +140,17 @@ def _extract_pymupdf(file_path: str, y_tol: float = 3.0) -> dict:
     pages, scanned = {}, []
     try:
         for pno in range(doc.page_count):
-            words = doc[pno].get_text(
+            page = doc[pno]
+            words = page.get_text(
                 "words", flags=fitz.TEXTFLAGS_WORDS & ~fitz.TEXT_PRESERVE_LIGATURES)
             if not words:
                 scanned.append(pno + 1)
+            tables = _pymupdf_tables(page) if words else []
+            if tables:
+                rects = [fitz.Rect(t["bbox"]) for t in tables]
+                words = [w for w in words
+                         if not any(r.contains(fitz.Point((w[0] + w[2]) / 2, (w[1] + w[3]) / 2))
+                                    for r in rects)]
             words.sort(key=lambda w: (w[1], w[0]))
             blocks, line = [], None
             for w in words:
@@ -135,6 +166,9 @@ def _extract_pymupdf(file_path: str, y_tol: float = 3.0) -> dict:
                 if text:
                     page_blocks.append({"type": "text", "y_pos": float(line["y"]),
                                         "x_pos": float(cells[0][0]), "content": text})
+            for t in tables:
+                page_blocks.append({"type": "table", "y_pos": float(t["bbox"][1]),
+                                    "x_pos": float(t["bbox"][0]), "content": t["content"]})
             pages[str(pno + 1)] = page_blocks
     finally:
         doc.close()
@@ -208,8 +242,10 @@ def extract_and_analyze_pdf(
             print(f"  Page {page_no}: {len(page_text)} chars, "
                   f"{len(blocks)} blocks ({n_tables} tables)")
 
-        if not pages_info:
-            raise ValueError("No text could be extracted from PDF")
+        if not any(p.text.strip() for p in pages_info):
+            raise ValueError(
+                "No text could be read from this PDF. It looks scanned; scanned "
+                "pages need EXTRACT_METHOD=textract, or upload a PDF with a text layer.")
 
     finally:
         if is_temp and os.path.exists(file_path):
@@ -219,13 +255,15 @@ def extract_and_analyze_pdf(
         on_stage("split")
     print("🧠 Analysing document structure...")
 
+    boundary_text = _flatten_tables if method == "pymupdf" else (lambda t: t)
     with ThreadPoolExecutor(max_workers=PAGE_CONCURRENCY) as pool:
         page_types = list(pool.map(
             lambda p: classify_document_type(p.text), pages_info))
 
         same_as_prev = list(pool.map(
             lambda i: detect_document_boundary(
-                pages_info[i - 1].text, pages_info[i].text, page_types[i - 1]),
+                boundary_text(pages_info[i - 1].text), boundary_text(pages_info[i].text),
+                page_types[i - 1]),
             range(1, len(pages_info)),
         ))
 

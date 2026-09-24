@@ -66,7 +66,7 @@ def build_sources(retrieved_chunks: List[Tuple[ChunkMetadata, float]]) -> List[D
         {
             'filename': c.filename,
             'doc_type': c.doc_type,
-            'pages': f"{c.page_start}-{c.page_end}",
+            'pages': f"{c.page_start + 1}-{c.page_end + 1}",
             'relevance': f"{score:.2%}",
             'preview': c.text,
         }
@@ -83,7 +83,7 @@ def build_prompt(query: str, retrieved_chunks: List[Tuple[ChunkMetadata, float]]
     for c, _ in retrieved_chunks:
         context_parts.append(
             f"[Source: {c.filename} | {c.doc_type} | "
-            f"Pages: {c.page_start}-{c.page_end}]"
+            f"Pages: {c.page_start + 1}-{c.page_end + 1}]"
         )
         context_parts.append(c.text)
         context_parts.append("")

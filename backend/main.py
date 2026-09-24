@@ -841,7 +841,7 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
                     pages = [p for c, _ in retrieved for p in (c.page_start, c.page_end)]
                     src = [{"filename": retrieved[0][0].filename,
                             "doc_type": "Full document",
-                            "pages": f"{min(pages)}-{max(pages)}",
+                            "pages": f"{min(pages) + 1}-{max(pages) + 1}",
                             "relevance": "100%", "preview": ""}]
                 return body.question, retrieved, sanitize(src)
 

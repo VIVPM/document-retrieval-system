@@ -347,7 +347,7 @@ class HybridRetriever:
                 'chunk_index': chunk.chunk_index,
                 'final_score': final_score,
                 'doc_type': chunk.doc_type,
-                'pages': f"{chunk.page_start}-{chunk.page_end}",
+                'pages': f"{chunk.page_start + 1}-{chunk.page_end + 1}",
             })
 
         return {

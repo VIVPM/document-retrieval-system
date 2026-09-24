@@ -125,7 +125,7 @@ t0 = time.time()
 pages, docs = extract_and_analyze_pdf(PDF, filename=os.path.basename(PDF))
 print(f"   {len(pages)} pages, {len(docs)} logical docs in {time.time()-t0:.0f}s")
 for d in docs:
-    print(f"     - {d.doc_type}  pages {d.page_start}-{d.page_end}")
+    print(f"     - {d.doc_type}  pages {d.page_start + 1}-{d.page_end + 1}")
 
 chunks = [c for d in docs for c in chunk_by_structure(d)]
 print(f"[chunk] {len(chunks)} chunks")
@@ -146,7 +146,7 @@ for i, (question, expect) in enumerate(QUESTIONS):
     ranked = sorted(zip(chunks, (cosine(qvecs[i], cv) for cv in cvecs)),
                     key=lambda t: t[1], reverse=True)[:K]
     context = "\n".join(
-        f"[Source: {c.filename} | {c.doc_type} | Pages: {c.page_start}-{c.page_end}]\n{c.text}\n"
+        f"[Source: {c.filename} | {c.doc_type} | Pages: {c.page_start + 1}-{c.page_end + 1}]\n{c.text}\n"
         for c, _ in ranked)
 
     in_context = None if expect is None else any(e in context for e in expect)

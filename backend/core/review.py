@@ -118,6 +118,12 @@ def _parse(kind: str, raw):
 _MONEY = re.compile(r"[-+(]?\$?\s?\d[\d,]*\.\d{2}\)?")
 
 
+def _flat(s) -> str:
+    """Lower-case, single-spaced, table cell separators dropped -- so a value
+    quoted from a table row matches the row however its cells were joined."""
+    return " ".join(str(s or "").replace("|", " ").split()).lower()
+
+
 def _page_texts(doc) -> list[tuple[int, str]]:
     """[(page 1-based, normalised text)] for grounding and page lookup."""
     by_page: dict[int, list[str]] = {}
@@ -125,14 +131,13 @@ def _page_texts(doc) -> list[tuple[int, str]]:
         by_page.setdefault(b.page_num, []).append(b.content)
     if not by_page:
         by_page = {doc.page_start: [doc.text]}
-    return [(p + 1, " ".join(" ".join(parts).split()).lower())
-            for p, parts in sorted(by_page.items())]
+    return [(p + 1, _flat(" ".join(parts))) for p, parts in sorted(by_page.items())]
 
 
 def _locate(raw, pages: list[tuple[int, str]]) -> int | None:
     """Page (1-based) whose text contains `raw` verbatim, or None if nowhere --
     that None IS the grounding guard. Located in code, never taken from the model."""
-    r = " ".join(str(raw or "").split()).lower()
+    r = _flat(raw)
     if not r:
         return None
     return next((p for p, t in pages if r in t), None)
@@ -141,7 +146,7 @@ def _locate(raw, pages: list[tuple[int, str]]) -> int | None:
 def _payoff_noted(amount_raw, pages) -> bool:
     """Decided from the report's own words near the lien amount, not by the
     model: does the same passage say it is paid off or reconveyed?"""
-    r = " ".join(str(amount_raw or "").split()).lower()
+    r = _flat(amount_raw)
     for _p, t in pages:
         i = t.find(r) if r else -1
         if i >= 0 and re.search(r"paid off|payoff|pay off|reconvey", t[i:i + 500]):
@@ -264,6 +269,8 @@ def fields_from_llm(doc_type: str, doc, missing: dict, complete=None) -> tuple[d
         for it in (data.get("lists") or {}).get(name) or []:
             if not isinstance(it, dict):
                 continue
+            it = {k: v.get("value") if isinstance(v, dict) and "value" in v else v
+                  for k, v in it.items()}
             amount_raw = it.get("amount") or it.get("monthly_payment")
             if name == "liens" and amount_raw in (None, ""):
                 continue
@@ -653,4 +660,21 @@ if __name__ == "__main__":
 
     got = {c["id"]: c["status"] for c in run_rules(docs[:1])}
     assert got["missing_pay_slip"] == "missing" and got["missing_bank_statement"] == "missing"
+    table_page = [(5, _flat("07/15 | DIRECT DEP SIERRA RIDGE LOGISTICS PAYROLL | +$2,845.31 | $50,479.00"))]
+    assert _locate("07/15 DIRECT DEP SIERRA RIDGE LOGISTICS PAYROLL +$2,845.31", table_page) == 5
+    assert _locate("DIRECT DEP ACME PAYROLL", table_page) is None
+
+    class _Blk:
+        def __init__(self, content):
+            self.content, self.page_num, self.kind = content, 4, "table"
+
+    class _Doc:
+        blocks = [_Blk("07/15 | DIRECT DEP SIERRA RIDGE LOGISTICS PAYROLL | +$2,845.31 | $50,479.00")]
+        page_start, text = 4, ""
+
+    wrapped = json.dumps({"fields": {}, "lists": {"deposits": [
+        {"date": {"value": "07/15"}, "description": {"value": "DIRECT DEP SIERRA RIDGE LOGISTICS PAYROLL"},
+         "amount": {"value": "+$2,845.31", "page": 5}}], "debits": []}})
+    _f, _l, _d = fields_from_llm("Bank Statement", _Doc(), {}, complete=lambda p: wrapped)
+    assert _d == 0 and _l["deposits"][0]["amount_value"] == 2845.31 and _l["deposits"][0]["page"] == 5, _l
     print("review selftest OK")

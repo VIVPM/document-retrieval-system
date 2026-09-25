@@ -58,6 +58,8 @@ CREATE INDEX IF NOT EXISTS ix_drs_sessions_user_updated
 CREATE INDEX IF NOT EXISTS ix_drs_sessions_status ON drs_chat_sessions (status);
 -- For a DB created before `stage` existed (CREATE TABLE IF NOT EXISTS won't add it):
 ALTER TABLE drs_chat_sessions ADD COLUMN IF NOT EXISTS stage TEXT;
+-- The automatic file review (core/review.py). The app also adds it at startup.
+ALTER TABLE drs_chat_sessions ADD COLUMN IF NOT EXISTS review JSONB;
 
 
 CREATE TABLE IF NOT EXISTS drs_chat_messages (
@@ -88,3 +90,18 @@ CREATE INDEX IF NOT EXISTS ix_drs_messages_user_id ON drs_chat_messages (user_id
 -- Find namespaces eligible for deletion (drop them from Pinecone FIRST, then
 -- delete the rows — an orphaned namespace has no owner left to find it).
 --   SELECT id FROM drs_chat_sessions WHERE updated_at < now() - INTERVAL '30 days';
+
+-- Officer decisions on review flags (append-only audit trail).
+CREATE TABLE IF NOT EXISTS drs_review_decisions (
+    id SERIAL PRIMARY KEY,
+    chat_id VARCHAR NOT NULL,
+    run_id VARCHAR NOT NULL,
+    check_key VARCHAR NOT NULL,
+    check_label VARCHAR,
+    decision VARCHAR NOT NULL,
+    note TEXT,
+    user_id INTEGER NOT NULL,
+    username VARCHAR NOT NULL,
+    created_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS ix_drs_review_decisions_chat_id ON drs_review_decisions (chat_id);

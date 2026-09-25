@@ -16,7 +16,7 @@ A **loan-file copilot** for home-loan (mortgage) officers: upload a borrower's p
 *   **Conversational follow-ups**: a follow-up like *"and when does it lock?"* is condensed into a standalone question **before retrieval**, because retrieval runs before any LLM sees a prompt. History is read server-side from Neon.
 *   **Answer Generation**: **gemini-2.5-flash** with thinking capped at 2048 — on an ambiguous multi-candidate question it enumerates candidates with sources instead of guessing. Thinking tokens bill at the output rate, so the cap bounds the tail (dynamic permits 24,576) without touching the ~300-token median.
 *   **Two models, split on measured need**: classification and per-page boundary detection run on **gemini-2.5-flash-lite** (closed-set label, yes/no answer — and boundary detection fires once per *page*, making it the volume driver of ingest cost). Answers and query rewriting stay on flash.
-*   **Automatic file review**: once a packet is ingested, the application's claims (income, employer, balances, declarations, loan terms) are checked against the pay slips, bank statement, Loan Estimate and title report. Each check shows both sides' values with their pages. See [Automatic file review](#-automatic-file-review).
+*   **Automatic file review**: once a packet is ingested, the application's claims (income, employer, balances, declarations, loan terms) are checked against the pay slips, bank statement, Loan Estimate and title report. Each check shows both sides' values with their pages, in a panel beside the chat (a drawer on narrow screens) so the officer can ask about a flag without leaving it. See [Automatic file review](#-automatic-file-review).
 *   **Flag decisions with an audit trail**: every mismatch or review flag can be **accepted** (a note is required) or **confirmed** as an issue. Decisions are append-only, record who decided and when, and the sidebar counts open flags per borrower.
 *   **Several PDFs per borrower**: upload up to 20 files at once; they are merged, in order, into the file's one document.
 *   **Grounded answers**: values are quoted exactly with their document and page, never computed or rounded; a question the file cannot answer gets "not in the documents", not a guess. Summaries use their own rules.
@@ -498,7 +498,7 @@ document-retrieval-system/
 │   │   ├── api.js                   # API client, owns the JWT
 │   │   ├── Landing.jsx              # Animated landing page
 │   │   ├── Login.jsx                # Login / signup
-│   │   ├── ChatPanel.jsx            # Upload gate, live ingest stepper, messages
+│   │   ├── ChatPanel.jsx            # Upload gate, live ingest stepper, messages, review panel
 │   │   ├── App.jsx                  # Shell, auth gate, chat rail
 │   │   └── App.css                  # Design tokens & styles
 │   ├── Dockerfile                   # Vite build → nginx

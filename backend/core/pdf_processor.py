@@ -1,20 +1,7 @@
-"""
-pdf_processor.py — PDF extraction and multi-document analysis pipeline.
-
-Dispatches to one of two extractors based on `EXTRACT_METHOD`:
-  textract (default) — AWS Textract, form/table-aware, best on mortgage forms
-  pymupdf            — local text-layer read, no AI, no external call
-
-Both return the same page->blocks shape. The LLM classifier then splits
-a multi-document PDF into individual logical documents.
-
-Public API
-----------
-extract_and_analyze_pdf(pdf_file)
-    → Tuple[List[PageInfo], List[LogicalDocument]]
-"""
+"""pdf_processor.py — PDF extraction and multi-document analysis pipeline."""
 
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Tuple
 
@@ -25,15 +12,7 @@ PAGE_CONCURRENCY = int(os.getenv("PAGE_CONCURRENCY", "8"))
 
 
 def _order_blocks(items, y_tol=6.0):
-    """Reading order by visual ROW, not by y alone.
-
-    A two-column key-value form (label left, value right) puts the value on the
-    same row as its label but a fraction apart in y — so a pure y-sort drops
-    every value into one group and every label into another, divorcing them
-    ("Interest Rate:" ends up nowhere near "4.250 %"). Group items whose y is
-    within y_tol into a row, order each row left-to-right by x, then emit rows
-    top-to-bottom.
-    """
+    """Reading order by visual ROW, not by y alone."""
     clean = [it for it in items if it.get("content", "").strip()]
     clean.sort(key=lambda it: it.get("y_pos", 0))
     rows, ordered = [], []
@@ -48,12 +27,7 @@ def _order_blocks(items, y_tol=6.0):
 
 
 def _extract_textract(file_path: str) -> dict:
-    """AWS Textract — form/table-specialised extraction.
-
-    Rasterises each page and calls AnalyzeDocument with TABLES + FORMS. Returns
-    {page_no(str): [ {type, y_pos, x_pos, content} ]}. Requires
-    AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (+ optional AWS_REGION).
-    """
+    """AWS Textract — form/table-specialised extraction."""
     import boto3
     import fitz
 
@@ -105,6 +79,16 @@ def _extract_textract(file_path: str) -> dict:
                            "x_pos": float(bb.get("Left", 0)), "content": rows.strip()})
 
         for b in r["Blocks"]:
+            if b["BlockType"] != "KEY_VALUE_SET" or "KEY" not in b.get("EntityTypes", []):
+                continue
+            key = child_words(b)
+            value = " ".join(child_words(B[i]) for rel in b.get("Relationships", []) or []
+                             if rel["Type"] == "VALUE" for i in rel["Ids"] if i in B)
+            if key.strip() and value.strip():
+                blocks.append({"type": "kv", "key": key.strip(), "value": value.strip(),
+                               "content": ""})
+
+        for b in r["Blocks"]:
             if b["BlockType"] != "LINE":
                 continue
             word_ids = []
@@ -118,31 +102,55 @@ def _extract_textract(file_path: str) -> dict:
                            "x_pos": float(bb.get("Left", 0)),
                            "content": (b.get("Text") or "").strip()})
 
-        pages[str(pno + 1)] = [b for b in blocks if b["content"]]
+        pages[str(pno + 1)] = [b for b in blocks if b["content"] or b["type"] == "kv"]
 
     doc.close()
     print(f"✅ Textract extraction complete! {len(pages)} pages.")
     return pages
 
 
-def _extract_pymupdf(file_path: str, y_tol: float = 3.0) -> dict:
-    """Local, NO-AI extraction (PyMuPDF).
+def _flatten_tables(text: str) -> str:
+    """Table cell separators replaced by spaces, for the boundary check on
+    PyMuPDF text: with "a | b" rows the model called different documents the same."""
+    return re.sub(r"[ \t]*(?:\|[ \t]*)+", " ", text)
 
-    Reads the PDF text layer directly and groups words into visual lines by
-    (y, x) — producing the same page->blocks shape Textract emits, so the
-    downstream pipeline is agnostic to which extractor ran. No GPU, no API,
-    milliseconds not seconds. Caveat: text-layer only — a SCANNED page yields
-    nothing (Textract's OCR is what covers that case).
-    """
+
+def _pymupdf_tables(page) -> list:
+    """Tables on a page as {bbox, content}, rows joined with " | " like Textract's."""
+    try:
+        found = page.find_tables().tables
+    except Exception as e:
+        print(f"⚠️ Table detection failed on page {page.number + 1}: {e}")
+        return []
+    out = []
+    for t in found:
+        rows = [" | ".join((c or "").replace("\n", " ").strip() for c in row)
+                for row in t.extract()]
+        content = "\n".join(r for r in rows if r.replace("|", "").strip())
+        if content:
+            out.append({"bbox": tuple(t.bbox), "content": content})
+    return out
+
+
+def _extract_pymupdf(file_path: str, y_tol: float = 3.0) -> dict:
+    """Local, NO-AI extraction (PyMuPDF)."""
     import fitz
 
     doc = fitz.open(file_path)
     pages, scanned = {}, []
     try:
         for pno in range(doc.page_count):
-            words = doc[pno].get_text("words")
+            page = doc[pno]
+            words = page.get_text(
+                "words", flags=fitz.TEXTFLAGS_WORDS & ~fitz.TEXT_PRESERVE_LIGATURES)
             if not words:
                 scanned.append(pno + 1)
+            tables = _pymupdf_tables(page) if words else []
+            if tables:
+                rects = [fitz.Rect(t["bbox"]) for t in tables]
+                words = [w for w in words
+                         if not any(r.contains(fitz.Point((w[0] + w[2]) / 2, (w[1] + w[3]) / 2))
+                                    for r in rects)]
             words.sort(key=lambda w: (w[1], w[0]))
             blocks, line = [], None
             for w in words:
@@ -158,6 +166,9 @@ def _extract_pymupdf(file_path: str, y_tol: float = 3.0) -> dict:
                 if text:
                     page_blocks.append({"type": "text", "y_pos": float(line["y"]),
                                         "x_pos": float(cells[0][0]), "content": text})
+            for t in tables:
+                page_blocks.append({"type": "table", "y_pos": float(t["bbox"][1]),
+                                    "x_pos": float(t["bbox"][0]), "content": t["content"]})
             pages[str(pno + 1)] = page_blocks
     finally:
         doc.close()
@@ -171,20 +182,8 @@ def extract_and_analyze_pdf(
     filename: str = "document.pdf",
     on_stage=None,
 ) -> Tuple[List[PageInfo], List[LogicalDocument]]:
-    """
-    Extract text from a PDF with Textract and detect logical document boundaries
-    using the LLM classifier.
-
-    Tables are converted to pipe-delimited text rows and merged into the page
-    text in reading order (top-to-bottom by Y position).
-
-    Args:
-        pdf_file: file path string or file-like object.
-
-    Returns:
-        pages_info   : one PageInfo per PDF page (0-indexed)
-        logical_docs : detected logical documents with combined text
-    """
+    """    Extract text from a PDF with Textract and detect logical document boundaries
+    using the LLM classifier."""
     if on_stage:
         on_stage("extract")
 
@@ -203,6 +202,8 @@ def extract_and_analyze_pdf(
     method = os.getenv("EXTRACT_METHOD", "textract").lower()
     print(f"📖 Starting PDF extraction (EXTRACT_METHOD={method})...")
 
+    y_tol = 6.0 if method == "pymupdf" else 0.005
+
     try:
         if method == "pymupdf":
             pages_data = _extract_pymupdf(file_path)
@@ -216,7 +217,9 @@ def extract_and_analyze_pdf(
 
         for str_page_no in sorted(pages_data.keys(), key=int):
             page_no = int(str_page_no)
-            items = _order_blocks(pages_data[str_page_no])
+            raw = pages_data[str_page_no]
+            kv = [(it["key"], it["value"]) for it in raw if it.get("type") == "kv"]
+            items = _order_blocks([it for it in raw if it.get("type") != "kv"], y_tol=y_tol)
 
             blocks = [
                 Block(
@@ -233,13 +236,16 @@ def extract_and_analyze_pdf(
                 page_num=page_no - 1,
                 text=page_text,
                 blocks=blocks,
+                kv=kv,
             ))
             n_tables = sum(1 for b in blocks if b.kind == "table")
             print(f"  Page {page_no}: {len(page_text)} chars, "
                   f"{len(blocks)} blocks ({n_tables} tables)")
 
-        if not pages_info:
-            raise ValueError("No text could be extracted from PDF")
+        if not any(p.text.strip() for p in pages_info):
+            raise ValueError(
+                "No text could be read from this PDF. It looks scanned; scanned "
+                "pages need EXTRACT_METHOD=textract, or upload a PDF with a text layer.")
 
     finally:
         if is_temp and os.path.exists(file_path):
@@ -249,16 +255,20 @@ def extract_and_analyze_pdf(
         on_stage("split")
     print("🧠 Analysing document structure...")
 
+    boundary_text = _flatten_tables if method == "pymupdf" else (lambda t: t)
     with ThreadPoolExecutor(max_workers=PAGE_CONCURRENCY) as pool:
         page_types = list(pool.map(
             lambda p: classify_document_type(p.text), pages_info))
 
         same_as_prev = list(pool.map(
             lambda i: detect_document_boundary(
-                pages_info[i - 1].text, pages_info[i].text, page_types[i - 1]),
+                boundary_text(pages_info[i - 1].text), boundary_text(pages_info[i].text),
+                page_types[i - 1]),
             range(1, len(pages_info)),
         ))
 
+    for p, t in zip(pages_info, page_types):
+        p.page_type = t
     starts = [0] + [i for i, same in enumerate(same_as_prev, start=1) if not same]
     doc_types = [page_types[i] for i in starts]
 
@@ -279,6 +289,8 @@ def extract_and_analyze_pdf(
             text="\n\n".join(p.text for p in doc_pages),
             filename=filename,
             blocks=[b for p in doc_pages for b in p.blocks],
+            kv=[(k, v, p.page_num) for p in doc_pages for k, v in p.kv],
+            page_types=[p.page_type or doc_type for p in doc_pages],
         ))
 
     print(f"✅ Identified {len(logical_docs)} logical documents")

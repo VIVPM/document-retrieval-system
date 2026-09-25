@@ -1,22 +1,4 @@
-"""
-Ingest worker. Claims jobs from drs_ingest_jobs and runs them.
-
-Run it beside the API, not inside it:
-
-    python -m worker                      # from backend/
-    python backend/worker.py              # from the repo root
-
-Why a separate process at all: ingestion used to run in a FastAPI
-BackgroundTask, which lives and dies with the API process, so every deploy or
-crash destroyed whatever was in flight and the user saw only a 'failed' badge.
-A queue plus this loop means the work is a row that outlives any one process.
-
-Concurrency is asyncio over a thread pool, not multiprocessing.
-`process_pdf` is blocking and spends nearly all of its wall-clock time waiting
-on Textract, Gemini and Pinecone, so threads are the right shape -- the GIL is
-released for every one of those calls. MAX_CONCURRENT_JOBS caps how many run at
-once; the real ceiling is provider rate limits, not CPU.
-"""
+"""Ingest worker. Claims jobs from drs_ingest_jobs and runs them."""
 
 import asyncio
 import os
@@ -36,8 +18,9 @@ load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 import job_queue
 import logging_setup
 from core.document_store import EnhancedDocumentStoreHybrid
-from db.database import SessionLocal
-from db.models import Account, ChatSession, now_ist
+from core.review import build_review
+from db.database import SessionLocal, engine
+from db.models import Account, ChatSession, ensure_columns, now_ist
 from llm.llm_router import BREAKER_COOLDOWN_S, embed_model, llm, provider_down
 
 logging_setup.configure()
@@ -47,18 +30,6 @@ MAX_CONCURRENT_JOBS = int(os.getenv("MAX_CONCURRENT_JOBS", "2"))
 POLL_SECONDS = float(os.getenv("WORKER_POLL_SECONDS", "2"))
 RECLAIM_EVERY = float(os.getenv("WORKER_RECLAIM_SECONDS", "60"))
 
-# Wall-clock ceiling on ONE ingest. Per-call timeouts in llm_router bound a
-# single hung request; this bounds the job as a whole, which is a different
-# failure -- a document that keeps making slow progress (many pages, each call
-# succeeding just under its own timeout) would otherwise occupy a concurrency
-# slot indefinitely.
-#
-# A constant, not an env var: it is half of an invariant with
-# job_queue.LEASE_SECONDS and must stay BELOW it. If it were higher the lease
-# would expire first, a second worker would claim a job this one is still
-# running, and both would write the same chat. Env vars let the two drift
-# apart in one environment and not another, which is exactly how a pair like
-# this breaks silently. The assert below is the backstop, not the rule.
 INGEST_TIMEOUT_S = 900
 if INGEST_TIMEOUT_S >= job_queue.LEASE_SECONDS:
     raise RuntimeError(
@@ -67,22 +38,13 @@ if INGEST_TIMEOUT_S >= job_queue.LEASE_SECONDS:
         "expires while it is still running and a second worker claims it."
     )
 
-# hostname + a random suffix: the host tells you WHICH box a job ran on, the
-# suffix keeps two workers on one box distinct. socket.gethostname works on
-# Windows too, where os.uname does not exist at all.
 WORKER_ID = f"{socket.gethostname()}-{uuid.uuid4().hex[:8]}"
 
 _shutdown = asyncio.Event()
 
 
 def _ns(db, user_id: int) -> str:
-    """Pinecone namespace for an account: the account's username.
-
-    Duplicated from main rather than imported -- importing main would build the
-    whole FastAPI app, its rate limiter and its startup hooks inside the
-    worker. Kept in step with main._ns; if the namespace rule ever changes it
-    must change in both (CLAUDE.md records the rule).
-    """
+    """Pinecone namespace for an account: the account's username."""
     acct = db.query(Account).filter(Account.id == user_id).first()
     if acct is None:
         raise RuntimeError(f"No account for user_id={user_id}")
@@ -105,33 +67,13 @@ def _set_stage(chat_id: str, key: str) -> None:
 
 
 def run_job(job: dict) -> None:
-    """Ingest one document. Blocking; called in a thread.
-
-    Every exit path must leave the chat at 'ready' or 'failed'. A chat stuck on
-    'processing' is indistinguishable from one still working, and the delete
-    guard makes it undeletable.
-
-    Raises on failure so the caller can decide whether the JOB retries. The
-    chat is only marked failed once no attempts remain -- a chat flipped to
-    'failed' while its job is still queued for retry would tell the user the
-    work was lost while a worker is about to pick it up again.
-    """
+    """Ingest one document. Blocking; called in a thread."""
     chat_id, filename = job["chat_id"], job["filename"]
     last_attempt = job["attempts"] >= job["max_attempts"]
     deadline = time.monotonic() + INGEST_TIMEOUT_S
 
     def stage(key: str) -> None:
-        """Record progress, and abort if the job has run out of wall clock.
-
-        Cooperative on purpose. A thread cannot be killed from outside, so
-        asyncio.wait_for would report a timeout and then still block until the
-        thread finished -- freeing nothing. Raising from inside the thread is
-        what actually ends it: process_pdf catches it and returns a clean
-        failure, so teardown and requeue happen on the normal error path.
-
-        Granularity is one stage. A hang INSIDE a stage is bounded instead by
-        LLM_TIMEOUT_S on each provider call, which is the realistic case.
-        """
+        """Record progress, and abort if the job has run out of wall clock."""
         if time.monotonic() > deadline:
             raise TimeoutError(
                 f"Ingest exceeded INGEST_TIMEOUT_S ({INGEST_TIMEOUT_S}s) at stage {key!r}.")
@@ -146,8 +88,6 @@ def run_job(job: dict) -> None:
                         extra={"job_id": job["id"], "chat_id": chat_id})
             return
 
-        # The bytes live in the job row, so write them somewhere process_pdf
-        # can open. Deleted in the finally, whatever happens.
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
             tmp_path = tmp.name
             tmp.write(job["payload"])
@@ -159,9 +99,6 @@ def run_job(job: dict) -> None:
             on_stage=stage,
         )
 
-        # _set_stage wrote `stage` on a separate session, so this one's copy is
-        # stale. Refreshing before the terminal commit is what makes clearing
-        # it stick.
         db.refresh(chat)
         chat.stage = None
         if success:
@@ -169,16 +106,16 @@ def run_job(job: dict) -> None:
             chat.error = None
             chat.doc_stats = _sanitize(stats)
             chat.bm25_params = store.export_bm25_params()
+            chat.review = {"status": "running"}
             if chat.title == "New Chat":
                 chat.title = filename[:120]
             chat.updated_at = now_ist()
             db.commit()
             log.info("chat ready", extra={"job_id": job["id"], "chat_id": chat_id,
                                           "chunks": (stats or {}).get("total_chunks")})
+            _run_review(chat_id, store.logical_docs)
             return
 
-        # Half-built vectors would compete for top_k on every later query, so
-        # drop them. This is also what makes a retry safe.
         store.retriever.delete_chat()
         reason = str(stats.get("error", "Processing failed."))[:2000]
         if last_attempt:
@@ -208,11 +145,33 @@ def run_job(job: dict) -> None:
             os.remove(tmp_path)
 
 
-def _sanitize(obj):
-    """JSONB-safe copy: numpy scalars and NaN are not valid JSON.
+def _run_review(chat_id: str, logical_docs) -> None:
+    """Build the automatic file review and store it on the chat."""
+    started = time.monotonic()
+    try:
+        review = build_review(logical_docs)
+        review["run_id"] = uuid.uuid4().hex
+    except Exception as e:
+        log.exception("review failed", extra={"chat_id": chat_id})
+        review = {"status": "failed", "error": f"{type(e).__name__}: {e}"[:500]}
+    db = SessionLocal()
+    try:
+        chat = db.query(ChatSession).filter(ChatSession.id == chat_id).first()
+        if chat is not None:
+            chat.review = _sanitize(review)
+            db.commit()
+        log.info("review stored", extra={"chat_id": chat_id, "status": review.get("status"),
+                                         "summary": review.get("summary"),
+                                         "duration_s": round(time.monotonic() - started, 1)})
+    except Exception:
+        db.rollback()
+        log.exception("review store failed", extra={"chat_id": chat_id})
+    finally:
+        db.close()
 
-    Local rather than imported from main for the same reason as _ns.
-    """
+
+def _sanitize(obj):
+    """JSONB-safe copy: numpy scalars and NaN are not valid JSON."""
     import math
     if isinstance(obj, dict):
         return {k: _sanitize(v) for k, v in obj.items()}
@@ -229,11 +188,7 @@ def _sanitize(obj):
 
 
 async def _reclaim_loop() -> None:
-    """Return jobs from workers that died to the queue, forever.
-
-    On a timer rather than only at startup: a worker can die at any moment and
-    nothing else notices its lease going stale.
-    """
+    """Return jobs from workers that died to the queue, forever."""
     while not _shutdown.is_set():
         try:
             n = job_queue.reclaim_stale()
@@ -251,21 +206,13 @@ async def _run_one(job: dict, sem: asyncio.Semaphore) -> None:
     """Run a claimed job in a thread and record its outcome."""
     async with sem:
         jid = job["id"]
-        # Adopt the id the API logged this upload under. Without it the worker
-        # lines are a separate island and nothing connects an upload to the
-        # ingest it caused.
         logging_setup.set_correlation_id(job.get("request_id") or jid[:16])
         started = time.monotonic()
-        # doc_filename, not filename: LogRecord already owns `filename` (the
-        # source file) and stdlib logging raises KeyError on the collision.
         log.info("ingest started", extra={"job_id": jid, "chat_id": job["chat_id"],
                                           "doc_filename": job["filename"],
                                           "attempt": job["attempts"],
                                           "max_attempts": job["max_attempts"]})
         try:
-            # No wait_for here: run_job enforces its own deadline from inside
-            # the thread. Wrapping this in wait_for would report a timeout and
-            # then block on the thread anyway, freeing no slot.
             await asyncio.to_thread(run_job, job)
             job_queue.finish(job["id"], ok=True)
             log.info("ingest finished", extra={
@@ -277,7 +224,6 @@ async def _run_one(job: dict, sem: asyncio.Semaphore) -> None:
                 "job_id": jid, "chat_id": job["chat_id"],
                 "attempt": job["attempts"], "will_retry": will_retry,
                 "duration_s": round(time.monotonic() - started, 1)})
-            # finish() decides retry vs fail from the attempt count.
             try:
                 job_queue.finish(job["id"], ok=False, error=f"{type(e).__name__}: {e}")
             except Exception:
@@ -285,6 +231,7 @@ async def _run_one(job: dict, sem: asyncio.Semaphore) -> None:
 
 
 async def main() -> None:
+    await asyncio.to_thread(ensure_columns, engine)
     log.info("worker up", extra={
         "worker_id": WORKER_ID, "concurrency": MAX_CONCURRENT_JOBS,
         "poll_s": POLL_SECONDS, "job_timeout_s": INGEST_TIMEOUT_S,
@@ -295,19 +242,11 @@ async def main() -> None:
     reclaimer = asyncio.create_task(_reclaim_loop())
 
     while not _shutdown.is_set():
-        # Only claim what there is room to run. Claiming past the semaphore
-        # would hold leases on jobs sitting in a queue inside this process,
-        # where another worker cannot take them either.
         if len(running) >= MAX_CONCURRENT_JOBS:
             await asyncio.sleep(0.2)
             running = {t for t in running if not t.done()}
             continue
 
-        # Do not claim while the provider is down. This is the half of the
-        # breaker that only a queue can have: without it a backlog burns its
-        # whole retry budget against an outage and a recoverable blip becomes a
-        # pile of permanently failed documents. Jobs stay queued instead, and
-        # are picked up when the circuit closes.
         if provider_down():
             log.warning("provider down, pausing claims",
                         extra={"cooldown_s": BREAKER_COOLDOWN_S})
@@ -335,9 +274,6 @@ async def main() -> None:
         running.add(task)
         task.add_done_callback(running.discard)
 
-    # Graceful shutdown: stop claiming, let in-flight ingests finish. Killing
-    # them here would strand their chats on 'processing' until a lease expired,
-    # which is the exact failure the queue exists to remove.
     if running:
         log.info("draining before shutdown", extra={"in_flight": len(running)})
         await asyncio.gather(*running, return_exceptions=True)
@@ -346,9 +282,6 @@ async def main() -> None:
 
 
 def _handle_signal(signum, _frame) -> None:
-    # print, not log, on purpose: logging takes a lock, and a signal arriving
-    # while another thread holds it deadlocks the handler. Everything else in
-    # this module logs; this one line stays a write.
     print(f"Signal {signum} received - finishing in-flight jobs, then exiting.",
           flush=True)
     try:
@@ -362,7 +295,7 @@ if __name__ == "__main__":
         try:
             signal.signal(sig, _handle_signal)
         except (ValueError, AttributeError, OSError):
-            pass          # not all signals exist on Windows
+            pass
     try:
         asyncio.run(main())
     except KeyboardInterrupt:

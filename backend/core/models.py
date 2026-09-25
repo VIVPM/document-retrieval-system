@@ -1,12 +1,4 @@
-"""
-models.py — Core data structures for the RAG pipeline.
-
-Defines all dataclasses used across the system:
-  - PageInfo        : a single extracted page from a PDF
-  - LogicalDocument : a detected logical document within a multi-doc PDF
-  - ChunkMetadata   : a text chunk with rich provenance metadata
-  - SearchConfig    : resolved configuration for a retrieval operation
-"""
+"""models.py — Core data structures for the RAG pipeline."""
 
 from __future__ import annotations
 
@@ -14,23 +6,12 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Optional
 
 
-# ---------------------------------------------------------------------------
-# Page-level representation
-# ---------------------------------------------------------------------------
-
 @dataclass
 class Block:
-    """
-    One layout element as the extractor found it, in reading order.
-
-    `kind` is the whole point: the extractor already knows what is a table and
-    what is prose, and the chunker needs that to avoid severing a table from
-    its header row. Carrying `page_num` per block is what makes chunk citations
-    page-accurate instead of spanning the whole document's range.
-    """
-    kind: str        # "text" | "table"
+    """    One layout element as the extractor found it, in reading order."""
+    kind: str
     content: str
-    page_num: int    # 0-indexed
+    page_num: int
 
 
 @dataclass
@@ -40,14 +21,10 @@ class PageInfo:
     text: str
     doc_type: Optional[str] = None
     page_in_doc: int = 0
-    # Same content as `text`, but structured. `text` is kept for the
-    # classifier and boundary detector, which want a flat string.
     blocks: List[Block] = field(default_factory=list)
+    kv: List[tuple] = field(default_factory=list)
+    page_type: Optional[str] = None
 
-
-# ---------------------------------------------------------------------------
-# Logical document (may span multiple pages)
-# ---------------------------------------------------------------------------
 
 @dataclass
 class LogicalDocument:
@@ -62,33 +39,14 @@ class LogicalDocument:
     text: str
     filename: Optional[str] = field(default=None)
     chunks: Optional[List[Dict]] = field(default=None)
-    # Blocks of every page in this document, in reading order. The chunker
-    # prefers these over `text`; it falls back to `text` when empty.
     blocks: List[Block] = field(default_factory=list)
+    kv: List[tuple] = field(default_factory=list)
+    page_types: List[str] = field(default_factory=list)
 
-
-# ---------------------------------------------------------------------------
-# Chunk with provenance metadata
-# ---------------------------------------------------------------------------
 
 @dataclass
 class ChunkMetadata:
-    """
-    A single text chunk with rich metadata for retrieval and attribution.
-
-    Attributes:
-        chunk_id    : unique identifier (<doc_id>_chunk_<index>)
-        doc_id      : parent document identifier
-        doc_type    : document category (e.g. "Bank Statement")
-        filename    : name of the source PDF file
-        chunk_index : position of this chunk within the document
-        page_start  : first PDF page this chunk originates from
-        page_end    : last PDF page this chunk originates from
-        text        : raw chunk text (displayed in citations, kept clean)
-        context     : optional per-document identity line for Contextual
-                      Retrieval — prepended to `text` at embed and BM25 time,
-                      never shown to the user.
-    """
+    """    A single text chunk with rich metadata for retrieval and attribution."""
     chunk_id: str
     doc_id: str
     doc_type: str
@@ -99,10 +57,6 @@ class ChunkMetadata:
     text: str
     context: Optional[str] = None
 
-
-# ---------------------------------------------------------------------------
-# Resolved search configuration (produced by the retriever's routing logic)
-# ---------------------------------------------------------------------------
 
 @dataclass
 class SearchConfig:

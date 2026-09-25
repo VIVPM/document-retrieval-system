@@ -42,6 +42,10 @@ jobs:
           pip install httpx python-dotenv
           python backend/load_test.py --selftest
 
+      # File-review rules: pure Python, no network (the LLM import is lazy).
+      - name: Unit test — file review rules
+        run: python backend/core/review.py
+
   frontend:
     runs-on: ubuntu-latest
     defaults:

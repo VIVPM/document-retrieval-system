@@ -1,25 +1,11 @@
-"""
-document_classifier.py — LLM-based document type classification and
-                          boundary detection between consecutive pages.
-
-Functions
----------
-classify_document_type(text, max_length)
-    Classify a page/document into one of 14 pre-defined financial document
-    categories using the Gemma LLM.
-
-detect_document_boundary(prev_text, curr_text, current_doc_type)
-    Decide whether two consecutive pages belong to the same logical document.
-"""
+"""document_classifier.py — LLM-based document type classification and
+                          boundary detection between consecutive pages."""
 
 from llm.llm_router import llm as gemma_llm
 from logging_setup import get_logger
 
 log = get_logger("drs.classifier")
 
-# ---------------------------------------------------------------------------
-# Valid document categories
-# ---------------------------------------------------------------------------
 
 VALID_DOC_TYPES = [
     "Resume",
@@ -34,28 +20,15 @@ VALID_DOC_TYPES = [
     "ID Document",
     "Privacy Statement",
     "Lender Fee Sheet",
+    "Loan Application",
     "Preliminary Title Report",
     "Invoice",
     "Other",
 ]
 
-# ---------------------------------------------------------------------------
-# Document type classification
-# ---------------------------------------------------------------------------
 
 def _validate_doc_type(raw: str) -> str:
-    """Coerce a model reply to one of VALID_DOC_TYPES, or "Other".
-
-    Replaces a two-way substring test that was wrong in one direction. The old
-    check also asked whether the REPLY was contained in a label, so a one-token
-    answer matched by accident: "a" classified as Mortgage, "e" as Resume, "I"
-    as Discount Notice. Those are silent -- a wrong type strands the answer in a
-    bucket nobody searches.
-
-    Containment is now one-way (a label appears in the reply), which is what
-    handles a model that answers in a sentence, and a reply naming two labels is
-    treated as no answer rather than resolved by list order.
-    """
+    """Coerce a model reply to one of VALID_DOC_TYPES, or "Other"."""
     text = (raw or "").strip()
     if not text:
         log.warning("classification returned nothing; using Other")
@@ -70,8 +43,6 @@ def _validate_doc_type(raw: str) -> str:
     if len(hits) == 1:
         return hits[0]
     if len(hits) > 1:
-        # Ambiguous by construction: "Other" is the documented fail-safe and is
-        # honest, where picking the first would look confident and be arbitrary.
         log.warning("classification named several types; using Other",
                     extra={"reply": text[:120], "matched": hits})
         return "Other"
@@ -82,24 +53,13 @@ def _validate_doc_type(raw: str) -> str:
 
 
 def classify_document_type(text: str, max_length: int = 1500) -> str:
-    """
-    Classify the document type based on its textual content.
-
-    Uses the Gemma LLM to intelligently identify the document category.
-    Falls back to 'Other' on any error or unrecognised response.
-
-    Args:
-        text       : raw text of the page / document
-        max_length : how many characters to feed to the LLM (truncation)
-
-    Returns:
-        One of the strings in VALID_DOC_TYPES.
-    """
+    """    Classify the document type based on its textual content."""
     text = text[:max_length]
 
     prompt = f"""
     Analyze this document and classify it into ONE of these categories:
     - Lender Fee Sheet: Lender Fee Sheet, loan estimate, Fee Details and Summary, loan amount, interest rate, ORIGINATION CHARGES, Annual Percentage Rate (APR), Total Interest Percentage (TIP), Calyx Form - LE1_1col.frm, Calyx Form - LE2_fixed.frm, Calyx Form - LE3_conf.frm, Calyx Form - feews.frm, monthly principal & interest, loan term, loan purpose, loan type (conventional/FHA/VA), rate lock, projected payments, Loan fees, lender charges, closing costs, loan terms, cash-to-close tables, FEES WORKSHEET
+    - Loan Application: Uniform Residential Loan Application, URLA, Form 1003, Fannie Mae Form 1003, Freddie Mac Form 65, loan application form, home loan application, applicant details, co-applicant, co-borrower, Borrower Information, Personal Information, Employment and Income, current employer, years on the job, gross monthly income, Assets and Liabilities, existing loans / EMIs, Declarations, Demographic Information, Military Service, Acknowledgments and Agreements, loan amount requested, applicant's signature
     - Mortgage: MORTGAGE, Security Instrument, FHA Wisconsin Mortgage, VA Mortgage, mortgagor, mortgagee, MERS, Mortgage Electronic Registration Systems, deed of trust, borrower owes lender, principal sum, recording data, parcel identifier number, FHA Case No, UNIFORM COVENANTS, BORROWER COVENANTS, Doc Yr, VMP, Wolters Kluwer
     - Discount Notice: CA Discount Notice, Notice of Available Discounts, fee reduction settlement program, disaster loans, churches or charitable non-profit organizations, employee rate, CTIC, TTCC, Ticor Title Company, Chicago Title Insurance Company, FNF Underwritten Title Company, FNF Underwriter, Section 2355.3, California Code of Regulations, credit for preliminary reports
     - Contract: Contract, Term of Employment, Probation, Legal agreement, SAMPLE CONTRACT OF EMPLOYMENT, Working Conditions, Interpretation of Agreement, Severability, service agreement, Compensation and Benefits, Termination of Employment, Annexure, Duties and Responsibilities, Confidentiality, Assignment
@@ -116,6 +76,7 @@ def classify_document_type(text: str, max_length: int = 1500) -> str:
     - Other: Doesn't fit other categories
 
     IMPORTANT RULES:
+    - If the document asks the applicant to PROVIDE personal, employment, income, asset or liability details (e.g. "Borrower Information", "Employment and Income", "Declarations", Form 1003 / URLA), classify as "Loan Application" NOT "Lender Fee Sheet", even though both mention loan amount and interest rate. A Lender Fee Sheet STATES fees and costs; a Loan Application COLLECTS the applicant's information.
     - If the document contains "MORTGAGE" as a title and mentions "Security Instrument", "mortgagor", "MERS", or "FHA Case No", classify as "Mortgage" NOT "Contract" or "Lender Fee Sheet".
     - If the document mentions "Notice of Available Discounts", "CA Discount Notice", "fee reduction settlement program", or "disaster loans", classify as "Discount Notice" NOT "Other" or "Insurance".
     - If the document mentions "CREDIT LINE / EQUITY LINE OF CREDIT CLOSURE REQUEST", classify as "Preliminary Title Report".
@@ -128,7 +89,6 @@ def classify_document_type(text: str, max_length: int = 1500) -> str:
     """
 
     try:
-        # 32 tokens fits the longest label, "Preliminary Title Report".
         response = gemma_llm.complete(prompt, temperature=0, fast=True,
                                       thinking_budget=0, max_tokens=32)
         return _validate_doc_type(response.text or "")
@@ -138,31 +98,15 @@ def classify_document_type(text: str, max_length: int = 1500) -> str:
         return "Other"
 
 
-# ---------------------------------------------------------------------------
-# Document boundary detection
-# ---------------------------------------------------------------------------
-
 def detect_document_boundary(
     prev_text: str,
     curr_text: str,
     current_doc_type: str = None,
 ) -> bool:
-    """
-    Determine whether two consecutive PDF pages belong to the same document.
-
-    Args:
-        prev_text        : text from the previous page (tail ~500 chars)
-        curr_text        : text from the current page (head ~500 chars)
-        current_doc_type : known type of the current running document
-
-    Returns:
-        True  → same document (continue)
-        False → new document starts on curr page
-    """
+    """    Determine whether two consecutive PDF pages belong to the same document."""
     if not prev_text or not curr_text:
         return False
 
-    # Slice texts to avoid sending entire pages unnecessarily
     prev_text_sliced = prev_text[-1500:]
     curr_text_sliced = curr_text[:1500]
 
@@ -187,7 +131,6 @@ def detect_document_boundary(
     """
 
     try:
-        # Runs once per page, so it dominates ingest token cost.
         response = gemma_llm.complete(prompt, temperature=0, fast=True,
                                       thinking_budget=0, max_tokens=8)
         answer = (response.text or "").strip().lower()
@@ -196,16 +139,9 @@ def detect_document_boundary(
         if answer.startswith("no"):
             return False
 
-        # Neither: fail SAFE, the same way the exception path does. This used to
-        # fall through to "not yes" -> False -> split, so an empty reply split
-        # the document instead of keeping it whole -- the opposite of the
-        # documented default, and silent. It matters because an empty reply is a
-        # real failure mode here: a reasoning model returns content=None at
-        # max_tokens=8, which would have split EVERY page.
         log.warning("boundary detection unparseable; keeping pages together",
                     extra={"reply": (response.text or "")[:80]})
         return True
     except Exception:
         log.exception("boundary detection failed; keeping pages together")
-        # Default: keep pages together if uncertain
         return True

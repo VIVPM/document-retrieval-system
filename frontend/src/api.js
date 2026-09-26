@@ -46,9 +46,6 @@ export function clearSession() {
 let onUnauthorized = () => {}
 export const setUnauthorizedHandler = (fn) => { onUnauthorized = fn }
 
-// The access token is short-lived; the refresh token silently mints a new one.
-// A single in-flight refresh is shared so a burst of 401s doesn't fire N
-// refreshes (and race each other into logging the user out).
 let refreshInFlight = null
 
 async function tryRefresh() {
@@ -88,7 +85,7 @@ async function authFetch(path, opts, retry = true) {
   if (token) headers.Authorization = `Bearer ${token}`
   const res = await fetch(`${API}${path}`, { ...opts, headers })
   if (res.status === 401 && retry && (await tryRefresh())) {
-    return authFetch(path, opts, false)  // one retry with the fresh token
+    return authFetch(path, opts, false)
   }
   return res
 }
@@ -112,7 +109,6 @@ async function request(path, { method = 'GET', body, form, auth = true } = {}) {
     let detail
     try {
       const e = await res.json()
-      // FastAPI validation errors arrive as a list of field errors.
       detail = Array.isArray(e.detail) ? e.detail[0]?.msg : e.detail
     } catch {
       detail = null
@@ -133,15 +129,11 @@ export const login = (username, password) =>
 export async function logout() {
   const refresh = localStorage.getItem(REFRESH_KEY)
   if (refresh) {
-    // Best effort — revoke the refresh token server-side. Clearing local state
-    // is what actually logs the user out, so a failed request must not block it.
-    try {
-      await fetch(`${API}/api/auth/logout`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: refresh }),
-      })
-    } catch { /* ignore */ }
+    await fetch(`${API}/api/auth/logout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refresh }),
+    }).catch(() => {})
   }
   clearSession()
 }
@@ -159,10 +151,14 @@ export const chatStatus = (id) => request(`/api/chats/${id}/status`)
 export const renameChat = (id, title) =>
   request(`/api/chats/${id}`, { method: 'PATCH', body: { title } })
 export const deleteChat = (id) => request(`/api/chats/${id}`, { method: 'DELETE' })
+export const decideFlag = (id, check_key, decision, note) =>
+  request(`/api/chats/${id}/review/decisions`, { method: 'POST', body: { check_key, decision, note } })
 
-export function uploadDocument(id, file) {
+// One PDF or several; the backend merges several, in this order, into the
+// chat's single document.
+export function uploadDocument(id, files) {
   const form = new FormData()
-  form.append('file', file)
+  for (const f of files) form.append('file', f)
   return request(`/api/chats/${id}/document`, { method: 'POST', form })
 }
 

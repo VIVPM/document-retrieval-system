@@ -1,10 +1,4 @@
-"""
-document_store.py — The main orchestration layer.
-
-Glues together PDF processing, chunking, retrieval, and generation into
-a single stateful `EnhancedDocumentStoreHybrid` class that can be cleanly
-used by the UI.
-"""
+"""document_store.py — The main orchestration layer."""
 
 import os
 from datetime import datetime
@@ -19,16 +13,7 @@ from llm.llm_router import llm as _llm
 
 
 def _apply_contextual_chunking(logical_docs, chunks_metadata):
-    """Anthropic-style Contextual Retrieval.
-
-    Give each chunk its document's identity so 'James Bond' rides with the
-    'Net Pay | 8000' table at embedding + BM25 time. One LLM call per LOGICAL
-    DOCUMENT (not per chunk), reused across every chunk of that document.
-    `chunk.text` stays clean for citation display; the identity is stored in
-    `chunk.context` and prepended only inside `retriever.build_indices`.
-    Verified on the 250-question benchmark to lift answer_correctness
-    0.860 → 0.941 alongside the Textract extractor.
-    """
+    """Anthropic-style Contextual Retrieval."""
     by_doc = {d.doc_id: d for d in logical_docs}
 
     def identity_for(doc):
@@ -82,21 +67,12 @@ class EnhancedDocumentStoreHybrid:
         self.processing_stats = {}
         self.filename = None
 
-    # -----------------------------------------------------------------------
-    # Persistence
-    # -----------------------------------------------------------------------
 
     @classmethod
     def rehydrate(cls, namespace: str, chat_id: str, bm25_params: Dict,
                   doc_stats: Dict, embed_model,
                   alpha: float = 0.5) -> "EnhancedDocumentStoreHybrid":
-        """
-        Rebuild a store for a document indexed in an earlier process.
-
-        Skips the entire ingestion pipeline — no extraction, no classification,
-        no re-embedding. The vectors are already in Pinecone; only the fitted
-        BM25 encoder (from Postgres) has to be restored.
-        """
+        """        Rebuild a store for a document indexed in an earlier process."""
         store = cls(namespace=namespace, chat_id=chat_id, alpha=alpha)
         store.retriever.rehydrate(bm25_params, embed_model,
                                   chunk_count=(doc_stats or {}).get("total_chunks", 0))
@@ -111,15 +87,9 @@ class EnhancedDocumentStoreHybrid:
 
     def process_pdf(self, pdf_file, filename: str = "document.pdf", embed_model=None,
                     on_stage=None) -> tuple[bool, dict]:
-        """
-        Run the complete ingestion pipeline:
+        """        Run the complete ingestion pipeline:
           Textract extraction → Classifier boundaries → Chunker →
-          Contextual Retrieval identities → Retriever mapping
-
-        on_stage(key) is called as each sub-step begins (extract/split/chunk/
-        embed/store) so the caller can surface live progress. Optional.
-        Contextual chunking is on by default; set CONTEXTUAL_CHUNKING=0 to skip.
-        """
+          Contextual Retrieval identities → Retriever mapping"""
         self.filename = filename
         self.is_ready = False
         start_time = datetime.now()
@@ -138,6 +108,7 @@ class EnhancedDocumentStoreHybrid:
             self.processing_stats = {
                 'filename': filename,
                 'total_pages': len(self.pages_info),
+                'empty_pages': [p.page_num + 1 for p in self.pages_info if not p.text.strip()],
                 'documents_found': len(self.logical_docs),
                 'total_chunks': len(self.chunks_metadata),
                 'document_types': list(set(doc.doc_type for doc in self.logical_docs)),
@@ -173,8 +144,6 @@ class EnhancedDocumentStoreHybrid:
             return_details=return_details
         )
 
-        # retrieve() returns a details dict or a bare list of (chunk, score)
-        # depending on return_details.
         if return_details:
             retrieved = [(r['chunk'], r['final_score'])
                          for r in retrieval_result.get('results', [])]
@@ -212,8 +181,6 @@ class EnhancedDocumentStoreHybrid:
     def get_document_structure(self) -> List[Dict]:
         """Summarise the ingested documents for the UI dashboard."""
         if not self.logical_docs:
-            # Rehydrated store: logical_docs was never rebuilt, but the structure
-            # was snapshotted into doc_stats at ingest time.
             return self.processing_stats.get('structure', [])
         return [
             {

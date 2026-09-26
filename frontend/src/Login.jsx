@@ -2,7 +2,7 @@ import { useState } from 'react'
 import * as api from './api'
 
 export default function Login({ onAuthenticated, onBack, initialMode = 'login' }) {
-  const [mode, setMode] = useState(initialMode)   // 'login' | 'signup'
+  const [mode, setMode] = useState(initialMode)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
@@ -44,7 +44,7 @@ export default function Login({ onAuthenticated, onBack, initialMode = 'login' }
         <form className="auth-card" onSubmit={submit}>
           <div className="auth-brand">
             <h1>{isSignup ? 'Create your account' : 'Welcome back'}</h1>
-            <p>Ask questions about a document. One conversation per file.</p>
+            <p>Automatic loan file review, with cited answers. One file per borrower.</p>
           </div>
 
           <label className="auth-field">

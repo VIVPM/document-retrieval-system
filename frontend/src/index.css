@@ -6,8 +6,6 @@
   padding: 0;
 }
 
-/* Light theme. Every surface in the app reads these tokens, so the palette
-   lives here and nowhere else — a hardcoded colour elsewhere is a bug. */
 :root {
   color-scheme: light;
   --bg-primary:    #f6f7fb;
@@ -17,7 +15,6 @@
   --bg-hover:      #eaedf4;
   --border:        #e1e5ee;
   --border-focus:  #3563d9;
-  /* Darker than the old #5b8af0 so white button text clears 4.5:1 on it. */
   --accent:        #3563d9;
   --accent-hover:  #2a52bb;
   --accent-glow:   rgba(53,99,217,0.10);
@@ -42,8 +39,6 @@ html, body, #root {
   background: var(--bg-primary);
   color: var(--text-primary);
   font-family: 'Inter', sans-serif;
-  /* 16px root so rem-based sizes render at their intended scale. Was 14px,
-     which silently shrank every rem in the app by ~12%. */
   font-size: 16px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;

@@ -1,29 +1,16 @@
-"""
-Answer generation and embeddings.
-
-Generation runs on whichever provider LLM_MODEL selects; embeddings are always
-Gemini. That asymmetry is not a shortcut: the Pinecone index is built at
-EMBED_DIM from gemini-embedding-2, and another provider's vectors would occupy
-a different space, so moving embeddings means re-embedding every document
-rather than changing a setting.
-"""
+"""Answer generation and embeddings."""
 
 import os
+import random
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 
-# By explicit path, not cwd: this module raises on an unset LLM_MODEL, and a
-# bare load_dotenv() finds nothing when the process starts from the repo
-# root, turning "run a script from the wrong directory" into a hard crash.
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
 
-# Which provider generates text: "GEMINI" or "CLOUDFLARE" (Workers AI, through
-# its OpenAI-compatible endpoint). Required with no default — this picks which
-# account gets billed, and a fallback would quietly send real traffic to a
-# provider nobody chose.
 LLM_MODEL = (os.getenv("LLM_MODEL") or "").strip().upper()
 _PROVIDERS = ("GEMINI", "CLOUDFLARE")
 if LLM_MODEL not in _PROVIDERS:
@@ -41,13 +28,6 @@ GEMINI_FAST_MODEL  = os.getenv("GEMINI_FAST_MODEL", "gemini-2.5-flash-lite")
 GEMINI_THINKING_BUDGET = int(os.getenv("GEMINI_THINKING_BUDGET", "2048"))
 GEMINI_MAX_OUTPUT  = int(os.getenv("GEMINI_MAX_OUTPUT", "8192"))
 
-# One model serves both tiers. Chosen by measurement, not price: it is the only
-# candidate that is NOT a reasoning model, and reasoning models return
-# content=None at this repo's tight budgets (boundary detection runs at
-# max_tokens=8). Measured on the real prompts — answers 10/10, the rewriter's
-# meta-question check 8/8, classification and boundary both clean; gpt-oss-20b
-# and qwen3-30b each returned null on boundary detection. See the roadmap
-# before swapping it.
 CLOUDFLARE_MODEL      = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
 CLOUDFLARE_ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
 CLOUDFLARE_API_TOKEN  = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
@@ -55,6 +35,53 @@ CLOUDFLARE_API_TOKEN  = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
 GEMINI_EMBED_MODEL = "models/gemini-embedding-2"
 EMBED_DIM          = 768
 EMBED_CONCURRENCY  = int(os.getenv("EMBED_CONCURRENCY", "8"))
+
+
+RETRY_ATTEMPTS = 3
+RETRY_BASE_S = 0.5
+RETRY_MAX_S = 8.0
+
+RETRYABLE_STATUS = frozenset((408, 409, 425, 429, 500, 502, 503, 504))
+TERMINAL_STATUS = frozenset((400, 401, 403, 404, 405, 413, 415, 422))
+
+
+def _status_of(exc: Exception) -> int | None:
+    """HTTP status from either SDK's exception, or None."""
+    for attr in ("status_code", "code", "http_status"):
+        value = getattr(exc, attr, None)
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
+    return None
+
+
+def _is_retryable(exc: Exception) -> bool:
+    """Whether this failure is worth another attempt: rate limits, 5xx and
+    timeouts, never a 4xx the same request would hit again."""
+    status = _status_of(exc)
+    if status is not None:
+        if status in TERMINAL_STATUS:
+            return False
+        if status in RETRYABLE_STATUS:
+            return True
+        return status >= 500
+    name = type(exc).__name__
+    return any(k in name for k in ("Timeout", "Connection", "Unavailable", "Socket"))
+
+
+def _with_retries(fn, what: str):
+    """Run fn(), retrying transport failures with full-jitter exponential backoff."""
+    for attempt in range(1, RETRY_ATTEMPTS + 1):
+        try:
+            return fn()
+        except Exception as exc:
+            if not _is_retryable(exc) or attempt == RETRY_ATTEMPTS:
+                raise
+            print(f"⚠️  {what} failed (attempt {attempt}/{RETRY_ATTEMPTS}, "
+                  f"status {_status_of(exc)}); retrying")
+            delay = min(RETRY_MAX_S, RETRY_BASE_S * (2 ** (attempt - 1)))
+            time.sleep(random.uniform(0, delay))
 
 
 class MockResponse:
@@ -100,11 +127,7 @@ class LLMRouter:
 
     def _cloudflare_complete(self, prompt: str, temperature: float,
                              max_tokens: int) -> tuple[str, dict]:
-        """Single Workers AI call through the OpenAI-compatible endpoint.
-
-        No thinking_budget equivalent: the chosen model does not reason, which is
-        why the caller's max_tokens can stay as tight as it is for Gemini.
-        """
+        """Single Workers AI call through the OpenAI-compatible endpoint."""
         r = self._cf.chat.completions.create(
             model=CLOUDFLARE_MODEL,
             messages=[{"role": "user", "content": prompt}],
@@ -159,17 +182,7 @@ class LLMRouter:
         return text, usage
 
     def complete(self, prompt: str, **kwargs) -> MockResponse:
-        """
-        Generate a completion.
-
-        `fast=True` routes to GEMINI_FAST_MODEL; `model` overrides both.
-        `thinking_budget` and `temperature` override the module defaults.
-
-        Both are Gemini-only knobs. Workers AI publishes one model for this job,
-        so both tiers point at it there and `fast`/`thinking_budget` are ignored
-        — the two-tier split is a cost optimisation, not something callers depend
-        on for correctness.
-        """
+        """        Generate a completion."""
         temp     = kwargs.get("temperature", 0.3)
         max_tok  = kwargs.get("max_tokens", GEMINI_MAX_OUTPUT)
         thinking = kwargs.get("thinking_budget", GEMINI_THINKING_BUDGET)
@@ -178,7 +191,8 @@ class LLMRouter:
 
         if self._cf:
             try:
-                text, usage = self._cloudflare_complete(prompt, temp, max_tok)
+                text, usage = _with_retries(
+                    lambda: self._cloudflare_complete(prompt, temp, max_tok), CLOUDFLARE_MODEL)
                 if text:
                     return MockResponse(text, usage)
             except Exception as e:
@@ -187,8 +201,8 @@ class LLMRouter:
 
         if self._gemini:
             try:
-                text, usage = self._gemini_complete(
-                    prompt, temp, max_tok, thinking, model)
+                text, usage = _with_retries(
+                    lambda: self._gemini_complete(prompt, temp, max_tok, thinking, model), model)
                 if text:
                     return MockResponse(text, usage)
             except Exception as e:
@@ -197,14 +211,7 @@ class LLMRouter:
         return MockResponse("")
 
     def stream(self, prompt: str, **kwargs):
-        """
-        Yield answer text chunks as the active provider produces them.
-
-        Same config as complete(), so a streamed answer is identical to the
-        buffered one, just delivered token by token. Both providers' streams are
-        blocking sync generators; the SSE endpoint pumps them through
-        asyncio.to_thread so neither blocks the event loop.
-        """
+        """        Yield answer text chunks as the active provider produces them."""
         temp     = kwargs.get("temperature", 0.3)
         max_tok  = kwargs.get("max_tokens", GEMINI_MAX_OUTPUT)
         thinking = kwargs.get("thinking_budget", GEMINI_THINKING_BUDGET)
@@ -221,9 +228,6 @@ class LLMRouter:
                 ):
                     if not chunk.choices:
                         continue
-                    # Cloudflare's shim sends a chunk that is only a number as a
-                    # JSON number, so content arrives as int. The SSE endpoint
-                    # joins these into one string and would raise on it.
                     delta = chunk.choices[0].delta.content
                     if delta is not None and delta != "":
                         yield delta if isinstance(delta, str) else str(delta)
@@ -258,17 +262,7 @@ class GeminiEmbeddingModel:
 
     def encode(self, texts: list[str], show_progress_bar: bool = False,
                task_type: str = "RETRIEVAL_DOCUMENT") -> list[list[float]]:
-        """
-        Embed texts with Gemini.
-
-        task_type must be RETRIEVAL_DOCUMENT when embedding chunks for the
-        index and RETRIEVAL_QUERY when embedding a search query — Gemini
-        produces asymmetric embeddings and using the document type for
-        queries measurably degrades similarity.
-
-        EMBED_DIM is a Matryoshka truncation of the model's native 3072,
-        which the model is trained to support.
-        """
+        """        Embed texts with Gemini."""
         if isinstance(texts, str):
             texts = [texts]
         if not texts:
@@ -282,14 +276,14 @@ class GeminiEmbeddingModel:
 
     def _embed_one(self, text: str, task_type: str) -> list[float]:
         """Embed one string via Gemini and validate the returned dimension."""
-        result = self.client.models.embed_content(
+        result = _with_retries(lambda: self.client.models.embed_content(
             model=GEMINI_EMBED_MODEL,
             contents=text,
             config=types.EmbedContentConfig(
                 task_type=task_type,
                 output_dimensionality=EMBED_DIM,
             )
-        )
+        ), GEMINI_EMBED_MODEL)
         if not result.embeddings or not result.embeddings[0].values:
             raise RuntimeError(
                 f"Gemini returned no embedding for a {len(text)}-char text "

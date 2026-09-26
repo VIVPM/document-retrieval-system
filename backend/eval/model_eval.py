@@ -1,11 +1,4 @@
-"""
-Compares two answer models on a fixed question set, graded by gemini-2.5-pro.
-
-Retrieval is computed once and shared, so both arms see identical context.
-Prefer model_sweep.py for model selection — this set is small and has been
-iterated on. Kept because it exercises citations and prose, which string
-matching cannot.
-"""
+"""Compares two answer models on a fixed question set, graded by gemini-2.5-pro."""
 import json
 import math
 import os
@@ -15,7 +8,6 @@ import sys
 import time
 from collections import Counter
 
-# Broad on purpose: a miss here would look like a model failure.
 REFUSAL = re.compile(
     r"does not contain|doesn't contain|not contain|no information|not (?:be )?found|"
     r"cannot determine|can't determine|not (?:explicitly )?(?:present|available|stated|provided)|"
@@ -37,7 +29,6 @@ from core.chunker import chunk_by_structure
 from core.pdf_processor import extract_and_analyze_pdf
 from llm.llm_router import embed_model, llm
 
-# (label, model, thinking_budget).
 ARM_SPECS = [
     ("flash+think2048", "gemini-2.5-flash",      2048),
     ("flash+think0",    "gemini-2.5-flash",         0),
@@ -49,18 +40,11 @@ JUDGE = "gemini-2.5-pro"
 K = 6
 SEED = 20260730
 
-# USD per 1M tokens. Thinking bills at the output rate.
 PRICE = {
     "gemini-2.5-flash":      {"in": 0.30, "out": 2.50},
     "gemini-2.5-flash-lite": {"in": 0.10, "out": 0.40},
 }
 
-# `expect` is checked independently of the judge:
-#   [..]  must state one of these strings
-#   []    must refuse, the value is absent from the packet
-#   None  judge only
-# Every string must be grepped from the real extraction, never copied from a
-# prompt's few-shot examples.
 QUESTIONS = [
     ("What interest rate is being offered?",                     ["4.250", "4.25"]),
     ("What is the Underwriting Fee?",                            ["550"]),
@@ -71,11 +55,9 @@ QUESTIONS = [
     ("What is the monthly Principal & Interest payment?",         ["1,869.37"]),
     ("What is the Net Pay on the pay slip?",                      ["8000"]),
     ("What are the Total Earnings on the pay slip?",              ["8800"]),
-    # Absent from the packet — a correct answer declines, a wrong one invents.
     ("When does the interest rate lock expire?",                   []),
     ("What is the Annual Percentage Rate (APR)?",                  []),
     ("What is the borrower's social security number?",             []),
-    # Judge-only: no single correct string.
     ("What are the origination charges?",                          None),
     ("What is the sum of the Underwriting Fee and the Appraisal Fee?", None),
     ("List the closing costs and say which is the largest.",       None),
@@ -138,27 +120,24 @@ def cost(usage):
     return (usage.get("prompt_tokens", 0) * p["in"] + billed_out * p["out"]) / 1e6
 
 
-# ── 1. Extract + chunk (real pipeline; also exercises flash-lite classify) ────
 print(f"[extract] {os.path.basename(PDF)} via Textract")
 t0 = time.time()
 pages, docs = extract_and_analyze_pdf(PDF, filename=os.path.basename(PDF))
 print(f"   {len(pages)} pages, {len(docs)} logical docs in {time.time()-t0:.0f}s")
 for d in docs:
-    print(f"     - {d.doc_type}  pages {d.page_start}-{d.page_end}")
+    print(f"     - {d.doc_type}  pages {d.page_start + 1}-{d.page_end + 1}")
 
 chunks = [c for d in docs for c in chunk_by_structure(d)]
 print(f"[chunk] {len(chunks)} chunks")
 if not chunks:
     sys.exit("no chunks — extraction failed")
 
-# ── 2. Embed once, select top-K per question ─────────────────────────────────
 print(f"[embed] {len(chunks)} chunks + {len(QUESTIONS)} queries")
 t0 = time.time()
 cvecs = embed_model.encode([c.text for c in chunks], task_type="RETRIEVAL_DOCUMENT")
 qvecs = embed_model.encode([q for q, _ in QUESTIONS], task_type="RETRIEVAL_QUERY")
 print(f"   {time.time()-t0:.0f}s")
 
-# ── 3. Both arms, identical context; then judge ──────────────────────────────
 rng = random.Random(SEED)
 rows, wins, totals = [], Counter(), {m: Counter() for m in ARMS}
 spend = {m: 0.0 for m in ARMS}
@@ -167,10 +146,9 @@ for i, (question, expect) in enumerate(QUESTIONS):
     ranked = sorted(zip(chunks, (cosine(qvecs[i], cv) for cv in cvecs)),
                     key=lambda t: t[1], reverse=True)[:K]
     context = "\n".join(
-        f"[Source: {c.filename} | {c.doc_type} | Pages: {c.page_start}-{c.page_end}]\n{c.text}\n"
+        f"[Source: {c.filename} | {c.doc_type} | Pages: {c.page_start + 1}-{c.page_end + 1}]\n{c.text}\n"
         for c, _ in ranked)
 
-    # If retrieval did not surface the value, refusing is the correct answer.
     in_context = None if expect is None else any(e in context for e in expect)
 
     out = {}
@@ -183,14 +161,13 @@ for i, (question, expect) in enumerate(QUESTIONS):
         if expect is None:
             hit = None
         elif in_context:
-            hit = any(e in ans for e in expect)          # must state the value
+            hit = any(e in ans for e in expect)
         else:
-            hit = bool(REFUSAL.search(ans))              # must decline to guess
+            hit = bool(REFUSAL.search(ans))
         out[arm] = {"answer": ans, "secs": time.time() - t0, "usage": u,
                     "hit": hit}
         spend[arm] += cost(u)
 
-    # Blind the judge: shuffle arms into slot letters afresh each question.
     shuffled = ARMS[:]
     rng.shuffle(shuffled)
     slots = {chr(ord("A") + n): arm for n, arm in enumerate(shuffled)}
@@ -201,8 +178,6 @@ for i, (question, expect) in enumerate(QUESTIONS):
         raw = llm.complete(
             JUDGE_PROMPT.format(context=context, question=question,
                                 answers=answers_block),
-            # gemini-2.5-pro rejects thinking_budget=0 and draws thinking from
-            # max_tokens, so both are generous here.
             model=JUDGE, temperature=0.0, max_tokens=16384, thinking_budget=-1,
         ).text.strip().removeprefix("```json").removeprefix("```").removesuffix("```")
         verdict = json.loads(raw)
@@ -235,7 +210,6 @@ for i, (question, expect) in enumerate(QUESTIONS):
     if verdict.get("why"):
         print(f"   why: {verdict['why'][:130]}")
 
-# ── 4. Report ────────────────────────────────────────────────────────────────
 n = len(QUESTIONS)
 graded = [r for r in rows if r[4]]
 hard = [(q, e, o) for q, e, o, _, _, _ in rows if e is not None]
@@ -260,8 +234,6 @@ for arm in ARMS:
 if wins.get("judge failed"):
     print(f"\n⚠️ judge produced no scores on {wins['judge failed']} question(s)")
 
-# Named per question: at temperature 0.3 the failing question moves between
-# runs, which the aggregate hides.
 print("\nground-truth misses:")
 any_miss = False
 for q, e, o, _, _, ic in rows:
@@ -277,8 +249,6 @@ if base:
     print("\ncost vs " + ARMS[-1] + ": " + ", ".join(
         f"{a}={spend[a]/base:.1f}x" for a in ARMS))
 
-# Next to the script, not the CWD — run from the repo root it otherwise drops a
-# 32KB transcript into the project root.
 out_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                         "model_eval_results.json")
 with open(out_path, "w", encoding="utf-8") as f:

@@ -13,8 +13,6 @@ function useToasts() {
     const id = Date.now() + Math.random()
     let added = false
     setToasts((prev) => {
-      // Two requests failing at once (e.g. listChats + getChat when a token
-      // expires on load) must not stack the same toast twice.
       if (prev.some((t) => t.msg === msg)) return prev
       added = true
       return [...prev, { id, msg, type }]
@@ -31,11 +29,27 @@ const STATUS_LABEL = {
   failed: 'Failed',
 }
 
+// One-glance review state for a file in the list: issues, or clear.
+function ReviewBadge({ rs }) {
+  if (!rs) return null
+  if (rs.status === 'running') return <span className="file-badge">reviewing…</span>
+  if (rs.status !== 'done' || !rs.summary) return null
+  const { mismatch = 0, review = 0 } = rs.summary
+  if (!mismatch && !review) return <span className="file-badge file-badge-ok">✓ clear</span>
+  if (rs.resolved) {
+    return rs.open
+      ? <span className="file-badge file-badge-warn">{rs.open} open · {rs.resolved} resolved</span>
+      : <span className="file-badge file-badge-ok">✓ reviewed</span>
+  }
+  const parts = []
+  if (mismatch) parts.push(`${mismatch} issue${mismatch > 1 ? 's' : ''}`)
+  if (review) parts.push(`${review} review`)
+  return <span className={`file-badge ${mismatch ? 'file-badge-bad' : 'file-badge-warn'}`}>{parts.join(' · ')}</span>
+}
+
 function ChatRow({ chat, active, onSelect, onRename, onDelete }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(chat.title)
-  // Ingest runs in a background task that would keep writing vectors into a
-  // namespace whose chat row had just been deleted, orphaning them.
   const busy = chat.status === 'processing'
 
   const commit = () => {
@@ -62,7 +76,12 @@ function ChatRow({ chat, active, onSelect, onRename, onDelete }) {
           onClick={(e) => e.stopPropagation()}
         />
       ) : (
-        <span className="chat-row-title" title={chat.title}>{chat.title}</span>
+        <span className="chat-row-text">
+          <span className="chat-row-title" title={chat.title}>
+            {chat.review_summary?.borrower || chat.title}
+          </span>
+          <ReviewBadge rs={chat.review_summary} />
+        </span>
       )}
       <span className="chat-row-actions">
         <button title="Rename" onClick={(e) => { e.stopPropagation(); setDraft(chat.title); setEditing(true) }}>✎</button>
@@ -80,8 +99,6 @@ export default function App() {
   const { toasts, addToast } = useToasts()
   const [username, setUsername] = useState(api.getUser())
   const [authed, setAuthed] = useState(Boolean(api.getToken()))
-  // Only for the logged-out view: null shows the landing page, 'login'/'signup'
-  // show the auth form.
   const [authMode, setAuthMode] = useState(null)
   const [chats, setChats] = useState([])
   const [selectedId, setSelectedId] = useState(localStorage.getItem(SELECTED_KEY))
@@ -90,8 +107,6 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [credits, setCredits] = useState(null)
 
-  // A dead session drops to the LANDING page (authMode = null), not the login
-  // form and not a stale app view with a logout button.
   useEffect(() => {
     api.setUnauthorizedHandler(() => {
       setAuthed(false)
@@ -101,9 +116,6 @@ export default function App() {
     })
   }, [])
 
-  // Notice a session that died while idle: the access token can expire with no
-  // request in flight, so poll its expiry (and check on tab focus). If it can't
-  // be refreshed, ensureFreshSession fires the handler above → landing page.
   useEffect(() => {
     if (!authed) return
     const check = () => api.ensureFreshSession()
@@ -117,8 +129,6 @@ export default function App() {
     try {
       const d = await api.listChats()
       setChats(d.chats)
-      // ChatPanel calls this on every finished message, so credits stay current
-      // without its own polling. A failure here must not break the chat list.
       api.getCredits().then(setCredits).catch(() => {})
       return d.chats
     } catch (err) {
@@ -141,8 +151,6 @@ export default function App() {
     else localStorage.removeItem(SELECTED_KEY)
   }, [selectedId])
 
-  // Escape closes the confirm dialog, but not mid-delete — the request is
-  // already in flight and dismissing would hide its outcome.
   useEffect(() => {
     if (!pendingDelete) return
     const onKey = (e) => { if (e.key === 'Escape' && !deleting) setPendingDelete(null) }
@@ -189,12 +197,10 @@ export default function App() {
   }
 
   const logout = () => {
-    // Revoke the refresh token server-side; clearing local state is what the
-    // UI reacts to, so don't await it.
     api.logout()
     localStorage.removeItem(SELECTED_KEY)
     setAuthed(false)
-    setAuthMode(null)   // back to the landing page, not straight to login
+    setAuthMode(null)
     setChats([])
     setSelectedId(null)
   }
@@ -243,13 +249,13 @@ export default function App() {
 
       <div className="main-grid">
         <aside className="chat-rail">
-          <button className="btn btn-primary new-chat-btn" onClick={createChat}>+ New chat</button>
+          <button className="btn btn-primary new-chat-btn" onClick={createChat}>+ New loan file</button>
 
           <div className="chat-list">
             {loading ? (
               <div className="rail-empty"><span className="spinner" /></div>
             ) : chats.length === 0 ? (
-              <div className="rail-empty">No chats yet.<br />Create one to upload a document.</div>
+              <div className="rail-empty">No loan files yet.<br />Start one to upload a borrower&rsquo;s packet.</div>
             ) : (
               chats.map((c) => (
                 <ChatRow
@@ -276,8 +282,8 @@ export default function App() {
           <section className="chat-panel lp-mesh">
             <div className="empty-chat">
               <div className="empty-icon">📄</div>
-              <h3>No conversation selected</h3>
-              <p>Create a chat and upload a PDF to get started.</p>
+              <h3>No loan file open</h3>
+              <p>Start a new file and upload a borrower&rsquo;s packet to get the review.</p>
             </div>
           </section>
         )}

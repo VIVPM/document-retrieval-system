@@ -1,14 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import * as api from './api'
 
-const POLL_MS = 2500   // snappy enough to track ingest sub-steps as they change
+const POLL_MS = 2500
 
-// The real ingest pipeline, in order. `at` is the elapsed second each stage
-// lights up — a plausible timeline (ingest ~45-55s), not a live signal: the
-// backend exposes only processing/ready, so the last stage holds until the poll
-// flips to ready and this view swaps for the chat. Windows mirror where time
-// ACTUALLY goes — extraction (AWS Textract) is the bulk, embeddings second;
-// chunking is sub-second, so it flashes by rather than looking like the holdup.
 const STAGES = [
   { key: 'extract', label: 'Extracting text & tables', sub: 'Layout-aware OCR reads every page', at: 0 },
   { key: 'split', label: 'Splitting into documents', sub: 'Classifying pages, detecting boundaries', at: 26 },
@@ -27,17 +21,12 @@ function ProcessingView({ filename, since, stage }) {
     return () => clearInterval(t)
   }, [since])
 
-  // Prefer the real backend stage; fall back to the elapsed timeline for the
-  // brief moment before the first stage lands (or an ingest predating this).
   const stageIdx = STAGES.findIndex((s) => s.key === stage)
   let active = stageIdx
   if (active < 0) {
     active = 0
     for (let i = 0; i < STAGES.length; i++) if (elapsed >= STAGES[i].at) active = i
   }
-  // Bar is a smooth time-based estimate (the steps carry the exact stage —
-  // real stages are too uneven, ~70% is extraction, to map onto a bar). Never
-  // 100% here: hitting ready unmounts this view.
   const pct = Math.min(94, Math.round((elapsed / 52) * 94))
 
   return (
@@ -74,27 +63,31 @@ function ProcessingView({ filename, since, stage }) {
 }
 
 function UploadView({ chat, onUploaded, addToast }) {
-  const [file, setFile] = useState(null)
+  const [files, setFiles] = useState([])
   const [dragging, setDragging] = useState(false)
   const [busy, setBusy] = useState(false)
   const inputRef = useRef(null)
 
-  // Mirror the backend cap (main.py MAX_UPLOAD_MB) so an oversized file is
-  // rejected instantly instead of after a full upload and a 413.
   const MAX_MB = 3
 
-  const pick = (f) => {
-    if (!f) return
-    if (!f.name.toLowerCase().endsWith('.pdf')) return addToast('Only PDF files are accepted.', 'error')
-    if (f.size > MAX_MB * 1024 * 1024) return addToast(`File is larger than the ${MAX_MB} MB limit.`, 'error')
-    setFile(f)
+  const pick = (list) => {
+    const incoming = [...(list || [])]
+    if (!incoming.length) return
+    if (incoming.some((f) => !f.name.toLowerCase().endsWith('.pdf'))) {
+      return addToast('Only PDF files are accepted.', 'error')
+    }
+    const next = [...files, ...incoming.filter((f) => !files.some((g) => g.name === f.name && g.size === f.size))]
+    const total = next.reduce((n, f) => n + f.size, 0)
+    if (total > MAX_MB * 1024 * 1024) return addToast(`Files add up to more than the ${MAX_MB} MB limit.`, 'error')
+    setFiles(next)
   }
+  const removeAt = (i) => setFiles(files.filter((_, j) => j !== i))
 
   const start = async () => {
-    if (!file || busy) return
+    if (!files.length || busy) return
     setBusy(true)
     try {
-      await api.uploadDocument(chat.id, file)
+      await api.uploadDocument(chat.id, files)
       onUploaded()
     } catch (err) {
       addToast(err.message, 'error')
@@ -112,24 +105,38 @@ function UploadView({ chat, onUploaded, addToast }) {
         </div>
       )}
 
-      <h3>Add a document to this conversation</h3>
-      <p className="upload-view-sub">Every chat is about a single PDF. Upload one to begin.</p>
+      <h3>Upload the borrower&rsquo;s packet</h3>
+      <p className="upload-view-sub">
+        One packet PDF, or the documents as separate files — they&rsquo;re merged into one, in this order.
+      </p>
 
       <div
         className={`upload-zone${dragging ? ' drag-over' : ''}`}
         onClick={() => inputRef.current?.click()}
         onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
         onDragLeave={() => setDragging(false)}
-        onDrop={(e) => { e.preventDefault(); setDragging(false); pick(e.dataTransfer.files[0]) }}
+        onDrop={(e) => { e.preventDefault(); setDragging(false); pick(e.dataTransfer.files) }}
       >
-        <input ref={inputRef} type="file" accept=".pdf" onChange={(e) => pick(e.target.files[0])} />
+        <input ref={inputRef} type="file" accept=".pdf" multiple
+          onChange={(e) => { pick(e.target.files); e.target.value = '' }} />
         <div className="upload-icon">📂</div>
-        <p>{dragging ? 'Drop it' : 'Click or drag a PDF here'}</p>
-        <p className="upload-hint">PDF · up to {MAX_MB} MB</p>
-        {file && <div className="filename">📄 {file.name}</div>}
+        <p>{dragging ? 'Drop them' : 'Click or drag PDFs here'}</p>
+        <p className="upload-hint">PDF · up to {MAX_MB} MB in total</p>
       </div>
 
-      <button className="btn btn-primary" onClick={start} disabled={!file || busy}>
+      {files.length > 0 && (
+        <ol className="upload-files">
+          {files.map((f, i) => (
+            <li key={`${f.name}-${f.size}`}>
+              <span className="upload-file-name">📄 {f.name}</span>
+              <button type="button" onClick={() => removeAt(i)} disabled={busy}
+                aria-label={`Remove ${f.name}`}>✕</button>
+            </li>
+          ))}
+        </ol>
+      )}
+
+      <button className="btn btn-primary" onClick={start} disabled={!files.length || busy}>
         {busy ? <><span className="spinner" /> Uploading…</> : 'Process document'}
       </button>
     </div>
@@ -148,8 +155,141 @@ function Sources({ sources }) {
         <ul className="sources-list">
           {sources.map((s, i) => (
             <li key={i}>
-              <span className="src-type">{s.doc_type}</span>
-              <span className="src-meta">pages {s.pages} · {s.relevance}</span>
+              <div className="src-head">
+                <span className="src-type">{s.doc_type}</span>
+                <span className="src-meta">pages {s.pages} · {s.relevance}</span>
+              </div>
+              {s.preview && <blockquote className="src-preview">{s.preview}</blockquote>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+const REVIEW_ICON = { mismatch: '❌', review: '⚠️', missing: '❔', match: '✅', info: 'ℹ️' }
+
+const DECISION_LABEL = { accepted: 'Accepted', confirmed: 'Confirmed issue' }
+
+// Accept (explained — note required) or Confirm (real issue) one flag, and
+// show who decided it. Decisions are append-only; changing one adds a row.
+function FlagDecision({ flagKey, decision, history, onDecide }) {
+  const [mode, setMode] = useState(null)
+  const [note, setNote] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [showHist, setShowHist] = useState(false)
+  const needsNote = mode === 'accepted'
+
+  const save = async () => {
+    setSaving(true)
+    const ok = await onDecide(flagKey, mode, note.trim())
+    setSaving(false)
+    if (ok) { setMode(null); setNote('') }
+  }
+
+  return (
+    <div className="flag-decision">
+      {decision && (
+        <div className={`flag-status flag-${decision.decision}`}>
+          {DECISION_LABEL[decision.decision]} by {decision.by} · {new Date(decision.at).toLocaleString()}
+          {decision.note && <span className="flag-note">“{decision.note}”</span>}
+        </div>
+      )}
+      {mode ? (
+        <div className="flag-form">
+          <input className="flag-input" autoFocus value={note} maxLength={1000}
+                 placeholder={needsNote ? 'Why is this acceptable? (required)' : 'Note (optional)'}
+                 onChange={(e) => setNote(e.target.value)}
+                 onKeyDown={(e) => { if (e.key === 'Enter' && !(needsNote && !note.trim())) save() }} />
+          <button className="flag-btn flag-btn-primary" onClick={save}
+                  disabled={saving || (needsNote && !note.trim())}>
+            {saving ? 'Saving…' : DECISION_LABEL[mode]}
+          </button>
+          <button className="flag-btn" onClick={() => { setMode(null); setNote('') }} disabled={saving}>Cancel</button>
+        </div>
+      ) : (
+        <div className="flag-actions">
+          <button className="flag-btn" onClick={() => setMode('accepted')}>{decision ? 'Change: accept' : 'Accept'}</button>
+          <button className="flag-btn" onClick={() => setMode('confirmed')}>{decision ? 'Change: confirm' : 'Confirm issue'}</button>
+          {history.length > 0 && (
+            <button className="flag-link" onClick={() => setShowHist(!showHist)}>
+              {showHist ? 'Hide history' : `History (${history.length})`}
+            </button>
+          )}
+        </div>
+      )}
+      {showHist && (
+        <ul className="flag-hist">
+          {history.map((h, i) => (
+            <li key={i}>{new Date(h.at).toLocaleString()} — {DECISION_LABEL[h.decision]} by {h.by}{h.note ? `: “${h.note}”` : ''}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+function ReviewPanel({ review, onAsk, full = false, decisions = {}, history = [], onDecide }) {
+  const issues = review?.summary ? review.summary.mismatch + review.summary.review : 0
+  const [open, setOpen] = useState(true)
+  if (!review) return null
+
+  if (review.status === 'running') {
+    return <div className={`review review-note${full ? ' review-full' : ''}`}><span className="spinner" /> Reviewing the file — checking the application against the supporting documents…</div>
+  }
+  if (review.status !== 'done') {
+    return <div className={`review review-note${full ? ' review-full' : ''}`}>File review unavailable{review.error ? `: ${review.error}` : '.'}</div>
+  }
+
+  const s = review.summary
+  const flagKeys = review.checks.map((c, i) => `${c.id}:${i}`)
+    .filter((k, i) => ['mismatch', 'review'].includes(review.checks[i].status))
+  const resolved = flagKeys.filter((k) => decisions[k]).length
+  const headline = [
+    s.mismatch && `${s.mismatch} mismatch${s.mismatch > 1 ? 'es' : ''}`,
+    s.review && `${s.review} to review`,
+    s.missing && `${s.missing} not found`,
+    `${s.match} matched`,
+    resolved && `${resolved}/${flagKeys.length} decided`,
+  ].filter(Boolean).join(' · ')
+
+  return (
+    <div className={`review${issues ? ' review-has-issues' : ''}${full ? ' review-full' : ''}`}>
+      <button className="review-head" onClick={() => setOpen(!open)}>
+        <span className="review-title">{open ? '▾' : '▸'} File review{review.borrower ? ` — ${review.borrower}` : ''}</span>
+        <span className="review-sum">{headline}</span>
+      </button>
+      {open && (
+        <ul className="review-list">
+          {review.checks.map((c, i) => (
+            <li key={`${c.id}-${i}`} className={`review-row review-${c.status}`}>
+              <span className="review-ico" title={c.status}>{REVIEW_ICON[c.status] || '•'}</span>
+              <div className="review-body">
+                <div className="review-line">
+                  <span className="review-label">{c.label}</span>
+                  <span className="review-detail">{c.detail}</span>
+                </div>
+                {c.evidence?.some((e) => e.value) && (
+                  <div className="review-ev">
+                    {c.evidence.filter((e) => e.value).map((e, j) => (
+                      <span key={j} className="review-chip" title={e.doc_type}>
+                        {e.label}: <b>{String(e.value)}</b>{e.page ? ` · p.${e.page}` : ''}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {(c.status === 'mismatch' || c.status === 'review') && onDecide && review.run_id && (
+                  <FlagDecision flagKey={`${c.id}:${i}`} decision={decisions[`${c.id}:${i}`]}
+                                history={history.filter((h) => h.run_id === review.run_id && h.check_key === `${c.id}:${i}`)}
+                                onDecide={onDecide} />
+                )}
+              </div>
+              {(c.status === 'mismatch' || c.status === 'review') && (
+                <button className="review-ask" onClick={() => onAsk(`Explain this ${c.label.toLowerCase()} issue: ${c.detail}`)}>
+                  Ask
+                </button>
+              )}
             </li>
           ))}
         </ul>
@@ -165,7 +305,11 @@ export default function ChatPanel({ chat, onChatChanged, addToast }) {
   const [loading, setLoading] = useState(true)
   const [showSettings, setShowSettings] = useState(false)
   const [uploadStartedAt, setUploadStartedAt] = useState(Date.now())
-  const [stage, setStage] = useState(null)   // live ingest sub-step from /status
+  const [stage, setStage] = useState(null)
+  const [review, setReview] = useState(null)
+  const [decisions, setDecisions] = useState({})
+  const [history, setHistory] = useState([])
+  const [tab, setTab] = useState('review')
 
   const [docFilter, setDocFilter] = useState('All')
   const [numChunks, setNumChunks] = useState(6)
@@ -174,28 +318,49 @@ export default function ChatPanel({ chat, onChatChanged, addToast }) {
   const endRef = useRef(null)
   const chatId = chat.id
 
-  // Load history whenever the selected chat changes.
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     setMessages([])
     setDocFilter('All')
+    setReview(null)
+    setDecisions({})
+    setHistory([])
+    setTab('review')
     api.getChat(chatId)
-      .then((d) => { if (!cancelled) setMessages(d.messages) })
+      .then((d) => {
+        if (cancelled) return
+        setMessages(d.messages)
+        setReview(d.chat?.review ?? null)
+        setDecisions(d.chat?.decisions ?? {})
+        setHistory(d.chat?.decision_history ?? [])
+      })
       .catch((e) => { if (!cancelled) addToast(e.message, 'error') })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [chatId, addToast])
+  }, [chatId, chat.status, addToast])
 
-  // Poll only while this chat is actually ingesting; track the live sub-step.
+  useEffect(() => {
+    if (chat.status !== 'ready' || review?.status !== 'running') return
+    const t = setInterval(() => {
+      api.getChat(chatId).then((d) => {
+        const r = d.chat?.review ?? null
+        setReview(r)
+        setDecisions(d.chat?.decisions ?? {})
+        setHistory(d.chat?.decision_history ?? [])
+        if (r?.status !== 'running') onChatChanged()
+      }).catch(() => {})
+    }, 4000)
+    return () => clearInterval(t)
+  }, [chatId, chat.status, review?.status, onChatChanged])
+
   useEffect(() => {
     if (chat.status !== 'processing') { setStage(null); return }
-    const t = setInterval(async () => {
-      try {
-        const s = await api.chatStatus(chatId)
+    const t = setInterval(() => {
+      api.chatStatus(chatId).then((s) => {
         setStage(s.stage)
         if (s.status !== 'processing') onChatChanged()
-      } catch { /* transient — keep polling */ }
+      }).catch(() => {})
     }, POLL_MS)
     return () => clearInterval(t)
   }, [chatId, chat.status, onChatChanged])
@@ -205,7 +370,6 @@ export default function ChatPanel({ chat, onChatChanged, addToast }) {
   const runMessage = useCallback(async (question, extra = {}) => {
     if (querying) return
     const aid = `tmp-a-${Date.now()}`
-    // Add the user turn and an empty assistant bubble the tokens will fill in.
     setMessages((prev) => [
       ...prev,
       { role: 'user', content: question, id: `tmp-${Date.now()}` },
@@ -241,7 +405,6 @@ export default function ChatPanel({ chat, onChatChanged, addToast }) {
     runMessage(q)
   }, [input, runMessage])
 
-  // Whole-document summary — feeds every chunk, not the top-k a query retrieves.
   const summarize = useCallback(
     () => runMessage('Summarize this document.', { summarize: true }), [runMessage])
 
@@ -267,29 +430,67 @@ export default function ChatPanel({ chat, onChatChanged, addToast }) {
 
   const stats = chat.doc_stats || {}
   const docTypes = ['All', ...(stats.document_types || [])]
+  const view = review ? tab : 'ask'
+  const askAbout = (text) => { setInput(text); setTab('ask') }
+  const decide = async (key, decision, note) => {
+    try {
+      const { decision: d } = await api.decideFlag(chatId, key, decision, note)
+      setDecisions((prev) => ({ ...prev, [key]: d }))
+      setHistory((prev) => [...prev, d])
+      onChatChanged()
+      return true
+    } catch (err) {
+      addToast(err.message, 'error')
+      return false
+    }
+  }
+  const s = review?.summary
+  const reviewTabLabel = review?.status === 'running' ? 'Review…'
+    : s ? `Review${s.mismatch + s.review ? ` (${s.mismatch + s.review})` : ' ✓'}` : 'Review'
 
   return (
     <section className="chat-panel">
-      {/* Document strip — what this conversation is about */}
       <div className="doc-strip">
         <div className="doc-strip-main">
-          <span className="doc-name">📄 {chat.filename}</span>
+          <span className="doc-name">
+            {review?.borrower ? <>{review.borrower} <span className="doc-file">· {chat.filename}</span></> : <>📄 {chat.filename}</>}
+          </span>
           <span className="doc-meta">
             {stats.total_pages} pages · {stats.documents_found} documents · {stats.total_chunks} chunks
           </span>
+          {stats.empty_pages?.length > 0 && (
+            <span className="doc-warn" title="Scanned pages have no text layer. Textract extraction can read them.">
+              ⚠ No readable text on page{stats.empty_pages.length > 1 ? 's' : ''} {stats.empty_pages.join(', ')}. Not searched or reviewed.
+            </span>
+          )}
         </div>
+        {review && (
+          <div className="file-tabs" role="tablist">
+            <button role="tab" aria-selected={view === 'review'}
+                    className={`file-tab${view === 'review' ? ' active' : ''}`}
+                    onClick={() => setTab('review')}>{reviewTabLabel}</button>
+            <button role="tab" aria-selected={view === 'ask'}
+                    className={`file-tab${view === 'ask' ? ' active' : ''}`}
+                    onClick={() => setTab('ask')}>Ask</button>
+          </div>
+        )}
         <div className="doc-strip-actions">
-          <button className="doc-strip-btn" onClick={summarize} disabled={querying}
+          <button className="doc-strip-btn" onClick={() => { setTab('ask'); summarize() }} disabled={querying}
                   title="Summarize the whole document (reads every page, not just the top matches)">
             📝 Summarize
           </button>
-          <button className="doc-strip-btn" onClick={() => setShowSettings(!showSettings)}>
-            {showSettings ? 'Hide search settings' : 'Search settings'}
-          </button>
+          {view === 'ask' && (
+            <button className="doc-strip-btn" onClick={() => setShowSettings(!showSettings)}>
+              {showSettings ? 'Hide search settings' : 'Search settings'}
+            </button>
+          )}
         </div>
       </div>
 
-      {showSettings && (
+      {view === 'review' && <ReviewPanel review={review} onAsk={askAbout} full
+        decisions={decisions} history={history} onDecide={decide} />}
+
+      {view === 'ask' && showSettings && (
         <div className="settings-strip">
           <label>
             <span className="setting-label">Document type</span>
@@ -313,14 +514,15 @@ export default function ChatPanel({ chat, onChatChanged, addToast }) {
         </div>
       )}
 
+      {view === 'ask' && <>
       <div className="chat-messages">
         {loading ? (
           <div className="empty-chat"><span className="spinner spinner-lg" /></div>
         ) : messages.length === 0 ? (
           <div className="empty-chat">
             <div className="empty-icon">💬</div>
-            <h3>Ask about {chat.filename}</h3>
-            <p>Try a specific lookup — a figure, a date, a field name.</p>
+            <h3>Ask about this file</h3>
+            <p>Anything the review doesn&rsquo;t cover — a figure, a date, a lien, a contract term. Answers cite the page.</p>
           </div>
         ) : (
           messages.map((m) => (
@@ -345,7 +547,7 @@ export default function ChatPanel({ chat, onChatChanged, addToast }) {
       <div className="chat-input-bar">
         <textarea
           rows={1}
-          placeholder="Ask a question about this document…"
+          placeholder="Ask about this loan file…"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
@@ -355,6 +557,7 @@ export default function ChatPanel({ chat, onChatChanged, addToast }) {
           {querying ? <span className="spinner" /> : '➤'}
         </button>
       </div>
+      </>}
     </section>
   )
 }

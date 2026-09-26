@@ -1,27 +1,4 @@
-"""
-main.py — FastAPI backend for the Document Retrieval System.
-
-Model: one account → many chat sessions → one document each.
-Pinecone holds one namespace per USER, containing every chat they own. Vector
-ids are prefixed `{chat_id}#` and carry chat_id in metadata, so a query is
-scoped to one chat and a chat is deleted by listing that prefix.
-
-Endpoints
-  POST   /api/auth/signup
-  POST   /api/auth/login
-  GET    /api/chats                     — sidebar list
-  POST   /api/chats/new                 — empty chat, awaiting a document
-  GET    /api/chats/{id}                — messages + document stats
-  POST   /api/chats/{id}/document       — upload; ingests in the background
-  GET    /api/chats/{id}/status         — poll while status='processing'
-  POST   /api/chats/{id}/message        — ask a question
-  PATCH  /api/chats/{id}                — rename
-  DELETE /api/chats/{id}                — drop namespace + rows
-
-Ownership is enforced in Postgres before Pinecone is ever touched: a chat that
-does not belong to the caller is reported as 404, not 403, so the API does not
-leak which chat ids exist.
-"""
+"""main.py — FastAPI backend for the Document Retrieval System."""
 
 import asyncio
 import json
@@ -48,8 +25,6 @@ rt.ResourceTracker.__del__ = _silent_del
 
 from dotenv import load_dotenv
 
-# Load .env before importing anything that reads DATABASE_URL / JWT_SECRET at
-# import time.
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 from fastapi import (BackgroundTasks, Depends, FastAPI, File, HTTPException,
@@ -71,28 +46,19 @@ from core.document_store import EnhancedDocumentStoreHybrid
 from core.query_rewriter import MAX_HISTORY_MESSAGES, rewrite_standalone
 from db.database import Base, SessionLocal, engine
 from db.models import (Account, ChatMessage, ChatSession, LoginFailure,
-                       RefreshToken, now_ist)
+                       RefreshToken, ReviewDecision, ensure_columns, now_ist)
 from llm.llm_router import embed_model
+from core.review import build_review
 from observability import (flush as trace_flush, init_http_tracing,
                            init_metrics, init_observability, record_message,
                            set_output, trace_message)
 
 Base.metadata.create_all(bind=engine)
+ensure_columns(engine)
 
 
 def _reap_stranded_ingests() -> None:
-    """Flip every 'processing' chat to 'failed' at startup.
-
-    Ingest runs in a FastAPI BackgroundTask, which lives and dies with the
-    worker process. So any chat still 'processing' when this process starts has
-    no task advancing it — its worker is gone. Left alone it would poll forever
-    and, with the delete-while-processing guard, be undeletable. Runs once at
-    import, needs no scheduler.
-
-    ponytail: flips ALL processing chats, which is correct for one worker. With
-    several workers on one box a fresh worker could clobber another's in-flight
-    ingest — revisit when there is a second instance (that is the Redis line).
-    """
+    """Flip every 'processing' chat to 'failed' at startup."""
     db = SessionLocal()
     try:
         stranded = db.query(ChatSession).filter(
@@ -101,9 +67,15 @@ def _reap_stranded_ingests() -> None:
             chat.status = "failed"
             chat.error = "Ingestion was interrupted by a server restart. Re-upload the document."
             chat.updated_at = now_ist()
-        if stranded:
+        reviews = db.query(ChatSession).filter(
+            ChatSession.review["status"].astext == "running").all()
+        for chat in reviews:
+            chat.review = {"status": "failed",
+                           "error": "Review was interrupted by a server restart. Re-upload to review."}
+        if stranded or reviews:
             db.commit()
-            print(f"🧹 Reaped {len(stranded)} chat(s) stranded on 'processing'.")
+            print(f"🧹 Reaped {len(stranded)} chat(s) stranded on 'processing', "
+                  f"{len(reviews)} review(s) on 'running'.")
     except Exception as e:
         db.rollback()
         print(f"⚠️  Could not reap stranded ingests: {type(e).__name__}: {e}")
@@ -115,6 +87,24 @@ _reap_stranded_ingests()
 
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "3"))
 MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
+MAX_UPLOAD_FILES = 20
+
+
+def _merge_pdfs(parts: list[bytes]) -> bytes:
+    """Concatenate PDFs, in order, into one."""
+    import fitz
+
+    out = fitz.open()
+    try:
+        for i, data in enumerate(parts, 1):
+            try:
+                with fitz.open(stream=data, filetype="pdf") as doc:
+                    out.insert_pdf(doc)
+            except Exception as e:
+                raise ValueError(f"File {i} is not a readable PDF.") from e
+        return out.tobytes(garbage=3, deflate=True)
+    finally:
+        out.close()
 
 def _ns(db, user_id: int) -> str:
     """Pinecone namespace for an account: the account's username."""
@@ -128,8 +118,6 @@ def _title_from_question(q: str) -> str:
     return (q[:48] + ("…" if len(q) > 48 else "")) or "New Chat"
 
 
-# Pure cache: a miss rehydrates from Postgres + Pinecone. Bounded because each
-# entry holds a fitted BM25 encoder in memory.
 MAX_CACHED_RETRIEVERS = 20
 _retrievers: "OrderedDict[str, EnhancedDocumentStoreHybrid]" = OrderedDict()
 
@@ -165,19 +153,15 @@ def sanitize(obj):
         return sanitize(asdict(obj))
     if hasattr(obj, '__dict__'):
         return sanitize(vars(obj))
-    # Last resort — stringify
     return str(obj)
 
 
-# ── App & CORS ────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="Document Retrieval System API",
     description="Hybrid RAG pipeline for intelligent multi-document Q&A",
     version="2.0.0",
 )
 
-# CORS — origins from env (comma-separated); default keeps the deployed frontend
-# and local dev working without a code change.
 _DEFAULT_ORIGINS = "https://document-retrieval-system-frontend.onrender.com,http://localhost:5173"
 ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", _DEFAULT_ORIGINS).split(",") if o.strip()]
 app.add_middleware(
@@ -188,29 +172,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Observability ─────────────────────────────────────────────────────────────
-# All no-ops unless their env vars are set (see observability.py):
-init_observability()      # LLM pipeline (rewrite + answer) -> Langfuse + Grafana
-init_http_tracing(app)    # HTTP-layer spans -> Grafana Cloud
-init_metrics()            # chat_messages_total counter -> Grafana Cloud
+init_observability()
+init_http_tracing(app)
+init_metrics()
 
-# ── Rate limits ───────────────────────────────────────────────────────────────
-# Applied to the four endpoints that cost real money or guard the account, not
-# to every route — reads are cheap and limiting them only breaks the sidebar.
-#
-#   signup/login   an attacker's endpoints. The lockout is per-USERNAME and
-#                  DB-backed, so it does nothing against one host spraying many
-#                  usernames; these limits are per-IP and cover that gap.
-#   document       one upload = Textract per-page + one LLM call per page. By far
-#                  the most expensive thing an authenticated user can trigger.
-#   message        one LLM call per question, plus a rewrite on follow-ups.
-#
-# Keyed on request.client.host, which uvicorn fills from X-Forwarded-For only
-# for peers listed in --forwarded-allow-ips (default 127.0.0.1). Deploy behind
-# a proxy WITHOUT setting that and every user shares the proxy's bucket, so the
-# whole app caps at RATE_UPLOAD. Do not re-read the header here — that would be
-# a second, ungated trust path. Counters are in-process, so each worker holds
-# its own; upgrade_roadmap.txt PART 3 has the Redis version.
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -220,11 +185,6 @@ RATE_LOGIN = os.getenv("RATE_LOGIN", "10/minute")
 RATE_UPLOAD = os.getenv("RATE_UPLOAD", "10/hour")
 RATE_MESSAGE = os.getenv("RATE_MESSAGE", "30/minute")
 
-# Daily chat credits. 1 credit = one question and its answer, so this counts
-# the user's own turns, not the assistant's. Rate limits above throttle bursts;
-# this bounds an account's total spend per day, which is a different job.
-# Required with no default — a forgotten deploy setting should fail loudly
-# rather than run on a guessed limit.
 _daily_cap = os.getenv("DAILY_MESSAGE_CAP")
 if not _daily_cap:
     raise RuntimeError(
@@ -242,10 +202,6 @@ if DAILY_MESSAGE_CAP < 1:
         f"DAILY_MESSAGE_CAP must be at least 1, got {DAILY_MESSAGE_CAP}")
 
 
-# ── Schemas ───────────────────────────────────────────────────────────────────
-# The username IS a Gmail address. Anchored on both ends so "notgmail.com" and
-# "me@gmail.com.attacker.net" are both rejected — a bare endswith("gmail.com")
-# accepts the first of those.
 GMAIL_RE = re.compile(r"^[a-z0-9](?:[a-z0-9._+-]*[a-z0-9])?@gmail\.com$")
 
 
@@ -288,9 +244,6 @@ class LoginRequest(BaseModel):
     @field_validator("username")
     @classmethod
     def _username(cls, v: str) -> str:
-        # Normalised the same way as signup so case does not break login, but
-        # deliberately NOT format-checked: a rejected format here would answer
-        # "that is not a valid address" instead of "wrong credentials".
         return _normalise_email(v)
 
 
@@ -298,6 +251,26 @@ class RefreshRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     refresh_token: str
+
+
+class DecisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    check_key: str
+    decision: str
+    note: str = ""
+
+    @field_validator("decision")
+    @classmethod
+    def _decision(cls, v):
+        if v not in ("accepted", "confirmed"):
+            raise ValueError("decision must be 'accepted' or 'confirmed'")
+        return v
+
+    @field_validator("note")
+    @classmethod
+    def _note(cls, v):
+        return v.strip()[:1000]
 
 
 class RenameRequest(BaseModel):
@@ -315,21 +288,12 @@ class RenameRequest(BaseModel):
 
 
 class MessageRequest(BaseModel):
-    # alpha is bounded because _scale_vectors multiplies the sparse half by
-    # (1 - alpha): outside 0..1 that factor goes negative, which inverts the
-    # ranking on a dotproduct index and returns the WORST keyword matches
-    # first. It raises nothing -- the answer is simply wrong and looks normal.
-    # num_chunks is bounded so one request cannot pull a whole document into a
-    # priced prompt; `summarize` is the supported way to ask for that.
     model_config = ConfigDict(extra="forbid")
 
     question: str
     filter_type: Optional[str] = None
-    # 6, not 4: chunks shrank from 512 to 384 tokens, so the same k now
-    # retrieves ~25% less text. Coverage is k x chunk_size, not k.
     num_chunks: int = Field(default=6, ge=1, le=20)
     alpha: float = Field(default=0.5, ge=0.0, le=1.0)
-    # Whole-document summary: bypass top-k retrieval and feed every chunk.
     summarize: bool = False
 
     @field_validator("question")
@@ -343,14 +307,8 @@ class MessageRequest(BaseModel):
         return v
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
 def _owned_chat(db, chat_id: str, user_id: int) -> ChatSession:
-    """Load a chat the caller owns, or 404.
-
-    404 rather than 403 for someone else's chat: a 403 would confirm the id
-    exists, which is an enumeration oracle.
-    """
+    """Load a chat the caller owns, or 404."""
     chat = db.query(ChatSession).filter(
         ChatSession.id == chat_id, ChatSession.user_id == user_id
     ).first()
@@ -360,15 +318,7 @@ def _owned_chat(db, chat_id: str, user_id: int) -> ChatSession:
 
 
 def _credits_used_today(db, user_id: int) -> int:
-    """Chat messages this user has sent since IST midnight.
-
-    This is the whole credit mechanism: remaining = cap - this. Reset is free —
-    at midnight the window moves and the count is 0 again, so there is no
-    credits table and no nightly restore job. Counts the user's own turns only,
-    so one question and its answer together spend exactly one credit. A message
-    whose stream failed was never persisted and so costs nothing, which is
-    generous by a rewrite call; tighten it only if that is ever abused.
-    """
+    """Chat messages this user has sent since IST midnight."""
     since = now_ist().replace(hour=0, minute=0, second=0, microsecond=0)
     return db.query(ChatMessage).filter(
         ChatMessage.user_id == user_id,
@@ -377,7 +327,51 @@ def _credits_used_today(db, user_id: int) -> int:
     ).count()
 
 
-def _chat_dict(chat: ChatSession) -> dict:
+def _flag_keys(review) -> list[str]:
+    """Keys of the checks an officer must decide: mismatches and reviews."""
+    return [f"{c.get('id')}:{i}" for i, c in enumerate(review.get("checks") or [])
+            if c.get("status") in ("mismatch", "review")]
+
+
+def _decisions(db, chat_ids) -> dict:
+    """chat_id -> all decision rows, oldest first."""
+    out: dict = {}
+    if chat_ids:
+        rows = db.query(ReviewDecision).filter(ReviewDecision.chat_id.in_(chat_ids)) \
+                 .order_by(ReviewDecision.id).all()
+        for r in rows:
+            out.setdefault(r.chat_id, []).append(r)
+    return out
+
+
+def _latest(review, rows) -> dict:
+    """check_key -> the newest decision for THIS review run."""
+    run = review.get("run_id") if isinstance(review, dict) else None
+    return {r.check_key: r for r in rows or [] if run and r.run_id == run}
+
+
+def _decision_dict(r: ReviewDecision) -> dict:
+    return {"check_key": r.check_key, "check_label": r.check_label,
+            "decision": r.decision, "note": r.note, "by": r.username,
+            "at": r.created_at.isoformat() if r.created_at else None,
+            "run_id": r.run_id}
+
+
+def _review_summary(review, rows=None) -> dict | None:
+    """What the sidebar needs from the file review: status, counts, borrower,
+    and how many flags are still open. The full review (fields, evidence) is
+    only sent when one chat is opened."""
+    if not isinstance(review, dict):
+        return None
+    flags = _flag_keys(review)
+    decided = _latest(review, rows)
+    open_ = sum(1 for k in flags if k not in decided)
+    return {"status": review.get("status"), "summary": review.get("summary"),
+            "borrower": review.get("borrower"),
+            "open": open_, "resolved": len(flags) - open_}
+
+
+def _chat_dict(chat: ChatSession, rows=None) -> dict:
     return {
         "id": chat.id,
         "title": chat.title,
@@ -385,6 +379,7 @@ def _chat_dict(chat: ChatSession) -> dict:
         "error": chat.error,
         "filename": chat.filename,
         "doc_stats": chat.doc_stats,
+        "review_summary": _review_summary(chat.review, rows),
         "created_at": chat.created_at.isoformat() if chat.created_at else None,
         "updated_at": chat.updated_at.isoformat() if chat.updated_at else None,
     }
@@ -424,13 +419,29 @@ def _get_retriever(db, chat: ChatSession) -> EnhancedDocumentStoreHybrid:
     return store
 
 
-def _ingest(chat_id: str, tmp_path: str, filename: str) -> None:
-    """Background ingestion. Owns the temp file and the chat's terminal status.
+def _run_review(chat_id: str, logical_docs) -> None:
+    """Build the automatic file review and store it on the chat."""
+    try:
+        review = build_review(logical_docs)
+        review["run_id"] = uuid.uuid4().hex
+    except Exception as e:
+        print(f"❌ Review failed for {chat_id}: {type(e).__name__}: {e}")
+        review = {"status": "failed", "error": f"{type(e).__name__}: {e}"[:500]}
+    db = SessionLocal()
+    try:
+        chat = db.query(ChatSession).filter(ChatSession.id == chat_id).first()
+        if chat is not None:
+            chat.review = sanitize(review)
+            db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Review store failed for {chat_id}: {type(e).__name__}: {e}")
+    finally:
+        db.close()
 
-    Runs after the response is sent, so nothing here may raise into a request.
-    Every exit path must leave status at 'ready' or 'failed' — a chat stuck on
-    'processing' looks identical to one still working.
-    """
+
+def _ingest(chat_id: str, tmp_path: str, filename: str) -> None:
+    """Background ingestion. Owns the temp file and the chat's terminal status."""
     def _set_stage(key: str) -> None:
         """Write the current sub-step so /status can surface it. Its own session
         and swallowing every error — a progress write must never break ingest."""
@@ -457,8 +468,6 @@ def _ingest(chat_id: str, tmp_path: str, filename: str) -> None:
             tmp_path, filename=filename, embed_model=embed_model, on_stage=_set_stage
         )
 
-        # Refresh: _set_stage wrote `stage` on a separate session, so this one's
-        # copy is stale. Clearing it here (part of the terminal commit) wins.
         db.refresh(chat)
         chat.stage = None
         if success:
@@ -468,16 +477,17 @@ def _ingest(chat_id: str, tmp_path: str, filename: str) -> None:
             chat.bm25_params = store.export_bm25_params()
             if chat.title == "New Chat":
                 chat.title = filename[:120]
+            chat.review = {"status": "running"}
             _retrievers[chat_id] = store
         else:
             chat.status = "failed"
             chat.error = str(stats.get("error", "Processing failed."))[:2000]
-            # Half-built vectors would compete for top_k on every later
-            # query, so drop them rather than leave them behind.
             store.retriever.delete_chat()
 
         chat.updated_at = now_ist()
         db.commit()
+        if success:
+            _run_review(chat_id, store.logical_docs)
 
     except Exception as e:
         db.rollback()
@@ -494,8 +504,6 @@ def _ingest(chat_id: str, tmp_path: str, filename: str) -> None:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
 
-
-# ── Auth ──────────────────────────────────────────────────────────────────────
 
 def _issue_refresh_token(db, user_id: int) -> str:
     """Create a refresh token, store only its hash, return the raw value (shown
@@ -605,8 +613,6 @@ def logout(body: RefreshRequest):
         db.close()
 
 
-# ── Account ───────────────────────────────────────────────────────────────────
-
 @app.get("/api/account/credits")
 def get_credits(current_user: dict = Depends(get_current_user)):
     """Daily chat credits: 1 credit = one question and its answer, resets at IST midnight."""
@@ -619,8 +625,6 @@ def get_credits(current_user: dict = Depends(get_current_user)):
             "remaining": max(0, DAILY_MESSAGE_CAP - used)}
 
 
-# ── Chats ─────────────────────────────────────────────────────────────────────
-
 @app.get("/api/chats")
 def list_chats(current_user: dict = Depends(get_current_user)):
     db = SessionLocal()
@@ -628,7 +632,8 @@ def list_chats(current_user: dict = Depends(get_current_user)):
         chats = db.query(ChatSession).filter(
             ChatSession.user_id == current_user["user_id"]
         ).order_by(ChatSession.updated_at.desc()).all()
-        return {"chats": [_chat_dict(c) for c in chats]}
+        dec = _decisions(db, [c.id for c in chats])
+        return {"chats": [_chat_dict(c, dec.get(c.id)) for c in chats]}
     finally:
         db.close()
 
@@ -638,7 +643,6 @@ def new_chat(current_user: dict = Depends(get_current_user)):
     db = SessionLocal()
     try:
         uid = current_user["user_id"]
-        # Reuse an existing empty chat so repeated clicks don't pile up blanks.
         existing = db.query(ChatSession).filter(
             ChatSession.user_id == uid, ChatSession.status == "awaiting_document"
         ).order_by(ChatSession.created_at.desc()).first()
@@ -666,8 +670,12 @@ def get_chat(chat_id: str, current_user: dict = Depends(get_current_user)):
         messages = db.query(ChatMessage).filter(
             ChatMessage.chat_id == chat_id
         ).order_by(ChatMessage.id).all()
+        rows = _decisions(db, [chat_id]).get(chat_id, [])
         return {
-            "chat": _chat_dict(chat),
+            "chat": {**_chat_dict(chat, rows), "review": chat.review,
+                     "decisions": {k: _decision_dict(r)
+                                   for k, r in _latest(chat.review, rows).items()},
+                     "decision_history": [_decision_dict(r) for r in rows]},
             "messages": [
                 {
                     "id": m.id, "role": m.role, "content": m.content,
@@ -677,6 +685,36 @@ def get_chat(chat_id: str, current_user: dict = Depends(get_current_user)):
                 for m in messages
             ],
         }
+    finally:
+        db.close()
+
+
+@app.post("/api/chats/{chat_id}/review/decisions", status_code=201)
+def decide_flag(chat_id: str, body: DecisionRequest,
+                current_user: dict = Depends(get_current_user)):
+    """Record an officer's call on one flag. Append-only: a changed mind is a
+    new row, so the history keeps both."""
+    db = SessionLocal()
+    try:
+        chat = _owned_chat(db, chat_id, current_user["user_id"])
+        review = chat.review if isinstance(chat.review, dict) else {}
+        if review.get("status") != "done" or not review.get("run_id"):
+            raise HTTPException(status_code=409, detail="This file has no finished review.")
+        if body.check_key not in _flag_keys(review):
+            raise HTTPException(status_code=422, detail="Unknown flag for this review.")
+        if body.decision == "accepted" and not body.note:
+            raise HTTPException(status_code=422, detail="A note is required to accept a flag.")
+        idx = int(body.check_key.rsplit(":", 1)[1])
+        row = ReviewDecision(chat_id=chat_id, run_id=review["run_id"],
+                             check_key=body.check_key,
+                             check_label=review["checks"][idx].get("label"),
+                             decision=body.decision, note=body.note or None,
+                             user_id=current_user["user_id"],
+                             username=current_user["username"])
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return {"decision": _decision_dict(row)}
     finally:
         db.close()
 
@@ -705,18 +743,18 @@ async def upload_document(
     request: Request,
     chat_id: str,
     background: BackgroundTasks,
-    file: UploadFile = File(...),
+    file: list[UploadFile] = File(...),
     current_user: dict = Depends(get_current_user),
 ):
-    """
-    Attach a PDF to a chat and start ingestion in the background.
-
-    Returns 202 immediately — ingestion runs for minutes (Textract per-page,
-    one LLM call per page for classification, one embedding call per chunk),
-    which no HTTP client should be asked to hold open. Poll /status.
-    """
-    if not file.filename or not file.filename.lower().endswith(".pdf"):
+    """    Attach a PDF to a chat and start ingestion in the background."""
+    files = file
+    if len(files) > MAX_UPLOAD_FILES:
+        raise HTTPException(status_code=400,
+                            detail=f"At most {MAX_UPLOAD_FILES} files per upload.")
+    if any(not f.filename or not f.filename.lower().endswith(".pdf") for f in files):
         raise HTTPException(status_code=400, detail="Only PDF files are accepted.")
+    names = [f.filename for f in files]
+    filename = names[0] if len(names) == 1 else f"{names[0]} + {len(names) - 1} more"
 
     db = SessionLocal()
     try:
@@ -724,49 +762,56 @@ async def upload_document(
         if chat.status == "processing":
             raise HTTPException(status_code=409, detail="This chat is already processing a document.")
 
-        # One document per chat. Replacing it means the old vectors must go,
-        # or they keep competing for top_k against the new document.
         if chat.status == "ready":
             _retrievers.pop(chat_id, None)
             EnhancedDocumentStoreHybrid(
                 namespace=_ns(db, chat.user_id), chat_id=chat_id
             ).retriever.delete_chat()
 
-        # Stream to disk with a running size check — never read the whole upload
-        # into memory just to measure it.
-        tmp_path = None
-        total = 0
-        try:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-                tmp_path = tmp.name
-                while chunk := await file.read(1024 * 1024):
-                    total += len(chunk)
-                    if total > MAX_UPLOAD_BYTES:
-                        raise HTTPException(
-                            status_code=413,
-                            detail=f"File is larger than the {MAX_UPLOAD_MB} MB limit.",
-                        )
-                    tmp.write(chunk)
-        except Exception:
-            if tmp_path and os.path.exists(tmp_path):
-                os.remove(tmp_path)
-            raise
+        parts, total = [], 0
+        for f in files:
+            buf = bytearray()
+            while chunk := await f.read(1024 * 1024):
+                buf.extend(chunk)
+                total += len(chunk)
+                if total > MAX_UPLOAD_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Upload is larger than the {MAX_UPLOAD_MB} MB limit.",
+                    )
+            if not buf:
+                raise HTTPException(status_code=400, detail=f"{f.filename} is empty.")
+            parts.append(bytes(buf))
 
-        if total == 0:
-            os.remove(tmp_path)
-            raise HTTPException(status_code=400, detail="The uploaded file is empty.")
+        if len(parts) == 1:
+            data = parts[0]
+        else:
+            try:
+                data = await asyncio.to_thread(_merge_pdfs, parts)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            if len(data) > MAX_UPLOAD_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Merged document is larger than the {MAX_UPLOAD_MB} MB limit.",
+                )
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+            tmp.write(data)
+            tmp_path = tmp.name
 
         chat.status = "processing"
-        chat.stage = None          # cleared; the ingest task sets each sub-step
+        chat.stage = None
         chat.error = None
-        chat.filename = file.filename
+        chat.filename = filename
         chat.doc_stats = None
         chat.bm25_params = None
+        chat.review = None
         chat.updated_at = now_ist()
         db.commit()
 
-        background.add_task(_ingest, chat_id, tmp_path, file.filename)
-        return {"chat_id": chat_id, "status": "processing", "filename": file.filename}
+        background.add_task(_ingest, chat_id, tmp_path, filename)
+        return {"chat_id": chat_id, "status": "processing", "filename": filename}
     finally:
         db.close()
 
@@ -793,11 +838,7 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
       meta  -> sources + the rewritten query, before any token
       token -> answer text as the model produces it
       done  -> stream finished and both turns are persisted
-      error -> a message to show in place of the answer
-
-    Retrieval, the rewrite and persistence are synchronous work and run in
-    threads; only the token stream lives on the event loop.
-    """
+      error -> a message to show in place of the answer"""
     uid = current_user["user_id"]
 
     def _prepare():
@@ -807,11 +848,6 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
         try:
             chat = _owned_chat(db, chat_id, uid)
 
-            # Ownership first (a non-owner learns nothing about credits), then
-            # the cap, then the expensive work. Checked here rather than in the
-            # endpoint because this thread already holds a connection, and the
-            # load test showed a message's DB round-trips are what starve the
-            # pool — a third acquisition per message would make that worse.
             used = _credits_used_today(db, uid)
             if used >= DAILY_MESSAGE_CAP:
                 raise HTTPException(
@@ -823,23 +859,19 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
             store = _get_retriever(db, chat)
 
             if body.summarize:
-                # Whole-document summary: no rewrite, no top-k — every chunk in
-                # reading order, and one "full document" source not N chunks.
                 retrieved = store.all_chunks()
                 src = []
                 if retrieved:
                     pages = [p for c, _ in retrieved for p in (c.page_start, c.page_end)]
                     src = [{"filename": retrieved[0][0].filename,
                             "doc_type": "Full document",
-                            "pages": f"{min(pages)}-{max(pages)}",
+                            "pages": f"{min(pages) + 1}-{max(pages) + 1}",
                             "relevance": "100%", "preview": ""}]
                 return body.question, retrieved, sanitize(src)
 
             if body.alpha != store.alpha:
                 store.set_alpha(body.alpha)
 
-            # History comes from Postgres, not the request: the rewrite drives
-            # retrieval, so a client could otherwise steer what gets searched.
             history = [
                 {"role": m.role, "content": m.content}
                 for m in db.query(ChatMessage)
@@ -864,16 +896,10 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
                 ChatSession.id == chat_id, ChatSession.user_id == uid).first()
             if chat is None:
                 return False
-            # Name the chat after the first question, so the rail shows what the
-            # conversation is about rather than the filename. Only on the first
-            # message, and only if the title is still the default or the
-            # filename — never overwrite a name the user set themselves.
             is_first = db.query(ChatMessage).filter(
                 ChatMessage.chat_id == chat_id).count() == 0
             if is_first and chat.title in ("New Chat", chat.filename):
                 chat.title = _title_from_question(body.question)
-            # Store what the user actually typed; the rewrite is a retrieval
-            # artefact, not part of the conversation.
             db.add(ChatMessage(chat_id=chat_id, user_id=uid, role="user",
                                content=body.question))
             db.add(ChatMessage(chat_id=chat_id, user_id=uid, role="assistant",
@@ -885,9 +911,6 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
             db.close()
 
     async def event_stream():
-        # One parent span per message; the rewrite and the answer's LLM calls
-        # (run in threads, which inherit the OTel context) nest under it. A
-        # counter point per message feeds Grafana rate/error alerting.
         ok = False
         with trace_message(body.question, uid, chat_id) as span:
             try:
@@ -905,7 +928,7 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
                                     "question_searched": search_query})
 
                 _STOP = object()
-                gen = stream_answer(search_query, retrieved)
+                gen = stream_answer(search_query, retrieved, summarize=body.summarize)
                 parts = []
                 try:
                     while True:
@@ -919,8 +942,6 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
 
                 answer = "".join(parts).strip()
                 if not answer:
-                    # Retrieval worked but the model returned nothing — say so rather
-                    # than persist a blank bubble that reads as "the document is silent".
                     answer = LLM_EMPTY_ANSWER
                     yield _sse("token", answer)
                 set_output(span, answer)
@@ -941,10 +962,6 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
                 trace_flush()
                 record_message("ok" if ok else "error")
 
-    # X-Accel-Buffering disables proxy buffering: an nginx-class proxy will
-    # otherwise hold the whole SSE body and deliver it in one lump at the end,
-    # silently turning token streaming into a slow blocking request. Render's
-    # proxy does not do this today; a different host might.
     return StreamingResponse(
         event_stream(),
         media_type="text/event-stream",
@@ -973,10 +990,6 @@ def delete_chat(chat_id: str, current_user: dict = Depends(get_current_user)):
     try:
         chat = _owned_chat(db, chat_id, current_user["user_id"])
 
-        # Ingest is a background task holding this chat's namespace and id
-        # prefix. Deleting now would remove the rows and then let that task
-        # finish writing vectors nothing owns — the UI disables the button,
-        # but the API is the boundary that has to enforce it.
         if chat.status == "processing":
             raise HTTPException(
                 status_code=409,
@@ -984,8 +997,6 @@ def delete_chat(chat_id: str, current_user: dict = Depends(get_current_user)):
                        "finish before deleting.",
             )
 
-        # Vectors first: vectors whose chat row is gone have no owner left
-        # who could ever find or delete them.
         _retrievers.pop(chat_id, None)
         EnhancedDocumentStoreHybrid(
             namespace=_ns(db, chat.user_id), chat_id=chat_id
@@ -1001,8 +1012,6 @@ def delete_chat(chat_id: str, current_user: dict = Depends(get_current_user)):
 
 @app.get("/")
 def root():
-    # So hitting the bare domain returns 200, not FastAPI's default 404 — the
-    # real endpoints live under /api. Used as a cheap liveness ping too.
     return {"status": "ok", "service": "document-retrieval-system-api", "version": app.version}
 
 
@@ -1011,10 +1020,7 @@ def health():
     return {"status": "ok", "cached_retrievers": len(_retrievers)}
 
 
-# ── Entry Point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
-    # forwarded_allow_ips="*" so per-IP rate limits use X-Forwarded-For behind a
-    # proxy. Harmless locally (no proxy sends the header).
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True,
                 forwarded_allow_ips="*")

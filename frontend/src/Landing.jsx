@@ -1,40 +1,38 @@
 import { useEffect, useRef } from 'react'
 import './Landing.css'
 
-// The streamed answer in the hero mock, revealed word by word so it reads as if
-// the model is writing it — no JS typing loop, just staggered CSS.
-const ANSWER = ['The', 'total', 'loan', 'amount', 'is']
+const ANSWER = ['No', '—', 'the', 'pay', 'slips', 'support']
 
 const STEPS = [
   {
     n: '1',
-    title: 'Upload a document',
-    body: 'One PDF per conversation. It is extracted, split into its logical documents, and indexed for hybrid search — usually in under a minute.',
+    title: 'Upload the borrower’s file',
+    body: 'One packet PDF, or the documents as separate files — they are merged in order. Each page is read and sorted into application, pay slips, bank statements, loan estimate and title report.',
   },
   {
     n: '2',
-    title: 'Ask in plain English',
-    body: 'Type a question. Follow-ups are rewritten to stand on their own, so “and when does it lock?” still finds the right chunk.',
+    title: 'Get the review',
+    body: 'The application’s claims are checked against the evidence automatically: stated income against pay slips, balances and deposits against bank statements, loan terms against the loan estimate, liens on the title report.',
   },
   {
     n: '3',
-    title: 'Get a cited answer',
-    body: 'Answers stream in token by token, every figure quoted verbatim and linked to its page. A wrong number is worse than none — so it refuses when it is not sure.',
+    title: 'Ask about anything else',
+    body: 'Chat with the file for what a checklist doesn’t cover. Every answer is quoted from the documents with its page — and it says so when the file doesn’t contain the answer.',
   },
 ]
 
 const FEATURES = [
   {
-    title: 'Hybrid retrieval',
-    body: 'Dense semantic search and BM25 keyword search, fused in a single Pinecone query — so an exact figure lookup and a fuzzy concept both land.',
+    title: 'Mismatches flagged with proof',
+    body: 'Each check shows both sides — what the applicant stated and what the documents show — with the page for each. You make the call; the review makes sure nothing is skipped.',
   },
   {
     title: 'Page-accurate citations',
-    body: 'Every answer names the document type and the page it came from. The citation is the deliverable: a value you cannot trace is a value you cannot trust.',
+    body: 'Every answer names the document and the page it came from, with the quoted passage one click away. A value you cannot trace is a value you cannot trust.',
   },
   {
     title: 'Grounded, never invented',
-    body: 'Answers are drawn only from your document and quoted, not computed. No plausible-looking total the packet never actually stated.',
+    body: 'Figures are quoted, not computed. Extracted values are checked against the document text, and a value the file does not contain is reported as not found — never guessed.',
   },
 ]
 
@@ -67,17 +65,16 @@ export default function Landing({ onSignIn, onGetStarted }) {
         </div>
       </nav>
 
-      {/* Hero */}
       <header className="lp-hero">
         <div className="lp-hero-copy">
-          <p className="lp-eyebrow lp-fade" style={{ '--d': '0ms' }}>Hybrid retrieval · cited answers</p>
+          <p className="lp-eyebrow lp-fade" style={{ '--d': '0ms' }}>Loan file review · cited answers</p>
           <h1 className="lp-headline lp-fade" style={{ '--d': '110ms' }}>
-            Ask your document.<br />Every figure, sourced&nbsp;to&nbsp;the&nbsp;page.
+            Review a loan file in minutes.<br />Every flag, sourced&nbsp;to&nbsp;the&nbsp;page.
           </h1>
           <p className="lp-sub lp-fade" style={{ '--d': '230ms' }}>
-            Upload a PDF, ask in plain English, and get exact values back — each one
-            quoted from the document and linked to the page it came from. Hybrid search,
-            streamed answers, no hallucinated numbers.
+            Upload a borrower&rsquo;s packet. The application is checked against the pay
+            slips, bank statements, loan estimate and title report automatically — income,
+            deposits, balances, loan terms, liens — and anything else is one cited question away.
           </p>
           <div className="lp-cta-row lp-fade" style={{ '--d': '350ms' }}>
             <button className="btn btn-primary btn-lg" onClick={onGetStarted}>Get started</button>
@@ -85,14 +82,13 @@ export default function Landing({ onSignIn, onGetStarted }) {
           </div>
         </div>
 
-        {/* Animated product mock — a real cited, streamed answer */}
         <div className="lp-mock lp-fade" style={{ '--d': '470ms' }}>
           <div className="lp-mock-bar">
             <span className="lp-dot r" /><span className="lp-dot y" /><span className="lp-dot g" />
-            <span className="lp-mock-file">Test Blob File.pdf</span>
+            <span className="lp-mock-file">whitfield_loan_packet.pdf</span>
           </div>
           <div className="lp-mock-body">
-            <div className="lp-msg user">What is the total loan amount?</div>
+            <div className="lp-msg user">Does the stated income match the pay slips?</div>
             <div className="lp-msg bot">
               <span className="lp-typing" aria-hidden="true">
                 <span className="lp-tdot" /><span className="lp-tdot" /><span className="lp-tdot" />
@@ -101,21 +97,20 @@ export default function Landing({ onSignIn, onGetStarted }) {
                 {ANSWER.map((w, i) => (
                   <span key={i} className="lp-word" style={{ '--i': i }}>{w}</span>
                 ))}
-                <span className="lp-word lp-value" style={{ '--i': ANSWER.length }}>$380,000</span>
+                <span className="lp-word lp-value" style={{ '--i': ANSWER.length }}>$8,750/month</span>
                 <span className="lp-word lp-period" style={{ '--i': ANSWER.length }}>.</span>
                 <span className="lp-caret" />
               </span>
               <div className="lp-cite">
-                <span className="lp-chip">Lender Fee Sheet · p.1</span>
+                <span className="lp-chip">Pay Slip · p.4</span>
               </div>
             </div>
           </div>
         </div>
       </header>
 
-      {/* How it works */}
       <section className="lp-section" id="how">
-        <Reveal><h2 className="lp-h2">From PDF to cited answer in three steps</h2></Reveal>
+        <Reveal><h2 className="lp-h2">From packet to reviewed file in three steps</h2></Reveal>
         <div className="lp-steps">
           {STEPS.map((s, i) => (
             <Reveal key={s.n} className={`lp-stagger-${i}`}>
@@ -129,7 +124,6 @@ export default function Landing({ onSignIn, onGetStarted }) {
         </div>
       </section>
 
-      {/* Features */}
       <section className="lp-section lp-band">
         <div className="lp-features">
           {FEATURES.map((f, i) => (
@@ -144,12 +138,11 @@ export default function Landing({ onSignIn, onGetStarted }) {
         </div>
       </section>
 
-      {/* Closing CTA */}
       <section className="lp-section">
         <Reveal>
           <div className="lp-cta-band">
-            <h2 className="lp-h2 lp-cta-title">Ask questions, get answers in minutes.</h2>
-            <p className="lp-body lp-cta-sub">Create an account, upload a PDF, and start asking.</p>
+            <h2 className="lp-h2 lp-cta-title">Review your next loan file in minutes.</h2>
+            <p className="lp-body lp-cta-sub">Create an account, upload a borrower’s packet, and get the review.</p>
             <button className="btn btn-primary btn-lg" onClick={onGetStarted}>Get started</button>
           </div>
         </Reveal>

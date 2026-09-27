@@ -1,24 +1,5 @@
 """Load test: does the API stay responsive while /message is saturated, and how
-many concurrent users can it hold?
-
-Two questions, two modes:
-  default  idle phase vs saturated phase (N answers streaming) — does browsing
-           degrade while /message is flat out? Read the RATIO, not absolute ms.
-  --ramp   step browse concurrency up until errors or latency break — the
-           machine's own read-path ceiling (sync `def` endpoints run in anyio's
-           40-thread pool over a 5+10 DB pool, so the knee is there, not the loop).
-
-The retrieval + LLM boundary is stubbed, so a run is free and takes seconds.
-What stays real: the async endpoints, the SQLAlchemy pool, JWT auth, SSE, and
-every DB round trip a message or a browse makes.
-
-    python backend/load_test.py --messages 15 --concurrency 30
-    python backend/load_test.py --ramp                     # local capacity knee
-    python backend/load_test.py --ramp --base <url>        # a live server
-    python backend/load_test.py --seed-messages 40         # realistic GET payload
-    python backend/load_test.py --calibrate 3              # real messages; costs money
-    python backend/load_test.py --cleanup                  # after a crashed run
-"""
+many concurrent users can it hold?"""
 import argparse
 import asyncio
 import json
@@ -37,7 +18,6 @@ load_dotenv(dotenv_path=os.path.join(BASE_DIR, ".env"))
 
 import httpx
 
-# Signup requires a Gmail address (main.py GMAIL_RE), so the load user is one.
 LOAD_USER = "loadtest@gmail.com"
 LOAD_PASS = "LoadTest-pw-9137"
 Q = "What is the total loan amount?"
@@ -60,8 +40,6 @@ def _num(x):
     return round(x, 1)
 
 
-# --- Serve mode — the real FastAPI app with retrieval + LLM stubbed ---
-
 class _StubStore:
     """Stands in for the rehydrated retriever so a load run needs no Pinecone,
     no embeddings, and no ingested document."""
@@ -78,22 +56,13 @@ class _StubStore:
 def serve_mode(port, msg_seconds):
     """Run the real app, stubbing only the retrieval + LLM boundary of the
     message path. main imports these names, and send_message calls them by
-    those names, so patching them on `main` is what the request path picks up.
-
-    Rate limits and the daily message cap are lifted here so synthetic load
-    measures the app's capacity rather than the limiter (which is exercised on
-    its own elsewhere). The cap matters as much as the limiters: --seed-messages
-    writes user turns straight to the DB and _credits_used_today counts them, so
-    a seeded run would exhaust a real cap before the message phase even starts.
-    Set before `import main`, which reads the cap at module level."""
+    those names, so patching them on `main` is what the request path picks up."""
     os.environ["RATE_MESSAGE"] = "1000000/minute"
     os.environ["RATE_UPLOAD"] = "1000000/hour"
     os.environ["RATE_LOGIN"] = "1000000/minute"
     os.environ["RATE_SIGNUP"] = "1000/hour"
     os.environ["DAILY_MESSAGE_CAP"] = "100000000"
 
-    # Keep synthetic load out of Langfuse/Grafana. Set empty, don't pop: main.py's
-    # load_dotenv(override=False) would otherwise repopulate them from .env.
     for k in ("LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY",
               "GRAFANA_OTLP_ENDPOINT", "GRAFANA_OTLP_AUTH"):
         os.environ[k] = ""
@@ -101,8 +70,6 @@ def serve_mode(port, msg_seconds):
     import main
 
     def stub_stream(*_a, **_k):
-        # Sync generator: send_message pumps it through asyncio.to_thread, so a
-        # real sleep here simulates generation latency without blocking the loop.
         time.sleep(msg_seconds)
         for tok in ("The ", "Total ", "Loan ", "Amount ", "is ", "$380,000."):
             yield tok
@@ -115,25 +82,13 @@ def serve_mode(port, msg_seconds):
     uvicorn.run(main.app, host="127.0.0.1", port=port, log_level="error")
 
 
-# --- Browse client ---
-
 async def _hammer(base, token, chat_id, concurrency, duration, mix="read"):
-    """Fire a browse mix and record every latency, returning real elapsed too.
-
-    mix="read"  the realistic steady state — a browser open on the app: health,
-                the sidebar list, and one conversation's messages. This answers
-                "how many people can use the app at once".
-    mix="all"   also logs in every cycle. Deliberately harsh (a real user logs
-                in once), and login is rate-limited so its 429s are throttle, not
-                error — kept for observing the limiter under load.
-    """
+    """Fire a browse mix and record every latency, returning real elapsed too."""
     lat = {"health": [], "chats": [], "chat": [], "login": []}
     errors = {"count": 0, "samples": []}
     throttled = 0
     stop = time.monotonic() + duration
     auth = {"Authorization": f"Bearer {token}"}
-    # httpx caps at max_connections=100 by default — below that a big ramp would
-    # measure the client's own pool, not the server. Scale it to concurrency.
     limits = httpx.Limits(max_connections=concurrency + 20,
                           max_keepalive_connections=concurrency)
 
@@ -172,8 +127,6 @@ async def _hammer(base, token, chat_id, concurrency, duration, mix="read"):
     started = time.monotonic()
     async with httpx.AsyncClient(base_url=base, limits=limits) as client:
         await asyncio.gather(*[one(client) for _ in range(concurrency)])
-    # Real elapsed, not nominal duration: a slow in-flight request can run past
-    # the stop time, so dividing by `duration` would overstate throughput.
     return {"lat": lat, "errors": errors, "throttled": throttled,
             "elapsed": time.monotonic() - started}
 
@@ -204,11 +157,7 @@ async def _message_load(base, token, chat_id, n_streamers, stop_evt):
     return sent
 
 
-# --- Setup / teardown ---
-
 def wait_for_health(base, timeout=180):
-    # Generous: `import main` eagerly builds the Gemini embedding client and runs
-    # create_all + the reaper against remote Neon, so cold startup is ~50s.
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
@@ -221,8 +170,6 @@ def wait_for_health(base, timeout=180):
 
 
 def ensure_user(base):
-    # Retry: a remote free-tier instance can drop the first connection (cold
-    # start) or briefly rate-limit signup/login. Don't let a blip kill the run.
     last = None
     for _ in range(5):
         try:
@@ -291,8 +238,6 @@ def cleanup():
     print(f"cleaned up load-test user {LOAD_USER} (id {uid}) and its rows.")
 
 
-# --- Idle vs saturated report ---
-
 def _row(label, idle, sat):
     if not idle or not sat:
         return f"  {label:8} {'no data':>50}"
@@ -339,8 +284,6 @@ def report(idle, sat, args, sent):
     print("  Simulated generation latency — compare the ratio, not absolute ms.")
 
 
-# --- Ramp — step concurrency up until it breaks ---
-
 def _agg(lat, keys):
     out = []
     for k in keys:
@@ -356,8 +299,6 @@ def ramp_mode(base, token, chat_id, levels, duration, stop_pct, mix):
     print(f"RAMP against {base}  (mix={mix}: health + chats + chat"
           f"{' + login' if mix == 'all' else ''})\n")
     login_hdr = "  login p95" if mix == "all" else ""
-    # Warm the pool so the first level (the baseline for the 3x-degraded flag)
-    # isn't inflated by cold Neon connections.
     asyncio.run(_hammer(base, token, chat_id, levels[0], 4, mix))
 
     print(f"  {'clients':>7} | {'fast p50':>9} {'fast p95':>9} | {'req/s':>6} | {'err%':>5}{login_hdr}")
@@ -402,8 +343,6 @@ def ramp_mode(base, token, chat_id, levels, duration, stop_pct, mix):
                    "estimated_ceiling": ceiling, "levels": rows}, f, indent=2)
     print(f"  Report: {path}")
 
-
-# --- Calibrate — a few REAL messages, to check the stub's timing model ---
 
 def calibrate(n, base):
     """Ingest Test Blob File.pdf, then send N real messages through the running
@@ -451,14 +390,10 @@ def calibrate(n, base):
     cleanup()
 
 
-# --- Main ---
-
 def _spawn_server(port, msg_seconds):
     env = dict(os.environ)
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUTF8"] = "1"
-    # Unbuffered so the server's startup log survives a terminate() — otherwise
-    # block buffering swallows a startup traceback and the log reads empty.
     env["PYTHONUNBUFFERED"] = "1"
     os.makedirs(os.path.join(BASE_DIR, "load_test_results"), exist_ok=True)
     log_path = os.path.join(BASE_DIR, "load_test_results", "server.log")
@@ -501,7 +436,6 @@ def main():
 
     levels = [int(x) for x in args.levels.split(",") if x.strip()]
 
-    # Ramp against a live server: no local spawn, no seeding a real deployment.
     if args.ramp and args.base:
         token, user_id = ensure_user(args.base)
         chat_id = create_chat(args.base, token)
@@ -524,10 +458,6 @@ def main():
             return ramp_mode(base, token, chat_id, levels, args.duration,
                              args.ramp_stop_pct, args.mix)
 
-        # Prime the connection pool first: the idle phase runs right after a ~50s
-        # cold start, and the pool's first Neon connections (SSL handshakes) would
-        # otherwise land in the idle baseline and make it look slower than the
-        # saturated phase. Warm it, discard the numbers.
         print("Warming the connection pool...")
         asyncio.run(_hammer(base, token, chat_id, args.concurrency, 4, args.mix))
 
@@ -538,7 +468,7 @@ def main():
         async def saturated():
             stop_evt = asyncio.Event()
             msg_task = asyncio.create_task(_message_load(base, token, chat_id, args.messages, stop_evt))
-            await asyncio.sleep(2)   # let the message load ramp up
+            await asyncio.sleep(2)
             sat = await _hammer(base, token, chat_id, args.concurrency, args.duration, args.mix)
             stop_evt.set()
             sent = await msg_task

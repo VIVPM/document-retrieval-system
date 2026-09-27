@@ -134,7 +134,9 @@ graph TD
 
 ### 3. Extraction Setup (AWS Textract)
 
-PDF extraction runs on **AWS Textract** (TABLES + FORMS features). Answers come from the Gemini API directly, so no self-hosted LLM server is required.
+PDF extraction runs on **AWS Textract** (TABLES + FORMS features), billed at **$0.065 per page** — about $3.25 for a 50-page packet. FORMS returns label/value pairs, which the file review uses before asking an LLM.
+
+`EXTRACT_METHOD=pymupdf` reads the PDF's text layer locally, for free. It detects tables with PyMuPDF's `find_tables()` so they stay whole in chunking, but it **cannot read scanned pages** and returns no FORMS pairs. A PDF with no readable text on any page is rejected with a clear message; pages without text are listed in the file header ("No readable text on page 9. Not searched or reviewed.") instead of being indexed blank. Answers come from the Gemini API directly, so no self-hosted LLM server is required.
 
 #### A. AWS
 1.  Create an IAM user with `AmazonTextractFullAccess` (or a scoped policy granting `textract:AnalyzeDocument`).
@@ -236,12 +238,13 @@ Every endpoint except signup and login requires `Authorization: Bearer <token>`.
 | `POST` | `/api/auth/login` | 5 failures / 15 min locks the username |
 | `GET` | `/api/chats` | Sidebar list, newest first |
 | `POST` | `/api/chats/new` | Reuses an existing empty chat |
-| `GET` | `/api/chats/{id}` | Chat + full message history |
-| `POST` | `/api/chats/{id}/document` | **202** — ingests in the background |
+| `GET` | `/api/chats/{id}` | Chat + full message history, the file review, the latest decision per flag and the decision history |
+| `POST` | `/api/chats/{id}/document` | **202** — ingests in the background. One PDF or up to 20 under the same `file` field, merged in order |
 | `GET` | `/api/chats/{id}/status` | Poll while `processing` |
 | `POST` | `/api/chats/{id}/message` | Ask a question. Returns `question_asked` and `question_searched` so a rewritten follow-up is diagnosable |
 | `PATCH` | `/api/chats/{id}` | Rename |
-| `DELETE` | `/api/chats/{id}` | Drops the namespace **and** the rows |
+| `DELETE` | `/api/chats/{id}` | Drops the namespace **and** the rows. Flag decisions are kept (audit trail) |
+| `POST` | `/api/chats/{id}/review/decisions` | `{check_key, decision: accepted\|confirmed, note}`. Accept requires a note. **409** if the file has no finished review, **422** for an unknown flag |
 
 **Chat lifecycle:** `awaiting_document → processing → ready | failed`
 
@@ -356,10 +359,11 @@ document-retrieval-system/
 │   │   ├── document_classifier.py     # Doc-type & boundary detection
 │   │   ├── query_rewriter.py          # Follow-up → standalone question
 │   │   ├── answer_generator.py        # Grounded answer prompt
+│   │   ├── review.py                  # Automatic file review: fields, grounding guard, rules
 │   │   └── models.py                  # Core dataclasses
 │   ├── db/                          # Neon / Postgres
 │   │   ├── database.py                # Engine + session factory
-│   │   └── models.py                  # accounts, chat_sessions, messages
+│   │   └── models.py                  # accounts, chat_sessions (+ review), messages, review_decisions
 │   ├── llm/
 │   │   └── llm_router.py              # Gemini answers + embeddings
 │   ├── eval/                        # Measurement harnesses
@@ -388,6 +392,7 @@ document-retrieval-system/
 ├── .github/workflows/ci.yml         # lint · build · docker · gated deploy
 ├── docker-compose.yml               # local api + frontend stack
 ├── ruff.toml
+├── samples/synthetic_borrower/      # Synthetic loan packet + answer key for the review
 ├── results/                         # Ragas metrics (k=6 CSVs; results_old/ = pre-migration baselines)
 └── README.md
 ```

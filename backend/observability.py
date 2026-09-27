@@ -1,10 +1,4 @@
-"""OpenTelemetry tracing and metrics.
-
-LLM spans export to Langfuse and Grafana off one provider; HTTP spans use a
-separate provider so they don't also land in Langfuse. Each backend stays off
-unless its env vars are set (LANGFUSE_* / GRAFANA_OTLP_*), and nothing here
-raises — tracing must never break a request.
-"""
+"""OpenTelemetry tracing and metrics."""
 import base64
 import logging
 import os
@@ -12,9 +6,6 @@ from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
 
-# This app doesn't configure root logging, and every init below is "log and
-# continue" — so without a handler here a broken exporter (bad prod auth) would
-# fail silently. Give the module its own stderr handler so those signals show.
 if not logger.handlers:
     _h = logging.StreamHandler()
     _h.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
@@ -22,8 +13,8 @@ if not logger.handlers:
     logger.setLevel(logging.INFO)
     logger.propagate = False
 
-_llm_provider = None   # unified TracerProvider for LLM spans, or None when disabled
-_llm_tracer = None     # tracer from that provider (for the per-message parent span)
+_llm_provider = None
+_llm_tracer = None
 _message_counter = None
 _cost_counter = None
 _ttft_hist = None
@@ -79,11 +70,6 @@ def init_observability():
             )))
             enabled.append("Grafana Cloud")
 
-        # Instrument whichever SDK actually makes the calls. LLM_MODEL=CLOUDFLARE
-        # routes generation through the openai client, which the google-genai
-        # instrumentor never sees — without this the LLM traces would go silently
-        # dark on that provider while HTTP spans kept flowing, which reads as a
-        # working exporter. Embeddings are Gemini on both, so genai stays on.
         from openinference.instrumentation.google_genai import GoogleGenAIInstrumentor
         GoogleGenAIInstrumentor().instrument(tracer_provider=provider)
         if os.getenv("LLM_MODEL", "").strip().upper() == "CLOUDFLARE":
@@ -105,10 +91,6 @@ def trace_message(question: str, user_id, session_id):
         return
     try:
         with _llm_tracer.start_as_current_span("chat-message") as span:
-            # Name the trace explicitly: the FastAPI HTTP span (a different,
-            # Grafana-only provider) sits in the active context as this span's
-            # parent, and Langfuse never receives it — so without this the trace's
-            # root name resolves empty. The nested genai spans still attach fine.
             span.set_attribute("langfuse.trace.name", "chat-message")
             span.set_attribute("langfuse.user.id", str(user_id))
             span.set_attribute("langfuse.session.id", str(session_id))
@@ -131,21 +113,7 @@ def set_output(span, text: str):
 
 def record_stream_quality(span, ttft_s: float | None, chunks: int, total_s: float,
                           output_tokens: int | None = None):
-    """Attach streaming quality to the message span.
-
-    TTFT and throughput are recorded SEPARATELY, and separately from total
-    latency, because they move independently: a fast first token with a slow
-    stream and a slow first token with a fast stream feel completely different
-    to a user and are indistinguishable inside one total. Only the total was
-    traced before.
-
-    Throughput uses OUTPUT TOKENS when the provider reports them, and falls
-    back to SSE chunks otherwise. The distinction matters more than it looks:
-    providers chunk differently -- measured on the same prompt, Gemini sent 3
-    chunks for 88 tokens and Cloudflare 46 for 101 -- so chunks/sec compares
-    chunking strategy, not speed, and would make one provider look 25x faster
-    than the other for no real reason.
-    """
+    """Attach streaming quality to the message span."""
     if span is None:
         return
     try:
@@ -165,13 +133,7 @@ def record_stream_quality(span, ttft_s: float | None, chunks: int, total_s: floa
 
 
 def record_cost(span, usage: dict, cost_usd: float | None):
-    """Attach token counts and estimated cost to the message span.
-
-    Cost rather than tokens alone: rates differ per model and thinking tokens
-    bill at the output rate, so a token count cannot answer "what did today
-    cost" without a spreadsheet. A None cost sets no attribute at all, so an
-    unpriced model shows as missing rather than as free.
-    """
+    """Attach token counts and estimated cost to the message span."""
     if span is None or not usage:
         return
     try:
@@ -244,16 +206,11 @@ def init_metrics():
             "chat_messages_total",
             description="Chat messages handled, by status (ok/error)",
         )
-        # Cost as a COUNTER, so a dashboard can rate() it into spend-per-hour
-        # and a total. A gauge would only show the last answer's price, which
-        # answers nothing about a day.
         _cost_counter = meter.create_counter(
             "llm_cost_usd_total",
             unit="USD",
             description="Estimated LLM spend, by model",
         )
-        # A HISTOGRAM, not a counter or a gauge: TTFT is a latency distribution
-        # and the tail is the part users complain about. A mean would hide it.
         _ttft_hist = meter.create_histogram(
             "llm_ttft_seconds",
             unit="s",
@@ -271,8 +228,6 @@ def init_metrics():
                 return [Observation(n, {"status": st})
                         for st, n in job_queue.depth().items()]
             except Exception:
-                # A metrics callback must never raise: it runs on the exporter's
-                # thread and would take the whole export down with it.
                 return []
 
         _queue_depth_cb = meter.create_observable_gauge(
@@ -286,12 +241,7 @@ def init_metrics():
 
 
 def record_llm_metrics(usage: dict, cost_usd: float | None, ttft_s: float | None):
-    """Feed cost and TTFT to Grafana.
-
-    Separate from the span attributes: a span answers "what did THIS request
-    do", a metric answers "what is happening overall". Alerting on spend or on
-    a TTFT tail needs the second, and a trace backend is the wrong shape for it.
-    """
+    """Feed cost and TTFT to Grafana."""
     model = (usage or {}).get("model") or "unknown"
     try:
         if _cost_counter is not None and cost_usd:

@@ -1,6 +1,6 @@
 # 📄 Advanced Document Retrieval System
 
-A multi-user RAG (Retrieval-Augmented Generation) application for PDF documents. Built with a **React** frontend and a **FastAPI** backend, featuring accounts, persistent per-document conversations, open-source document extraction and hybrid sparse-dense search.
+A **loan-file copilot** for home-loan (mortgage) officers: upload a borrower's packet, get an automatic review of the application against its supporting documents, record a decision on every flag, and ask anything else with page-cited answers. Under the hood it is a multi-user RAG (Retrieval-Augmented Generation) application for PDF documents. Built with a **React** frontend and a **FastAPI** backend, featuring accounts, persistent per-document conversations, open-source document extraction and hybrid sparse-dense search.
 
 **One account → many chats → exactly one document each.** A chat session's id *is* its Pinecone namespace, so chat ↔ document ↔ namespace is 1:1. Neon/Postgres owns identity, ownership and conversation history; Pinecone holds only vectors.
 
@@ -16,9 +16,40 @@ A multi-user RAG (Retrieval-Augmented Generation) application for PDF documents.
 *   **Conversational follow-ups**: a follow-up like *"and when does it lock?"* is condensed into a standalone question **before retrieval**, because retrieval runs before any LLM sees a prompt. History is read server-side from Neon.
 *   **Answer Generation**: **gemini-2.5-flash** with thinking capped at 2048 — on an ambiguous multi-candidate question it enumerates candidates with sources instead of guessing. Thinking tokens bill at the output rate, so the cap bounds the tail (dynamic permits 24,576) without touching the ~300-token median.
 *   **Two models, split on measured need**: classification and per-page boundary detection run on **gemini-2.5-flash-lite** (closed-set label, yes/no answer — and boundary detection fires once per *page*, making it the volume driver of ingest cost). Answers and query rewriting stay on flash.
+*   **Automatic file review**: once a packet is ingested, the application's claims (income, employer, balances, declarations, loan terms) are checked against the pay slips, bank statement, Loan Estimate and title report. Each check shows both sides' values with their pages. See [Automatic file review](#-automatic-file-review).
+*   **Flag decisions with an audit trail**: every mismatch or review flag can be **accepted** (a note is required) or **confirmed** as an issue. Decisions are append-only, record who decided and when, and the sidebar counts open flags per borrower.
+*   **Several PDFs per borrower**: upload up to 20 files at once; they are merged, in order, into the file's one document.
+*   **Grounded answers**: values are quoted exactly with their document and page, never computed or rounded; a question the file cannot answer gets "not in the documents", not a guess. Summaries use their own rules.
 *   **Semantic Routing**: Automatic query routing to specific document sections via embedding centroids — no extra LLM call.
 
 > **Note on reranking:** a cross-encoder reranking stage (BAAI/bge-reranker-base) was built and evaluated on 250 questions, then removed — it changed answer quality by a statistically indistinguishable amount while costing a 3× over-fetch and a GPU round-trip per query. It remains a reasonable optional addition under conditions this corpus does not meet. See [Design FAQ Q2](#q2-when-is-a-reranker-actually-worth-adding) for the measurements.
+
+---
+
+## 🧾 Automatic file review
+
+A loan officer's core check is *stare and compare*: the application holds the borrower's **claims**, the supporting documents are the **evidence**. The review does that comparison for every file, and it runs inside the same background task as the ingest, right after the document turns `ready`.
+
+1. **Classify and split** the packet into documents (16 types, including **Loan Application**).
+2. **Extract a fixed set of fields** per document type: first from Textract's FORMS label/value pairs, then **one flash-lite call per document** for anything missing and for lists (deposits, debits, liabilities, liens, easements).
+3. **Grounding guard**: a model-extracted value is kept only if its exact text is found in that document, and its **page is located in code**, never taken from the model.
+4. **Compare with rules in plain Python** (thresholds at the top of `core/review.py`), not with the LLM.
+
+| Check | Compares |
+|---|---|
+| Income | stated monthly income vs pay slips (pay frequency from the slip or its period dates), 5% tolerance |
+| Employer | application vs pay slip |
+| Checking balance | stated vs statement ending balance, 10% tolerance |
+| Payroll deposits | statement deposits vs pay-slip net pay |
+| Large deposits | non-payroll deposits above 25% of monthly income vs the declaration |
+| Loan amount, purchase price | application vs Loan Estimate |
+| Stated debt payments | stated monthly payments vs statement debits |
+| Liens, easements | title report; "payoff required" read from the report's own wording |
+| Missing documents | required document types absent from the file |
+
+Each check is **mismatch**, **review**, **missing**, **match** or **info**. A review that fails is stored as failed and never fails the upload: the document stays searchable.
+
+**Try it:** `samples/synthetic_borrower/whitfield_loan_packet.pdf` is an 8-page synthetic packet (or the same pages as 5 separate PDFs) with planted issues. `answer_key.md` lists the expected review and 35 test questions. The packet is regenerated with `python samples/synthetic_borrower/make_samples.py`.
 
 ---
 

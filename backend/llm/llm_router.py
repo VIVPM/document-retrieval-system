@@ -1,12 +1,4 @@
-"""
-Answer generation and embeddings.
-
-Generation runs on whichever provider LLM_MODEL selects; embeddings are always
-Gemini. That asymmetry is not a shortcut: the Pinecone index is built at
-EMBED_DIM from gemini-embedding-2, and another provider's vectors would occupy
-a different space, so moving embeddings means re-embedding every document
-rather than changing a setting.
-"""
+"""Answer generation and embeddings."""
 
 import os
 import random
@@ -21,15 +13,8 @@ from logging_setup import get_logger
 
 log = get_logger("drs.llm")
 
-# By explicit path, not cwd: this module raises on an unset LLM_MODEL, and a
-# bare load_dotenv() finds nothing when the process starts from the repo
-# root, turning "run a script from the wrong directory" into a hard crash.
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
 
-# Which provider generates text: "GEMINI" or "CLOUDFLARE" (Workers AI, through
-# its OpenAI-compatible endpoint). Required with no default — this picks which
-# account gets billed, and a fallback would quietly send real traffic to a
-# provider nobody chose.
 LLM_MODEL = (os.getenv("LLM_MODEL") or "").strip().upper()
 _PROVIDERS = ("GEMINI", "CLOUDFLARE")
 if LLM_MODEL not in _PROVIDERS:
@@ -47,28 +32,10 @@ GEMINI_FAST_MODEL  = os.getenv("GEMINI_FAST_MODEL", "gemini-2.5-flash-lite")
 GEMINI_THINKING_BUDGET = int(os.getenv("GEMINI_THINKING_BUDGET", "2048"))
 GEMINI_MAX_OUTPUT  = int(os.getenv("GEMINI_MAX_OUTPUT", "8192"))
 
-# Ceiling on ONE provider call. Without it a hung connection blocks the calling
-# thread for ever: an ingest thread stops making progress but keeps its job
-# lease, and an answer thread holds a request open with no way for the client to
-# learn anything went wrong. Generous, because a long answer with thinking
-# legitimately takes tens of seconds -- this bounds the hang, it does not tune
-# latency.
 LLM_TIMEOUT_S = int(os.getenv("LLM_TIMEOUT_S", "120"))
 
-# Whether a failed provider may fall back to the other one. On by default, but
-# inert unless the other provider's credentials are also present, so a
-# single-provider deployment is unaffected. Set 0 to pin traffic to LLM_MODEL
-# even during an outage -- which is what you want if the second provider bills
-# a budget you are not willing to spend.
 ALLOW_FAILOVER = os.getenv("ALLOW_FAILOVER", "1").strip() != "0"
 
-# One model serves both tiers. Chosen by measurement, not price: it is the only
-# candidate that is NOT a reasoning model, and reasoning models return
-# content=None at this repo's tight budgets (boundary detection runs at
-# max_tokens=8). Measured on the real prompts — answers 10/10, the rewriter's
-# meta-question check 8/8, classification and boundary both clean; gpt-oss-20b
-# and qwen3-30b each returned null on boundary detection. See the roadmap
-# before swapping it.
 CLOUDFLARE_MODEL      = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
 CLOUDFLARE_ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID", "").strip()
 CLOUDFLARE_API_TOKEN  = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
@@ -78,38 +45,18 @@ EMBED_DIM          = 768
 EMBED_CONCURRENCY  = int(os.getenv("EMBED_CONCURRENCY", "8"))
 
 
-# ── Cost ──────────────────────────────────────────────────────────────────────
-# Tokens are not money. Rates differ per model, and THINKING tokens bill at the
-# OUTPUT rate -- which for this app is the largest single line on a query's
-# bill, because answers run with a 2048-token thinking budget.
-#
-# Rates are USD per MILLION tokens, checked against the provider pricing pages.
-# They will drift; treat a number here as "last verified", not as truth. The
-# 4.0x flash/flash-lite ratio these produce matches the repo's own measured
-# $/q in the model sweep, which is the sanity check that they are not nonsense.
 PRICE_PER_MTOK = {
     "gemini-2.5-flash":       {"in": 0.30, "out": 2.50},
     "gemini-2.5-flash-lite":  {"in": 0.10, "out": 0.40},
-    "gemini-3.5-flash-lite":  {"in": 0.30, "out": 2.50},   # "lite" tracks the
-                                                           # generation, not the
-                                                           # old price point
+    "gemini-3.5-flash-lite":  {"in": 0.30, "out": 2.50},
     "gemini-3.6-flash":       {"in": 1.00, "out": 8.00},
 }
 
-# Workers AI bills NEURONS, not tokens, so its cost cannot be derived from the
-# token counts. The API returns a neuron count per call; this converts it.
-# 10,000 neurons/day are free, and that allowance is per ACCOUNT -- shared with
-# anything else on it -- so a cost of 0 here does not mean a call was free, only
-# that it came out of an allowance something else may also be spending.
 USD_PER_1K_NEURONS = 0.011
 
 
 def estimate_cost_usd(usage: dict) -> float | None:
-    """Cost of one call from its usage dict, or None when it cannot be priced.
-
-    None rather than 0.0 for an unknown model: a zero would quietly under-report
-    a real bill and look like a free call, which is worse than an obvious gap.
-    """
+    """Cost of one call from its usage dict, or None when it cannot be priced."""
     if not usage:
         return None
 
@@ -121,42 +68,24 @@ def estimate_cost_usd(usage: dict) -> float | None:
     if rates is None:
         return None
 
-    # Thinking tokens are billed at the OUTPUT rate and are reported SEPARATELY
-    # from output tokens, so they have to be added rather than assumed included.
     billed_out = (usage.get("output_tokens") or 0) + (usage.get("thinking_tokens") or 0)
     return ((usage.get("prompt_tokens") or 0) / 1e6 * rates["in"]
             + billed_out / 1e6 * rates["out"])
 
 
-# ── Resilience ────────────────────────────────────────────────────────────────
-# Retry the transport, never the reasoning. A 429 or a 503 is the provider
-# saying "not now"; a 400 or a refusal is it saying "not this", and retrying
-# that pays twice for the same answer.
-
-RETRY_ATTEMPTS = 3          # total tries, not extra ones
+RETRY_ATTEMPTS = 3
 RETRY_BASE_S = 0.5
 RETRY_MAX_S = 8.0
 
-# Worth another go: rate limits, overload, gateway and timeout classes.
 RETRYABLE_STATUS = frozenset((408, 409, 425, 429, 500, 502, 503, 504))
-# Deterministic. The same request will fail the same way, so a retry is pure
-# cost -- and on 401/403 it is also a good way to get an account flagged.
 TERMINAL_STATUS = frozenset((400, 401, 403, 404, 405, 413, 415, 422))
 
-# Consecutive failures before a provider is considered down, and how long it is
-# left alone afterwards. Consecutive rather than a rate, because a rate needs a
-# window and a window needs tuning -- five in a row is unambiguous.
 BREAKER_THRESHOLD = 5
 BREAKER_COOLDOWN_S = 60.0
 
 
 def _status_of(exc: Exception) -> int | None:
-    """HTTP status from either SDK's exception, or None.
-
-    google-genai puts it on .code, the OpenAI client on .status_code. Read by
-    attribute rather than by isinstance so this file does not have to import
-    both SDKs just to classify an error.
-    """
+    """HTTP status from either SDK's exception, or None."""
     for attr in ("status_code", "code", "http_status"):
         value = getattr(exc, attr, None)
         if isinstance(value, int):
@@ -174,26 +103,14 @@ def _is_retryable(exc: Exception) -> bool:
             return False
         if status in RETRYABLE_STATUS:
             return True
-        return status >= 500          # unknown 5xx: assume transient
+        return status >= 500
 
-    # No status at all means the request never got an answer -- a timeout, a
-    # dropped connection, DNS. Those are the transport failures retries exist
-    # for. Matched on class NAME so neither SDK has to be imported here.
     name = type(exc).__name__
     return any(k in name for k in ("Timeout", "Connection", "Unavailable", "Socket"))
 
 
 class _Breaker:
-    """One provider's circuit breaker.
-
-    Stops hammering a provider that is down. Without it a queue full of jobs
-    burns its whole retry budget against an outage and turns a recoverable
-    blip into a pile of permanently failed documents.
-
-    Not thread-safe by lock, deliberately: the worst a race can do is miscount
-    a failure by one, and a lock on this path would serialise every LLM call in
-    the process for no real benefit.
-    """
+    """One provider's circuit breaker."""
 
     def __init__(self, name: str):
         self.name = name
@@ -206,8 +123,6 @@ class _Breaker:
         if self.consecutive_failures < BREAKER_THRESHOLD:
             return False
         if time.monotonic() - self.opened_at >= BREAKER_COOLDOWN_S:
-            # Cooldown elapsed: let ONE call through to test the water. It is
-            # half-open in effect -- a success resets, a failure re-arms.
             return False
         return True
 
@@ -226,7 +141,7 @@ class _Breaker:
                                                "failures": self.consecutive_failures,
                                                "cooldown_s": BREAKER_COOLDOWN_S})
         elif self.consecutive_failures > BREAKER_THRESHOLD:
-            self.opened_at = time.monotonic()          # re-arm after a failed probe
+            self.opened_at = time.monotonic()
 
 
 _breakers: dict[str, _Breaker] = {
@@ -241,12 +156,7 @@ def provider_down(provider: str | None = None) -> bool:
 
 
 def _with_retries(fn, provider: str, what: str):
-    """Run fn(), retrying transport failures with jittered backoff.
-
-    Raises the last exception if every attempt fails, so the caller still
-    decides what a failure means -- this layer only decides whether to try
-    again.
-    """
+    """Run fn(), retrying transport failures with jittered backoff."""
     breaker = _breakers[provider]
     last: Exception | None = None
 
@@ -265,13 +175,10 @@ def _with_retries(fn, provider: str, what: str):
                 "retryable": retryable, "error": f"{type(exc).__name__}: {exc}"[:200]})
             if not retryable or attempt == RETRY_ATTEMPTS:
                 raise
-            # Exponential with full jitter. Without jitter every in-flight
-            # request retries on the same schedule and the second wave lands
-            # together, which is what turns a blip into an outage.
             delay = min(RETRY_MAX_S, RETRY_BASE_S * (2 ** (attempt - 1)))
             time.sleep(random.uniform(0, delay))
 
-    raise last                                          # unreachable
+    raise last
 
 
 class MockResponse:
@@ -288,8 +195,6 @@ class LLMRouter:
     def __init__(self):
         self._gemini = None
         self._cf = None
-        # Usage from the most recent stream() call. Streaming yields text,
-        # so the counts cannot be returned -- they are left here instead.
         self.last_stream_usage: dict = {}
         if LLM_MODEL == "CLOUDFLARE":
             missing = [n for n, v in (("CLOUDFLARE_ACCOUNT_ID", CLOUDFLARE_ACCOUNT_ID),
@@ -304,15 +209,12 @@ class LLMRouter:
                 api_key=CLOUDFLARE_API_TOKEN,
                 base_url=f"https://api.cloudflare.com/client/v4/accounts/"
                          f"{CLOUDFLARE_ACCOUNT_ID}/ai/v1",
-                timeout=LLM_TIMEOUT_S,        # seconds, per the OpenAI client
-                max_retries=0,                # retries belong to the queue, not here
+                timeout=LLM_TIMEOUT_S,
+                max_retries=0,
             )
             self.label = CLOUDFLARE_MODEL
             print(f"🔄 Cloudflare Workers AI configured ({CLOUDFLARE_MODEL})")
         elif GEMINI_API_KEY:
-            # google-genai takes MILLISECONDS here, unlike every other
-            # timeout in this file. Passing seconds would set a 120ms
-            # deadline and fail every call.
             self._gemini = genai.Client(
                 api_key=GEMINI_API_KEY,
                 http_options=types.HttpOptions(timeout=LLM_TIMEOUT_S * 1000),
@@ -327,13 +229,7 @@ class LLMRouter:
             self.label = "No LLM configured"
 
     def _other_provider(self) -> str | None:
-        """The provider to fail over to, or None if it is not usable.
-
-        None is the common case and the safe one: failover needs the OTHER
-        provider's credentials present. Building it lazily means a deployment
-        configured for one provider pays nothing for this and behaves exactly
-        as it did before.
-        """
+        """The provider to fail over to, or None if it is not usable."""
         other = "CLOUDFLARE" if LLM_MODEL == "GEMINI" else "GEMINI"
         if other == "GEMINI":
             return "GEMINI" if GEMINI_API_KEY else None
@@ -357,7 +253,7 @@ class LLMRouter:
                 base_url=f"https://api.cloudflare.com/client/v4/accounts/"
                          f"{CLOUDFLARE_ACCOUNT_ID}/ai/v1",
                 timeout=LLM_TIMEOUT_S,
-                max_retries=0,        # retries are _with_retries' job, not a nested client's
+                max_retries=0,
             )
             log.info("built failover client", extra={"provider": "CLOUDFLARE"})
         return self._cf
@@ -372,11 +268,7 @@ class LLMRouter:
 
     def _cloudflare_complete(self, prompt: str, temperature: float,
                              max_tokens: int) -> tuple[str, dict]:
-        """Single Workers AI call through the OpenAI-compatible endpoint.
-
-        No thinking_budget equivalent: the chosen model does not reason, which is
-        why the caller's max_tokens can stay as tight as it is for Gemini.
-        """
+        """Single Workers AI call through the OpenAI-compatible endpoint."""
         r = self._cf.chat.completions.create(
             model=CLOUDFLARE_MODEL,
             messages=[{"role": "user", "content": prompt}],
@@ -395,8 +287,6 @@ class LLMRouter:
             "output_tokens": getattr(u, "completion_tokens", None) or 0,
             "thinking_tokens": 0,
             "cached_tokens": 0,
-            # Workers AI bills neurons, not tokens; without this the call
-            # cannot be priced at all.
             "neurons": getattr(u, "neurons", None) or 0,
         }
         return text, usage
@@ -434,17 +324,7 @@ class LLMRouter:
         return text, usage
 
     def complete(self, prompt: str, **kwargs) -> MockResponse:
-        """
-        Generate a completion.
-
-        `fast=True` routes to GEMINI_FAST_MODEL; `model` overrides both.
-        `thinking_budget` and `temperature` override the module defaults.
-
-        Both are Gemini-only knobs. Workers AI publishes one model for this job,
-        so both tiers point at it there and `fast`/`thinking_budget` are ignored
-        — the two-tier split is a cost optimisation, not something callers depend
-        on for correctness.
-        """
+        """        Generate a completion."""
         temp     = kwargs.get("temperature", 0.3)
         max_tok  = kwargs.get("max_tokens", GEMINI_MAX_OUTPUT)
         thinking = kwargs.get("thinking_budget", GEMINI_THINKING_BUDGET)
@@ -469,11 +349,6 @@ class LLMRouter:
                                                          thinking, model),
                     provider, "complete")
                 if text:
-                    # Cost per call, tagged with the correlation id. Summing by
-                    # request_id then answers "what did this cost" for a message
-                    # AND for an ingest -- which a span cannot, because ingest
-                    # runs its LLM calls in raw thread pools that do not carry
-                    # the tracing context.
                     cost = estimate_cost_usd(usage)
                     log.info("llm call", extra={
                         "provider": provider, "model": usage.get("model"),
@@ -481,10 +356,6 @@ class LLMRouter:
                         "thinking": usage.get("thinking_tokens"),
                         "cost_usd": None if cost is None else round(cost, 6)})
                     return MockResponse(text, usage)
-                # An empty completion is not a transport failure, so it does not
-                # trip the breaker and must not fail over -- both providers
-                # would return the same nothing for a prompt the model will not
-                # answer. answer_generator turns this into an explicit error.
                 return MockResponse("", usage)
             except Exception as e:
                 last_error = e
@@ -495,21 +366,12 @@ class LLMRouter:
         return MockResponse("")
 
     def stream(self, prompt: str, **kwargs):
-        """
-        Yield answer text chunks as the active provider produces them.
-
-        Same config as complete(), so a streamed answer is identical to the
-        buffered one, just delivered token by token. Both providers' streams are
-        blocking sync generators; the SSE endpoint pumps them through
-        asyncio.to_thread so neither blocks the event loop.
-        """
+        """        Yield answer text chunks as the active provider produces them."""
         temp     = kwargs.get("temperature", 0.3)
         max_tok  = kwargs.get("max_tokens", GEMINI_MAX_OUTPUT)
         thinking = kwargs.get("thinking_budget", GEMINI_THINKING_BUDGET)
         model    = kwargs.get("model") or GEMINI_CHAT_MODEL
 
-        # Cleared per stream: reading a previous answer's usage would misreport
-        # cost silently, which is worse than reporting none.
         self.last_stream_usage = {}
 
         if self._cf:
@@ -523,9 +385,6 @@ class LLMRouter:
                 ):
                     if not chunk.choices:
                         continue
-                    # Cloudflare's shim sends a chunk that is only a number as a
-                    # JSON number, so content arrives as int. The SSE endpoint
-                    # joins these into one string and would raise on it.
                     u = getattr(chunk, "usage", None)
                     if u is not None:
                         self.last_stream_usage = {
@@ -555,9 +414,6 @@ class LLMRouter:
                     thinking_config=types.ThinkingConfig(thinking_budget=thinking),
                 ),
             ):
-                # The final chunk carries usage_metadata, so a streamed answer
-                # CAN be priced -- it just has to be picked up on the way past.
-                # last_stream_usage is how the caller reads it afterwards.
                 m = getattr(chunk, "usage_metadata", None)
                 if m is not None:
                     self.last_stream_usage = {
@@ -585,17 +441,7 @@ class GeminiEmbeddingModel:
 
     def encode(self, texts: list[str], show_progress_bar: bool = False,
                task_type: str = "RETRIEVAL_DOCUMENT") -> list[list[float]]:
-        """
-        Embed texts with Gemini.
-
-        task_type must be RETRIEVAL_DOCUMENT when embedding chunks for the
-        index and RETRIEVAL_QUERY when embedding a search query — Gemini
-        produces asymmetric embeddings and using the document type for
-        queries measurably degrades similarity.
-
-        EMBED_DIM is a Matryoshka truncation of the model's native 3072,
-        which the model is trained to support.
-        """
+        """        Embed texts with Gemini."""
         if isinstance(texts, str):
             texts = [texts]
         if not texts:

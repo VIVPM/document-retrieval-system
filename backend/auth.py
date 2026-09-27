@@ -1,10 +1,4 @@
-"""
-auth.py — password hashing, JWT issue/verify, and the current-user dependency.
-
-The security boundary for chat data is Postgres, not Pinecone: every chat
-endpoint resolves the caller to a user_id here, then checks
-`chat.user_id == user_id` before it touches a namespace.
-"""
+"""auth.py — password hashing, JWT issue/verify, and the current-user dependency."""
 
 import hashlib
 import os
@@ -24,18 +18,12 @@ if not _secret:
 JWT_SECRET: str = _secret
 
 JWT_ALGORITHM = "HS256"
-# Access token is short-lived because it is stateless and cannot be revoked —
-# a leaked one expires fast. Staying logged in is the refresh token's job.
 ACCESS_TTL_MINUTES = int(os.getenv("ACCESS_TTL_MINUTES", "60"))
-# Refresh token is long-lived but revocable: stored server-side as a hash, it
-# silently mints new access tokens and is what /logout deletes.
 REFRESH_TTL_DAYS = int(os.getenv("REFRESH_TTL_DAYS", "14"))
 
 MAX_LOGIN_FAILURES = 5
 LOGIN_LOCKOUT_MINUTES = 15
 
-
-# ── Passwords ─────────────────────────────────────────────────────────────────
 
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
@@ -46,15 +34,12 @@ def verify_password(password: str, hashed: str) -> bool:
     try:
         return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
     except (ValueError, TypeError):
-        # Not a bcrypt hash — a pre-bcrypt row. Caller re-hashes on success.
         return hashlib.sha256(password.encode("utf-8")).hexdigest() == hashed
 
 
 def needs_rehash(hashed: str) -> bool:
     return not hashed.startswith("$2b$")
 
-
-# ── Tokens ────────────────────────────────────────────────────────────────────
 
 def create_token(user_id: int, username: str) -> str:
     payload = {

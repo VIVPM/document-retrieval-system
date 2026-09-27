@@ -1,9 +1,4 @@
-"""
-Turns a follow-up question into a standalone one.
-
-Runs before retrieval, because the chunks are chosen before any answer model
-sees a prompt. upgrade_roadmap.txt item 17 covers the rejected alternatives.
-"""
+"""Turns a follow-up question into a standalone one."""
 
 from typing import Dict, List
 
@@ -82,7 +77,6 @@ def _format_history(messages: List[Dict]) -> str:
     for m in messages[-MAX_HISTORY_MESSAGES:]:
         role = "User" if m.get("role") == "user" else "Assistant"
         content = (m.get("content") or "").strip().replace("\n", " ")
-        # Truncate long answers so history can't crowd out the question.
         if role == "Assistant" and len(content) > 300:
             content = content[:300] + "…"
         lines.append(f"{role}: {content}")
@@ -90,11 +84,7 @@ def _format_history(messages: List[Dict]) -> str:
 
 
 def rewrite_standalone(question: str, history: List[Dict]) -> str:
-    """
-    Rewrite `question` into a self-contained query using recent turns.
-
-    Falls back to the original on no history, no change, or any failure.
-    """
+    """    Rewrite `question` into a self-contained query using recent turns."""
     if not history:
         return question
 
@@ -102,8 +92,6 @@ def rewrite_standalone(question: str, history: List[Dict]) -> str:
               f"LATEST QUESTION: {question}\nOUTPUT:")
 
     try:
-        # Not fast=True: flash-lite answers meta-questions instead of passing
-        # them through, breaking rule 4.
         rewritten = llm.complete(
             prompt, temperature=0.0, max_tokens=256, thinking_budget=0
         ).text.strip()
@@ -111,7 +99,6 @@ def rewrite_standalone(question: str, history: List[Dict]) -> str:
         print(f"⚠️ Query rewrite failed ({type(e).__name__}: {e}) — using the raw question")
         return question
 
-    # Reject anything long enough to be the model explaining itself.
     rewritten = rewritten.strip('"').strip("'").strip()
     if not rewritten or len(rewritten) > 4 * max(len(question), 60):
         print("⚠️ Query rewrite looked wrong — using the raw question")

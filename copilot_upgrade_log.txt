@@ -645,3 +645,14 @@ Note: 3 real runs back to back hit Gemini 429s; main has no retry layer
   review matches answer_key.md, test chat deleted.
 Remaining for main: commit + push (awaiting the owner's go-ahead);
 optionally one paid Textract run (~$0.52) to verify the production path.
+
+======================================================================
+25. FILE REVIEW AS A RIGHT-SIDE PANEL                            [both]
+======================================================================
+Same change as v012's section 23, ported unchanged: ChatPanel.jsx and
+App.css are identical on both branches (verified: the whole frontend/
+diffs empty against document-retrieval-v012). The chat is always the
+main area; the review is a 440px panel on its right, shown/hidden by a
+"File review (3)" button; at <=1100px it is a drawer over the chat that
+"Ask" and Summarize close. Replaces section 18's Review | Ask tabs.
+Verified on v012 against the real API at 1440 / 1024 / 390px.

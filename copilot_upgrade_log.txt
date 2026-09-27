@@ -554,3 +554,21 @@ Verified (v012): ruff, review/chunker/logging/load_test selftests,
 eslint, build; real run with API + worker (pymupdf): 5 documents split
 correctly, review matches answer_key.md, answer "$2,845.31" cited
 "Pay Slip pages 3-4" (was 0-based before). Test chat deleted.
+
+======================================================================
+23. FILE REVIEW AS A RIGHT-SIDE PANEL                             [v012]
+======================================================================
+Replaces section 18's Review | Ask tabs: the chat is always the main
+area and the review sits in a panel on its right (440px), open by
+default. A "File review (3) ▸" button in the header shows/hides it.
+At <=1100px the panel is a drawer over the chat (closed by default);
+"Ask" on a flag fills the chat box and closes the drawer there, while
+on wide screens both stay visible. Summarize also closes the drawer.
+Files: frontend/src/ChatPanel.jsx (tab state -> showReview, isNarrow,
+file-body / chat-col / review-aside layout), App.css (.file-body,
+.chat-col, .review-aside, .review-toggle; unused .file-tab* removed).
+Verified against the real local API (reviewtest file): 1440px chat 740
++ panel 440, hide -> chat 1180; 1024px drawer (absolute), Ask closes
+it; 390px full-width drawer, no horizontal scroll; 0 page errors, 0
+failed requests. eslint + build clean.
+NOT on main yet (main still has the tabs).

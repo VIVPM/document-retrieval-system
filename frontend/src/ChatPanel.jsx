@@ -230,6 +230,9 @@ function FlagDecision({ flagKey, decision, history, onDecide }) {
   )
 }
 
+// Below this width the review panel overlays the chat as a drawer.
+const isNarrow = () => window.innerWidth <= 1100
+
 function ReviewPanel({ review, onAsk, full = false, decisions = {}, history = [], onDecide }) {
   const issues = review?.summary ? review.summary.mismatch + review.summary.review : 0
   const [open, setOpen] = useState(true)
@@ -309,7 +312,7 @@ export default function ChatPanel({ chat, onChatChanged, addToast }) {
   const [review, setReview] = useState(null)
   const [decisions, setDecisions] = useState({})
   const [history, setHistory] = useState([])
-  const [tab, setTab] = useState('review')
+  const [showReview, setShowReview] = useState(() => !isNarrow())
 
   const [docFilter, setDocFilter] = useState('All')
   const [numChunks, setNumChunks] = useState(6)
@@ -326,7 +329,7 @@ export default function ChatPanel({ chat, onChatChanged, addToast }) {
     setReview(null)
     setDecisions({})
     setHistory([])
-    setTab('review')
+    setShowReview(!isNarrow())
     api.getChat(chatId)
       .then((d) => {
         if (cancelled) return
@@ -430,8 +433,7 @@ export default function ChatPanel({ chat, onChatChanged, addToast }) {
 
   const stats = chat.doc_stats || {}
   const docTypes = ['All', ...(stats.document_types || [])]
-  const view = review ? tab : 'ask'
-  const askAbout = (text) => { setInput(text); setTab('ask') }
+  const askAbout = (text) => { setInput(text); if (isNarrow()) setShowReview(false) }
   const decide = async (key, decision, note) => {
     try {
       const { decision: d } = await api.decideFlag(chatId, key, decision, note)
@@ -445,8 +447,8 @@ export default function ChatPanel({ chat, onChatChanged, addToast }) {
     }
   }
   const s = review?.summary
-  const reviewTabLabel = review?.status === 'running' ? 'Review…'
-    : s ? `Review${s.mismatch + s.review ? ` (${s.mismatch + s.review})` : ' ✓'}` : 'Review'
+  const reviewLabel = review?.status === 'running' ? 'File review…'
+    : s ? `File review${s.mismatch + s.review ? ` (${s.mismatch + s.review})` : ' ✓'}` : 'File review'
 
   return (
     <section className="chat-panel">
@@ -465,32 +467,26 @@ export default function ChatPanel({ chat, onChatChanged, addToast }) {
           )}
         </div>
         {review && (
-          <div className="file-tabs" role="tablist">
-            <button role="tab" aria-selected={view === 'review'}
-                    className={`file-tab${view === 'review' ? ' active' : ''}`}
-                    onClick={() => setTab('review')}>{reviewTabLabel}</button>
-            <button role="tab" aria-selected={view === 'ask'}
-                    className={`file-tab${view === 'ask' ? ' active' : ''}`}
-                    onClick={() => setTab('ask')}>Ask</button>
-          </div>
+          <button className={`review-toggle${showReview ? ' active' : ''}`} aria-expanded={showReview}
+                  onClick={() => setShowReview(!showReview)}
+                  title={showReview ? 'Hide the file review panel' : 'Show the file review panel'}>
+            {reviewLabel} {showReview ? '▸' : '◂'}
+          </button>
         )}
         <div className="doc-strip-actions">
-          <button className="doc-strip-btn" onClick={() => { setTab('ask'); summarize() }} disabled={querying}
+          <button className="doc-strip-btn" onClick={() => { if (isNarrow()) setShowReview(false); summarize() }} disabled={querying}
                   title="Summarize the whole document (reads every page, not just the top matches)">
             📝 Summarize
           </button>
-          {view === 'ask' && (
-            <button className="doc-strip-btn" onClick={() => setShowSettings(!showSettings)}>
-              {showSettings ? 'Hide search settings' : 'Search settings'}
-            </button>
-          )}
+          <button className="doc-strip-btn" onClick={() => setShowSettings(!showSettings)}>
+            {showSettings ? 'Hide search settings' : 'Search settings'}
+          </button>
         </div>
       </div>
 
-      {view === 'review' && <ReviewPanel review={review} onAsk={askAbout} full
-        decisions={decisions} history={history} onDecide={decide} />}
-
-      {view === 'ask' && showSettings && (
+      <div className="file-body">
+      <div className="chat-col">
+      {showSettings && (
         <div className="settings-strip">
           <label>
             <span className="setting-label">Document type</span>
@@ -514,7 +510,6 @@ export default function ChatPanel({ chat, onChatChanged, addToast }) {
         </div>
       )}
 
-      {view === 'ask' && <>
       <div className="chat-messages">
         {loading ? (
           <div className="empty-chat"><span className="spinner spinner-lg" /></div>
@@ -557,7 +552,15 @@ export default function ChatPanel({ chat, onChatChanged, addToast }) {
           {querying ? <span className="spinner" /> : '➤'}
         </button>
       </div>
-      </>}
+      </div>
+
+      {review && showReview && (
+        <aside className="review-aside" aria-label="File review">
+          <ReviewPanel review={review} onAsk={askAbout} full
+                       decisions={decisions} history={history} onDecide={decide} />
+        </aside>
+      )}
+      </div>
     </section>
   )
 }

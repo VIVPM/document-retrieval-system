@@ -1,13 +1,4 @@
-"""
-A/B tests a change to the answer prompt.
-
-Four groups, because loosening a rule is easy to "win" by breaking it:
-RESCUE (must answer a differently-worded label), NOREFUSE (must not decline
-something answerable), DISAMBIG (must pick the right one of two similar fields
-and not the decoy), REFUSE (must still decline when the value is absent).
-
-Answers run at temperature 0.3, so each question runs EVAL_TRIALS times.
-"""
+"""A/B tests a change to the answer prompt."""
 import math
 import os
 import re
@@ -39,22 +30,17 @@ REFUSAL = re.compile(
     r"unable to (?:answer|determine)|not enough information|insufficient",
     re.I)
 
-# (group, question, must-appear, must-NOT-appear)
 CASES = [
-    # ── The document labels it differently from the question. Answerable.
     ("RESCUE", "What is the Loan Amount?",            ["380,000"], []),
     ("RESCUE", "What are the closing costs?",         ["4,520"],   []),
     ("RESCUE", "What is the appraisal cost?",         ["525"],     []),
     ("RESCUE", "What is the credit report charge?",   ["25"],      []),
     ("RESCUE", "How much is the underwriting?",       ["550"],     []),
 
-    # The phrasings observed refusing, verbatim. Answerable under a fair
-    # reading, so the only requirement is that the model does not decline.
     ("NOREFUSE", "List the closing costs and say which is the largest.", [], []),
     ("NOREFUSE", "What is the Loan Amount?", [], []),
     ("NOREFUSE", "What is the monthly payment?", [], []),
 
-    # ── Similar labels, different values. Rule 4's whole reason to exist.
     ("DISAMBIG", "What is the Total Monthly Payment?",
      ["2,308.95"], ["1,869.37"]),
     ("DISAMBIG", "What is the Principal & Interest payment?",
@@ -66,7 +52,6 @@ CASES = [
     ("DISAMBIG", "What is the Est. Prepaid Items/Reserves amount?",
      ["1,121.53"], ["4,520"]),
 
-    # ── Genuinely absent. Softening must not turn these into guesses.
     ("REFUSE", "What is the Annual Percentage Rate (APR)?", [], []),
     ("REFUSE", "What is the borrower's social security number?", [], []),
     ("REFUSE", "When does the interest rate lock expire?", [], []),
@@ -78,8 +63,6 @@ OLD_RULE4 = """4. FIELD MATCHING: Identify the EXACT field label mentioned in th
   - "Loan Amount" is NOT "Sale Price"
   - Find the EXACT label first, then extract the value next to it."""
 
-# Separates "the document words the same field differently" (answer it) from
-# "this is a different field that looks similar" (never substitute).
 NEW_RULE4 = """4. FIELD MATCHING: Find the field the question is asking about.
   - Prefer an exact label match.
   - If the document words the SAME field differently — "Total Loan Amount" for
@@ -108,7 +91,7 @@ def verdict(group, ans, expect, forbid):
     if group == "NOREFUSE":
         return not REFUSAL.search(ans)
     if REFUSAL.search(ans) and not any(e in ans for e in expect):
-        return False                      # refused something answerable
+        return False
     if not any(e in ans for e in expect):
         return False
     return not any(f in ans for f in forbid)
@@ -126,13 +109,12 @@ VARIANTS = {"old": ag.SYSTEM_RULES,
             "new": ag.SYSTEM_RULES.replace(OLD_RULE4, NEW_RULE4)}
 assert VARIANTS["new"] != VARIANTS["old"], "rule 4 text not found — prompt drifted"
 
-score = {v: defaultdict(lambda: [0, 0]) for v in VARIANTS}   # group -> [ok, n]
+score = {v: defaultdict(lambda: [0, 0]) for v in VARIANTS}
 detail = []
 
 for i, (group, question, expect, forbid) in enumerate(CASES):
     ranked = sorted(zip(chunks, (cosine(qvecs[i], cv) for cv in cvecs)),
                     key=lambda t: t[1], reverse=True)[:K]
-    # A RESCUE case is only meaningful if the value was actually retrieved.
     ctx = "\n".join(c.text for c, _ in ranked)
     retrievable = not expect or any(e in ctx for e in expect)
 

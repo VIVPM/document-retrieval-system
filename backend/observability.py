@@ -1,10 +1,4 @@
-"""OpenTelemetry tracing and metrics.
-
-LLM spans export to Langfuse and Grafana off one provider; HTTP spans use a
-separate provider so they don't also land in Langfuse. Each backend stays off
-unless its env vars are set (LANGFUSE_* / GRAFANA_OTLP_*), and nothing here
-raises — tracing must never break a request.
-"""
+"""OpenTelemetry tracing and metrics."""
 import base64
 import logging
 import os
@@ -12,9 +6,6 @@ from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
 
-# This app doesn't configure root logging, and every init below is "log and
-# continue" — so without a handler here a broken exporter (bad prod auth) would
-# fail silently. Give the module its own stderr handler so those signals show.
 if not logger.handlers:
     _h = logging.StreamHandler()
     _h.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
@@ -22,8 +13,8 @@ if not logger.handlers:
     logger.setLevel(logging.INFO)
     logger.propagate = False
 
-_llm_provider = None   # unified TracerProvider for LLM spans, or None when disabled
-_llm_tracer = None     # tracer from that provider (for the per-message parent span)
+_llm_provider = None
+_llm_tracer = None
 _message_counter = None
 
 
@@ -76,11 +67,6 @@ def init_observability():
             )))
             enabled.append("Grafana Cloud")
 
-        # Instrument whichever SDK actually makes the calls. LLM_MODEL=CLOUDFLARE
-        # routes generation through the openai client, which the google-genai
-        # instrumentor never sees — without this the LLM traces would go silently
-        # dark on that provider while HTTP spans kept flowing, which reads as a
-        # working exporter. Embeddings are Gemini on both, so genai stays on.
         from openinference.instrumentation.google_genai import GoogleGenAIInstrumentor
         GoogleGenAIInstrumentor().instrument(tracer_provider=provider)
         if os.getenv("LLM_MODEL", "").strip().upper() == "CLOUDFLARE":
@@ -102,10 +88,6 @@ def trace_message(question: str, user_id, session_id):
         return
     try:
         with _llm_tracer.start_as_current_span("chat-message") as span:
-            # Name the trace explicitly: the FastAPI HTTP span (a different,
-            # Grafana-only provider) sits in the active context as this span's
-            # parent, and Langfuse never receives it — so without this the trace's
-            # root name resolves empty. The nested genai spans still attach fine.
             span.set_attribute("langfuse.trace.name", "chat-message")
             span.set_attribute("langfuse.user.id", str(user_id))
             span.set_attribute("langfuse.session.id", str(session_id))

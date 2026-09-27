@@ -51,6 +51,13 @@ Each check is **mismatch**, **review**, **missing**, **match** or **info**. A re
 
 **Try it:** `samples/synthetic_borrower/whitfield_loan_packet.pdf` is an 8-page synthetic packet (or the same pages as 5 separate PDFs) with planted issues. `answer_key.md` lists the expected review and 35 test questions. The packet is regenerated with `python samples/synthetic_borrower/make_samples.py`.
 
+### Citations and reliability
+
+*   **Page numbers are 1-based everywhere a person or the model sees them.** Pages are stored 0-based; citations, the answer prompt and the eval prompt add 1. Before this, answers cited one page early. Pages are pages of the merged file when several PDFs were uploaded.
+*   **The grounding guard ignores table cell separators**, so a value quoted from a table row (`07/15 | DIRECT DEP … | +$2,845.31`) still matches, and list values the model wraps as `{"value": …}` are unwrapped rather than dropped.
+*   **With PyMuPDF, page-boundary detection reads table rows without their `|` separators**: with them, the model called a pay slip and the next bank statement "the same document" every time.
+*   Provider calls retry 429s, 5xx and timeouts up to 3 times with full-jitter backoff; 4xx errors are never retried. Without this a rate-limited minute during page splitting silently kept pages together and merged documents.
+
 ---
 
 ## 🏗️ Architecture
@@ -335,7 +342,7 @@ Everything is a no-op unless the env vars are set, and nothing raises — tracin
 
 `.github/workflows/ci.yml` runs on every push and PR:
 
-1. **backend** — `ruff`, `compileall`, `load_test.py --selftest` (no network).
+1. **backend** — `ruff`, `compileall`, `load_test.py --selftest` and `core/review.py` (file-review rules and grounding guard), all with no network.
 2. **frontend** — `npm ci`, `npm run lint`, `npm run build`.
 3. **docker** — build both images (no push), so a broken Dockerfile fails here, not at deploy.
 4. **deploy** — only after all three pass, only on push to `main`: POSTs the Render deploy hooks (`RENDER_DEPLOY_HOOK_*` secrets), skipping gracefully if they're unset.

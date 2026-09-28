@@ -2,6 +2,7 @@
 
 import os
 import random
+from contextvars import ContextVar
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -155,19 +156,47 @@ def provider_down(provider: str | None = None) -> bool:
     return _breakers[(provider or LLM_MODEL)].is_open
 
 
+_user_key: ContextVar[str | None] = ContextVar("user_gemini_key", default=None)
+_user_clients: dict = {}
+
+
+def set_user_key(key: str | None) -> None:
+    """Use this Gemini key for the current request's completions. Never stored."""
+    _user_key.set(key or None)
+
+
+def _user_client(key: str):
+    """A Gemini client for one user's key, cached in memory only."""
+    client = _user_clients.get(key)
+    if client is None:
+        if len(_user_clients) >= 64:
+            _user_clients.clear()
+        client = _user_clients[key] = genai.Client(
+            api_key=key, http_options=types.HttpOptions(timeout=LLM_TIMEOUT_S * 1000))
+    return client
+
+
+def check_user_key(key: str) -> None:
+    """Raise if Gemini rejects this key. Reads model metadata, so it bills nothing."""
+    _user_client(key).models.get(model=GEMINI_CHAT_MODEL)
+
+
 def _with_retries(fn, provider: str, what: str):
-    """Run fn(), retrying transport failures with jittered backoff."""
-    breaker = _breakers[provider]
+    """Run fn(), retrying transport failures with jittered backoff. A provider
+    with no breaker (a user's own key) never trips the shared circuit."""
+    breaker = _breakers.get(provider)
     last: Exception | None = None
 
     for attempt in range(1, RETRY_ATTEMPTS + 1):
         try:
             result = fn()
-            breaker.record_success()
+            if breaker:
+                breaker.record_success()
             return result
         except Exception as exc:
             last = exc
-            breaker.record_failure()
+            if breaker:
+                breaker.record_failure()
             retryable = _is_retryable(exc)
             log.warning("provider call failed", extra={
                 "provider": provider, "op": what, "attempt": attempt,
@@ -292,9 +321,9 @@ class LLMRouter:
         return text, usage
 
     def _gemini_complete(self, prompt: str, temperature: float, max_tokens: int,
-                         thinking_budget: int, model: str) -> tuple[str, dict]:
+                         thinking_budget: int, model: str, client=None) -> tuple[str, dict]:
         """Single Gemini call; returns (text, usage-metadata dict)."""
-        response = self._gemini.models.generate_content(
+        response = (client or self._gemini).models.generate_content(
             model=model,
             contents=prompt,
             config=types.GenerateContentConfig(
@@ -330,6 +359,18 @@ class LLMRouter:
         thinking = kwargs.get("thinking_budget", GEMINI_THINKING_BUDGET)
         model    = kwargs.get("model") or (GEMINI_FAST_MODEL if kwargs.get("fast")
                                            else GEMINI_CHAT_MODEL)
+
+        key = _user_key.get()
+        if key:
+            try:
+                text, usage = _with_retries(
+                    lambda: self._gemini_complete(prompt, temp, max_tok, thinking, model,
+                                                  client=_user_client(key)),
+                    "USER_GEMINI", "complete")
+                return MockResponse(text, usage)
+            except Exception as e:
+                log.error("own-key call failed", extra={"error": f"{type(e).__name__}: {e}"[:200]})
+                return MockResponse("")
 
         primary = LLM_MODEL
         order = [primary]
@@ -373,8 +414,10 @@ class LLMRouter:
         model    = kwargs.get("model") or GEMINI_CHAT_MODEL
 
         self.last_stream_usage = {}
+        key = _user_key.get()
+        gemini = _user_client(key) if key else self._gemini
 
-        if self._cf:
+        if self._cf and not key:
             try:
                 for chunk in self._cf.chat.completions.create(
                     model=CLOUDFLARE_MODEL,
@@ -402,10 +445,10 @@ class LLMRouter:
                 print(f"⚠️  {CLOUDFLARE_MODEL} stream failed ({type(e).__name__}: {e})")
             return
 
-        if not self._gemini:
+        if not gemini:
             return
         try:
-            for chunk in self._gemini.models.generate_content_stream(
+            for chunk in gemini.models.generate_content_stream(
                 model=model,
                 contents=prompt,
                 config=types.GenerateContentConfig(

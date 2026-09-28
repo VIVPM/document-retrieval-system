@@ -105,3 +105,6 @@ CREATE TABLE IF NOT EXISTS drs_review_decisions (
     created_at TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS ix_drs_review_decisions_chat_id ON drs_review_decisions (chat_id);
+
+-- Questions asked with the user's own Gemini key don't count against daily credits.
+ALTER TABLE drs_chat_messages ADD COLUMN IF NOT EXISTS own_key BOOLEAN DEFAULT FALSE;

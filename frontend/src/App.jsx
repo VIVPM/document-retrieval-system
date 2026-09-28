@@ -106,6 +106,7 @@ export default function App() {
   const [deleting, setDeleting] = useState(false)
   const [loading, setLoading] = useState(true)
   const [credits, setCredits] = useState(null)
+  const [hasOwnKey, setHasOwnKey] = useState(Boolean(api.getOwnKey()))
 
   useEffect(() => {
     api.setUnauthorizedHandler(() => {
@@ -113,6 +114,7 @@ export default function App() {
       setAuthMode(null)
       setChats([])
       setSelectedId(null)
+      setHasOwnKey(false)
     })
   }, [])
 
@@ -200,6 +202,7 @@ export default function App() {
     api.logout()
     localStorage.removeItem(SELECTED_KEY)
     setAuthed(false)
+    setHasOwnKey(false)
     setAuthMode(null)
     setChats([])
     setSelectedId(null)
@@ -234,7 +237,11 @@ export default function App() {
       <header className="lp-nav header">
         <span className="lp-wordmark"><span className="lp-logo">📄</span> DocQA</span>
         <div className="header-user">
-          {credits && (
+          {hasOwnKey ? (
+            <span className="credits credits-own" title="Questions use your own Gemini API key, so daily credits don't apply.">
+              Your API key
+            </span>
+          ) : credits && (
             <span
               className={`credits${credits.remaining === 0 ? ' credits-out' : ''}`}
               title={`${credits.used} of ${credits.cap} used today. Resets at midnight IST.`}
@@ -275,6 +282,8 @@ export default function App() {
           <ChatPanel
             key={selected.id}
             chat={selected}
+            hasOwnKey={hasOwnKey}
+            onOwnKeyChange={(on) => { setHasOwnKey(on); refresh() }}
             onChatChanged={refresh}
             addToast={addToast}
           />

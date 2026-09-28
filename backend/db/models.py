@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import Column, DateTime, Index, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 
 from db.database import Base
@@ -65,6 +65,7 @@ def ensure_columns(engine) -> None:
     from sqlalchemy import text
     with engine.begin() as c:
         c.execute(text("ALTER TABLE drs_chat_sessions ADD COLUMN IF NOT EXISTS review JSONB"))
+        c.execute(text("ALTER TABLE drs_chat_messages ADD COLUMN IF NOT EXISTS own_key BOOLEAN DEFAULT FALSE"))
         c.execute(text(
             "UPDATE drs_chat_sessions SET review = review || jsonb_build_object("
             "'run_id', md5(random()::text)) "
@@ -119,6 +120,7 @@ class ChatMessage(Base):
     content = Column(Text, nullable=False)
 
     sources = Column(JSONB)
+    own_key = Column(Boolean, default=False)
 
     created_at = Column(DateTime(timezone=True), default=now_ist)
 

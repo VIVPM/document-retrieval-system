@@ -47,7 +47,8 @@ from db.database import Base, SessionLocal, engine
 from db.models import (Account, ChatMessage, ChatSession, IngestJob, ReviewDecision, ensure_columns,
                        LoginFailure, RefreshToken, now_ist)
 import job_queue
-from llm.llm_router import embed_model, estimate_cost_usd, llm as _llm
+from llm.llm_router import (check_user_key, embed_model, estimate_cost_usd, llm as _llm,
+                            set_user_key)
 from observability import (flush as trace_flush, init_http_tracing,
                            record_cost, record_llm_metrics,
                            record_stream_quality,
@@ -55,6 +56,7 @@ from observability import (flush as trace_flush, init_http_tracing,
                            set_output, trace_message)
 
 import contextlib
+import threading
 import time
 
 import logging_setup
@@ -171,11 +173,29 @@ def sanitize(obj):
     return str(obj)
 
 
+RUN_WORKER_IN_PROCESS = os.getenv("RUN_WORKER_IN_PROCESS", "0") == "1"
+
+
 @contextlib.asynccontextmanager
 async def lifespan(_app: FastAPI):
-    """Startup/shutdown. The shutdown half is what SIGTERM needs."""
+    """Startup/shutdown. The shutdown half is what SIGTERM needs. With
+    RUN_WORKER_IN_PROCESS=1 the ingest worker runs on its own event loop in a
+    thread here, so one process serves both; on shutdown it stops claiming and
+    gets 30s to finish, after which the job lease takes over."""
     log.info("api up", extra={"version": _app.version, "llm": _llm.label})
+    worker_thread = None
+    if RUN_WORKER_IN_PROCESS:
+        import worker as ingest_worker
+        worker_loop = asyncio.new_event_loop()
+        worker_thread = threading.Thread(
+            target=worker_loop.run_until_complete, args=(ingest_worker.main(),),
+            daemon=True, name="ingest-worker")
+        worker_thread.start()
+        log.info("in-process ingest worker started")
     yield
+    if worker_thread is not None:
+        worker_loop.call_soon_threadsafe(ingest_worker._shutdown.set)
+        await asyncio.to_thread(worker_thread.join, 30)
     log.info("api shutting down; flushing telemetry")
     try:
         trace_flush()
@@ -375,12 +395,14 @@ def _owned_chat(db, chat_id: str, user_id: int) -> ChatSession:
 
 
 def _credits_used_today(db, user_id: int) -> int:
-    """Chat messages this user has sent since IST midnight."""
+    """Chat messages this user has sent since IST midnight on the app's key.
+    Questions asked with the user's own API key cost the app nothing."""
     since = now_ist().replace(hour=0, minute=0, second=0, microsecond=0)
     return db.query(ChatMessage).filter(
         ChatMessage.user_id == user_id,
         ChatMessage.role == "user",
         ChatMessage.created_at >= since,
+        ChatMessage.own_key.isnot(True),
     ).count()
 
 
@@ -594,6 +616,24 @@ def get_credits(current_user: dict = Depends(get_current_user)):
         db.close()
     return {"cap": DAILY_MESSAGE_CAP, "used": used,
             "remaining": max(0, DAILY_MESSAGE_CAP - used)}
+
+
+class KeyCheckRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(min_length=10, max_length=200)
+
+
+@app.post("/api/account/check-key")
+@limiter.limit("10/minute")
+def check_key(request: Request, body: KeyCheckRequest,
+              current_user: dict = Depends(get_current_user)):
+    """Validate a user's own Gemini API key. The key is never stored."""
+    try:
+        check_user_key(body.key.strip())
+    except Exception:
+        raise HTTPException(status_code=400, detail="Gemini rejected that API key.")
+    return {"ok": True}
 
 
 @app.get("/api/chats")
@@ -816,6 +856,7 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
       done  -> stream finished and both turns are persisted
       error -> a message to show in place of the answer"""
     uid = current_user["user_id"]
+    user_key = (request.headers.get("X-Gemini-Key") or "").strip()[:200] or None
 
     def _prepare():
         """Own the chat, rehydrate, rewrite the follow-up, retrieve. Returns
@@ -824,12 +865,12 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
         try:
             chat = _owned_chat(db, chat_id, uid)
 
-            used = _credits_used_today(db, uid)
-            if used >= DAILY_MESSAGE_CAP:
+            if user_key is None and _credits_used_today(db, uid) >= DAILY_MESSAGE_CAP:
                 raise HTTPException(
                     status_code=429,
                     detail=(f"Daily limit reached — {DAILY_MESSAGE_CAP} messages "
-                            f"per day. Your credits reset at midnight IST."),
+                            f"per day. Your credits reset at midnight IST, or add "
+                            f"your own Gemini API key in Settings to keep asking."),
                 )
 
             store = _get_retriever(db, chat)
@@ -877,7 +918,7 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
             if is_first and chat.title in ("New Chat", chat.filename):
                 chat.title = _title_from_question(body.question)
             db.add(ChatMessage(chat_id=chat_id, user_id=uid, role="user",
-                               content=body.question))
+                               content=body.question, own_key=bool(user_key)))
             db.add(ChatMessage(chat_id=chat_id, user_id=uid, role="assistant",
                                content=answer, sources=sources))
             chat.updated_at = now_ist()
@@ -887,6 +928,7 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
             db.close()
 
     async def event_stream():
+        set_user_key(user_key)
         ok = False
         with trace_message(body.question, uid, chat_id) as span:
             try:
@@ -926,9 +968,14 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
                                       output_tokens=stream_usage.get("output_tokens"))
                 _cost = estimate_cost_usd(stream_usage)
                 record_cost(span, stream_usage, _cost)
-                record_llm_metrics(stream_usage, _cost, ttft)
+                if not user_key:
+                    record_llm_metrics(stream_usage, _cost, ttft)
 
                 answer = "".join(parts).strip()
+                if not answer and user_key:
+                    yield _sse("error", "Your Gemini API key returned no answer. It may be invalid, "
+                                        "expired or out of quota; check it in Settings.")
+                    return
                 if not answer:
                     answer = LLM_EMPTY_ANSWER
                     yield _sse("token", answer)

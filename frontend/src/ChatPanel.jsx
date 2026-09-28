@@ -301,7 +301,63 @@ function ReviewPanel({ review, onAsk, full = false, decisions = {}, history = []
   )
 }
 
-export default function ChatPanel({ chat, onChatChanged, addToast }) {
+// The user's own Gemini key: checked with Gemini, then kept only in this tab.
+function OwnKeySection({ hasOwnKey, onOwnKeyChange }) {
+  const [draft, setDraft] = useState('')
+  const [checking, setChecking] = useState(false)
+  const [error, setError] = useState(null)
+
+  const save = async () => {
+    const key = draft.trim()
+    if (!key) return
+    setChecking(true)
+    setError(null)
+    try {
+      await api.checkOwnKey(key)
+      api.setOwnKey(key)
+      setDraft('')
+      onOwnKeyChange(true)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  return (
+    <section className="settings-section">
+      <h3>Your Gemini API key</h3>
+      {hasOwnKey ? (
+        <div className="key-active">
+          <span>✓ Using your own key. Daily credits don&rsquo;t apply.</span>
+          <button className="btn btn-secondary btn-sm" onClick={() => { api.clearOwnKey(); onOwnKeyChange(false) }}>
+            Remove key
+          </button>
+        </div>
+      ) : (
+        <>
+          <p className="setting-hint">
+            Add your own key to keep asking after the daily credits run out. It stays in this
+            browser tab, is sent only with your questions, and is never stored on our server.{' '}
+            <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">Get a key</a>
+          </p>
+          <div className="key-row">
+            <input type="password" className="key-input" placeholder="Paste your Gemini API key"
+                   value={draft} autoComplete="off" spellCheck={false}
+                   onChange={(e) => setDraft(e.target.value)}
+                   onKeyDown={(e) => { if (e.key === 'Enter') save() }} />
+            <button className="btn btn-primary btn-sm" onClick={save} disabled={checking || !draft.trim()}>
+              {checking ? 'Checking…' : 'Save key'}
+            </button>
+          </div>
+          {error && <p className="key-error">{error}</p>}
+        </>
+      )}
+    </section>
+  )
+}
+
+export default function ChatPanel({ chat, onChatChanged, addToast, hasOwnKey, onOwnKeyChange }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [querying, setQuerying] = useState(false)
@@ -317,6 +373,13 @@ export default function ChatPanel({ chat, onChatChanged, addToast }) {
   const [docFilter, setDocFilter] = useState('All')
   const [numChunks, setNumChunks] = useState(6)
   const [alpha, setAlpha] = useState(0.5)
+
+  useEffect(() => {
+    if (!showSettings) return
+    const onKey = (e) => { if (e.key === 'Escape') setShowSettings(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [showSettings])
 
   const endRef = useRef(null)
   const chatId = chat.id
@@ -478,8 +541,8 @@ export default function ChatPanel({ chat, onChatChanged, addToast }) {
                   title="Summarize the whole document (reads every page, not just the top matches)">
             📝 Summarize
           </button>
-          <button className="doc-strip-btn" onClick={() => setShowSettings(!showSettings)}>
-            {showSettings ? 'Hide search settings' : 'Search settings'}
+          <button className="doc-strip-btn" onClick={() => setShowSettings(true)}>
+            ⚙ Settings
           </button>
         </div>
       </div>
@@ -487,7 +550,14 @@ export default function ChatPanel({ chat, onChatChanged, addToast }) {
       <div className="file-body">
       <div className="chat-col">
       {showSettings && (
-        <div className="settings-strip">
+        <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) setShowSettings(false) }}>
+        <div className="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+          <button className="modal-close" aria-label="Close settings" onClick={() => setShowSettings(false)}>✕</button>
+          <h2 id="settings-title">Settings</h2>
+          <OwnKeySection hasOwnKey={hasOwnKey} onOwnKeyChange={onOwnKeyChange} />
+          <section className="settings-section">
+          <h3>Search</h3>
+          <div className="settings-strip settings-fields">
           <label>
             <span className="setting-label">Document type</span>
             <select value={docFilter} onChange={(e) => setDocFilter(e.target.value)}>
@@ -507,6 +577,12 @@ export default function ChatPanel({ chat, onChatChanged, addToast }) {
             <input type="range" min={1} max={10} step={1} value={numChunks}
                    onChange={(e) => setNumChunks(Number(e.target.value))} />
           </label>
+          </div>
+          </section>
+          <div className="modal-actions">
+            <button className="btn btn-primary" onClick={() => setShowSettings(false)} autoFocus>Done</button>
+          </div>
+        </div>
         </div>
       )}
 

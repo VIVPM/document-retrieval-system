@@ -47,7 +47,7 @@ from core.query_rewriter import MAX_HISTORY_MESSAGES, rewrite_standalone
 from db.database import Base, SessionLocal, engine
 from db.models import (Account, ChatMessage, ChatSession, LoginFailure,
                        RefreshToken, ReviewDecision, ensure_columns, now_ist)
-from llm.llm_router import embed_model
+from llm.llm_router import check_user_key, embed_model, set_user_key
 from core.review import build_review
 from observability import (flush as trace_flush, init_http_tracing,
                            init_metrics, init_observability, record_message,
@@ -318,12 +318,14 @@ def _owned_chat(db, chat_id: str, user_id: int) -> ChatSession:
 
 
 def _credits_used_today(db, user_id: int) -> int:
-    """Chat messages this user has sent since IST midnight."""
+    """Chat messages this user has sent since IST midnight on the app's key.
+    Questions asked with the user's own API key cost the app nothing."""
     since = now_ist().replace(hour=0, minute=0, second=0, microsecond=0)
     return db.query(ChatMessage).filter(
         ChatMessage.user_id == user_id,
         ChatMessage.role == "user",
         ChatMessage.created_at >= since,
+        ChatMessage.own_key.isnot(True),
     ).count()
 
 
@@ -625,6 +627,24 @@ def get_credits(current_user: dict = Depends(get_current_user)):
             "remaining": max(0, DAILY_MESSAGE_CAP - used)}
 
 
+class KeyCheckRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(min_length=10, max_length=200)
+
+
+@app.post("/api/account/check-key")
+@limiter.limit("10/minute")
+def check_key(request: Request, body: KeyCheckRequest,
+              current_user: dict = Depends(get_current_user)):
+    """Validate a user's own Gemini API key. The key is never stored."""
+    try:
+        check_user_key(body.key.strip())
+    except Exception:
+        raise HTTPException(status_code=400, detail="Gemini rejected that API key.")
+    return {"ok": True}
+
+
 @app.get("/api/chats")
 def list_chats(current_user: dict = Depends(get_current_user)):
     db = SessionLocal()
@@ -840,6 +860,7 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
       done  -> stream finished and both turns are persisted
       error -> a message to show in place of the answer"""
     uid = current_user["user_id"]
+    user_key = (request.headers.get("X-Gemini-Key") or "").strip()[:200] or None
 
     def _prepare():
         """Own the chat, rehydrate, rewrite the follow-up, retrieve. Returns
@@ -848,12 +869,12 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
         try:
             chat = _owned_chat(db, chat_id, uid)
 
-            used = _credits_used_today(db, uid)
-            if used >= DAILY_MESSAGE_CAP:
+            if user_key is None and _credits_used_today(db, uid) >= DAILY_MESSAGE_CAP:
                 raise HTTPException(
                     status_code=429,
                     detail=(f"Daily limit reached — {DAILY_MESSAGE_CAP} messages "
-                            f"per day. Your credits reset at midnight IST."),
+                            f"per day. Your credits reset at midnight IST, or add "
+                            f"your own Gemini API key in Settings to keep asking."),
                 )
 
             store = _get_retriever(db, chat)
@@ -901,7 +922,7 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
             if is_first and chat.title in ("New Chat", chat.filename):
                 chat.title = _title_from_question(body.question)
             db.add(ChatMessage(chat_id=chat_id, user_id=uid, role="user",
-                               content=body.question))
+                               content=body.question, own_key=bool(user_key)))
             db.add(ChatMessage(chat_id=chat_id, user_id=uid, role="assistant",
                                content=answer, sources=sources))
             chat.updated_at = now_ist()
@@ -911,6 +932,7 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
             db.close()
 
     async def event_stream():
+        set_user_key(user_key)
         ok = False
         with trace_message(body.question, uid, chat_id) as span:
             try:
@@ -941,6 +963,10 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
                     print(f"⚠️  message stream failed: {type(e).__name__}: {e}")
 
                 answer = "".join(parts).strip()
+                if not answer and user_key:
+                    yield _sse("error", "Your Gemini API key returned no answer. It may be invalid, "
+                                        "expired or out of quota; check it in Settings.")
+                    return
                 if not answer:
                     answer = LLM_EMPTY_ANSWER
                     yield _sse("token", answer)

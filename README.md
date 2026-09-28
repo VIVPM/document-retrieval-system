@@ -8,15 +8,16 @@ A **loan-file copilot** for home-loan (mortgage) officers: upload a borrower's p
 
 ## 🚀 Key Features
 
-*   **Accounts & persistent chats**: JWT auth over bcrypt, DB-backed login lockout, and conversations that survive a restart — including their source citations.
+*   **Accounts & persistent chats**: JWT auth over bcrypt, DB-backed login lockout, and conversations that survive a restart — including their source citations. A login lasts **as long as the tab is open**: tokens live in `sessionStorage`, so a reload keeps you signed in, closing the tab signs you out, and a new tab asks you to log in.
 *   **Session rehydration**: the in-process retriever is a pure cache. On a miss it rebuilds from Neon + Pinecone in **~11s** instead of re-ingesting the document (**~180s**), by persisting the fitted BM25 encoder and recomputing centroids from the index.
-*   **Queued ingestion**: upload returns `202` and enqueues a job that a separate worker process runs, with a pollable status. Ingest used to run in a FastAPI background task, which dies with the API process — so any deploy or crash destroyed work in flight. A queued job is a row that outlives it.
+*   **Queued ingestion**: upload returns `202` and enqueues a job that a worker runs, with a pollable status — as its own process, or inside the API with `RUN_WORKER_IN_PROCESS=1`. Ingest used to run in a FastAPI background task, which dies with the API process — so any deploy or crash destroyed work in flight. A queued job is a row that outlives it.
 *   **Pluggable Extraction**: **AWS Textract** (TABLES + FORMS, default) or **PyMuPDF** (local, no-AI, text-layer only) via `EXTRACT_METHOD`. Contextual chunking attaches each chunk's document identity so entity-specific queries stay unambiguous.
 *   **Hybrid Search Engine**: A single **Pinecone** sparse-dense index holding `gemini-embedding-2` embeddings (768-dim) alongside **BM25** sparse vectors, fused by a tunable `alpha` (0.0 = pure keyword → 1.0 = pure semantic).
 *   **Conversational follow-ups**: a follow-up like *"and when does it lock?"* is condensed into a standalone question **before retrieval**, because retrieval runs before any LLM sees a prompt. History is read server-side from Neon.
 *   **Answer Generation**: **gemini-2.5-flash** with thinking capped at 2048 — on an ambiguous multi-candidate question it enumerates candidates with sources instead of guessing. Thinking tokens bill at the output rate, so the cap bounds the tail (dynamic permits 24,576) without touching the ~300-token median.
 *   **Two models, split on measured need**: classification and per-page boundary detection run on **gemini-2.5-flash-lite** (closed-set label, yes/no answer — and boundary detection fires once per *page*, making it the volume driver of ingest cost). Answers and query rewriting stay on flash.
 *   **Automatic file review**: once a packet is ingested, the application's claims (income, employer, balances, declarations, loan terms) are checked against the pay slips, bank statement, Loan Estimate and title report. Each check shows both sides' values with their pages, in a panel beside the chat (a drawer on narrow screens) so the officer can ask about a flag without leaving it. See [Automatic file review](#-automatic-file-review).
+*   **Bring your own Gemini key**: **⚙ Settings** (a popup holding the key and the search parameters) lets a user add their own Gemini API key. It is checked with Gemini first, kept only in that browser tab, sent with each question and **never stored on the server**. With a key set, the daily credit limit is skipped, those questions don't use up credits, and the header shows "Your API key" instead of the credit count. The key pays for the question rewrite and the answer; search and uploads stay on the app's keys.
 *   **Flag decisions with an audit trail**: every mismatch or review flag can be **accepted** (a note is required) or **confirmed** as an issue. Decisions are append-only, record who decided and when, and the sidebar counts open flags per borrower.
 *   **Several PDFs per borrower**: upload up to 20 files at once; they are merged, in order, into the file's one document.
 *   **Grounded answers**: values are quoted exactly with their document and page, never computed or rounded; a question the file cannot answer gets "not in the documents", not a guess. Summaries use their own rules.
@@ -47,7 +48,7 @@ A loan officer's core check is *stare and compare*: the application holds the bo
 | Liens, easements | title report; "payoff required" read from the report's own wording |
 | Missing documents | required document types absent from the file |
 
-Each check is **mismatch**, **review**, **missing**, **match** or **info**. A review that fails is stored as failed and never fails the upload: the document stays searchable.
+Each check is **mismatch**, **review**, **missing**, **match** or **info**. A review that fails is stored as failed and never fails the upload: the document stays searchable. If a worker is killed mid-review, the job's lease brings it back and the review is rebuilt; a review left on `running` with no job able to finish it is marked failed ("re-upload to review") by the worker's periodic check, so the panel never spins forever.
 
 **Try it:** `samples/synthetic_borrower/whitfield_loan_packet.pdf` is an 8-page synthetic packet (or the same pages as 5 separate PDFs) with planted issues. `answer_key.md` lists the expected review and 35 test questions. The packet is regenerated with `python samples/synthetic_borrower/make_samples.py`.
 
@@ -205,6 +206,7 @@ CONTEXTUAL_CHUNKING=1     # attach per-document identity to each chunk (default 
 MAX_CONCURRENT_JOBS=2       # ingests one worker runs at once
 INGEST_MAX_ATTEMPTS=3       # tries before a job is failed for good
 WORKER_POLL_SECONDS=2       # idle poll interval
+RUN_WORKER_IN_PROCESS=0     # 1 = run the worker inside the API (one process)
 # The job timeout (900s) and the claim lease (1800s) are constants in code, not
 # env vars: they are one invariant (timeout < lease) and env vars let the two
 # halves drift apart per environment. worker.py / job_queue.py.
@@ -233,7 +235,7 @@ OTEL_SERVICE_NAME=document-retrieval-system
 
 ### 4. Running the Backend and the Ingest Worker
 
-Two processes. The API serves requests; the worker runs ingestion.
+Two processes: the API serves requests, the worker runs ingestion.
 
 ```bash
 # API
@@ -242,6 +244,8 @@ python -m uvicorn main:app --app-dir backend --port 8000
 # Ingest worker — in a second terminal
 python backend/worker.py
 ```
+
+**Or one process:** set `RUN_WORKER_IN_PROCESS=1` and only the API command is needed — the same worker runs on a background thread inside it, with the same queue, retries and fair ordering. On shutdown it stops claiming and gets 30s to finish; anything longer is picked up again through the job lease. What you give up is isolation: an API crash also pauses ingestion, and the two can't be scaled separately.
 
 **Uploads queue but never finish without the worker running.** Ingestion is a
 row in `drs_ingest_jobs`, not a background task inside the API, so a deploy or
@@ -291,6 +295,8 @@ Every endpoint except signup and login requires `Authorization: Bearer <token>`.
 | `POST` | `/api/chats/{id}/message` | Ask a question. Returns `question_asked` and `question_searched` so a rewritten follow-up is diagnosable |
 | `PATCH` | `/api/chats/{id}` | Rename |
 | `DELETE` | `/api/chats/{id}` | Drops the namespace **and** the rows. Flag decisions are kept (audit trail) |
+| `GET` | `/api/account/credits` | `{cap, used, remaining}` for today; questions asked with the user's own key are not counted |
+| `POST` | `/api/account/check-key` | `{key}` — validates a Gemini API key without storing it (reads model metadata, bills nothing). **400** if Gemini rejects it |
 | `POST` | `/api/chats/{id}/review/decisions` | `{check_key, decision: accepted\|confirmed, note}`. Accept requires a note. **409** if the file has no finished review, **422** for an unknown flag |
 
 ### Request and response headers
@@ -300,6 +306,7 @@ Every endpoint except signup and login requires `Authorization: Bearer <token>`.
 | `Idempotency-Key` | request | Optional, on `POST /document`. A resubmitted upload otherwise ingests twice and bills Textract twice. When absent the server derives a key from the chat id plus a hash of the bytes, so a double-tap or a client retry after a timeout is deduplicated with no client change. The response carries `duplicate: true` when a job was reused. |
 | `X-Request-ID` | both | Echoed on every response. Send one to have it used as the correlation id; otherwise the server generates it. The same id is stored on the job row and adopted by the worker, so one value follows an upload across both processes. |
 | `Retry-After` | response | Sent with every `429`, in seconds, derived from the limit that tripped. |
+| `X-Gemini-Key` | request | Optional, on `POST /message`. The user's own Gemini key for this one question: used for the rewrite and the answer, skips the daily cap, never stored or logged. |
 
 
 **Chat lifecycle:** `awaiting_document → processing → ready | failed`
@@ -451,7 +458,7 @@ Everything is a no-op unless the env vars are set, and nothing raises — tracin
 
 `docker compose up --build` runs the stack locally: **three** services — `api` and `worker` from the same `backend/Dockerfile` (`python:3.12-slim`, non-root, `/api/health` probe) with different commands, plus `frontend/Dockerfile` (Vite build → nginx). Extraction runs on AWS Textract, so the backend image needs no GPU/GL libraries.
 
-**Deploying needs a second service for the worker.** It is the same image with `python worker.py` as its command. Without it uploads queue and are never processed — the API returns 202 and the chat sits on `processing` for ever.
+**Deploying needs the worker running somewhere.** Either a second service — the same image with `python worker.py` as its command (a Render **Background Worker**, which needs no public URL; it talks to the API only through the database) — or `RUN_WORKER_IN_PROCESS=1` on the API service, so one web service does both. Without either, uploads queue and are never processed — the API returns 202 and the chat sits on `processing` for ever.
 
 The backend runs with `--forwarded-allow-ips *` (in the Dockerfile CMD) so slowapi's per-IP rate limits key on the real client (`X-Forwarded-For`) behind a proxy/balancer rather than the proxy's own IP — otherwise every user shares one rate-limit bucket. On a non-Docker deploy, set `FORWARDED_ALLOW_IPS=*` in the service env instead (uvicorn reads it).
 

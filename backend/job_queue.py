@@ -157,6 +157,31 @@ def reclaim_stale() -> int:
         db.close()
 
 
+def fail_orphaned_reviews() -> int:
+    """Fail reviews stuck on 'running' with no queued or running job left to
+    finish them -- a worker killed mid-review whose job then ran out of attempts.
+    A review with a live job is left alone: that job will rebuild it."""
+    db = SessionLocal()
+    try:
+        n = db.execute(text("""
+            UPDATE drs_chat_sessions c
+               SET review = jsonb_build_object(
+                   'status', 'failed',
+                   'error', 'Review was interrupted. Re-upload the file to review it.')
+             WHERE c.review->>'status' = 'running'
+               AND NOT EXISTS (SELECT 1 FROM drs_ingest_jobs j
+                                WHERE j.chat_id = c.id
+                                  AND j.status IN ('queued', 'running'))
+        """)).rowcount
+        db.commit()
+        return n
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
 def _fail_chat(db, chat_id: str, reason: str) -> None:
     """Move a chat out of 'processing' when its job will never run again."""
     chat = db.query(ChatSession).filter(ChatSession.id == chat_id).first()

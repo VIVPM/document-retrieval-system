@@ -194,6 +194,9 @@ async def _reclaim_loop() -> None:
             n = job_queue.reclaim_stale()
             if n:
                 log.warning("reclaimed stale jobs", extra={"count": n})
+            n = job_queue.fail_orphaned_reviews()
+            if n:
+                log.warning("failed orphaned reviews", extra={"count": n})
         except Exception:
             log.exception("reclaim failed")
         try:

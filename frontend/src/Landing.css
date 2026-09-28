@@ -61,7 +61,7 @@
   align-items: center;
   max-width: 1180px;
   margin: 0 auto;
-  padding: 84px 24px 72px;
+  padding: 24px 24px 32px;
 }
 .lp-hero::before,
 .lp-mesh::before {
@@ -229,13 +229,13 @@
   padding: 3px 9px;
 }
 
-.lp-section { max-width: 1180px; margin: 0 auto; padding: 72px 24px; }
+.lp-section { max-width: 1180px; margin: 0 auto; padding: 48px 24px; }
 .lp-h2 {
   font-size: clamp(1.5rem, 3.2vw, 2.1rem);
   font-weight: 700;
   letter-spacing: -0.025em;
   line-height: 1.15;
-  margin-bottom: 2.2rem;
+  margin-bottom: 1.5rem;
   text-wrap: balance;
 }
 .lp-h3 { font-size: 1.1rem; font-weight: 650; letter-spacing: -0.015em; margin-bottom: 0.5rem; }
@@ -287,7 +287,7 @@
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 3.4rem 1.5rem;
+  padding: 2.6rem 1.5rem;
   overflow: hidden;
 }
 .lp-cta-band::before {
@@ -331,7 +331,39 @@
 }
 
 @media (max-width: 860px) {
-  .lp-hero { grid-template-columns: 1fr; padding: 56px 20px 48px; gap: 2.4rem; }
+  .lp-hero { grid-template-columns: 1fr; padding: 20px 20px 24px; gap: 2rem; }
   .lp-steps, .lp-features { grid-template-columns: 1fr; }
-  .lp-section { padding: 52px 20px; }
+  .lp-section { padding: 36px 20px; }
+}
+
+.lp-stats {
+  list-style: none; margin: 1.6rem 0 0; padding: 0;
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem;
+  max-width: 34rem;
+}
+.lp-stats li {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 0.85rem 1rem;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg);
+}
+.lp-stats strong {
+  font-size: 1.5rem; font-weight: 750; letter-spacing: -0.02em; line-height: 1.1;
+  color: var(--text-primary); font-variant-numeric: tabular-nums;
+}
+.lp-stats span { font-size: 0.74rem; line-height: 1.35; color: var(--text-muted); }
+@media (max-width: 420px) {
+  .lp-stats { gap: 0.5rem; }
+  .lp-stats li { padding: 0.7rem 0.75rem; }
+  .lp-stats strong { font-size: 1.25rem; }
+}
+.lp-hero-side { align-self: start; margin-top: 2.35rem; min-width: 0; }
+.lp-hero-side .lp-stats { max-width: none; margin-top: 1rem; }
+@media (max-width: 860px) {
+  .lp-hero-side { margin-top: 0; }
+}
+.lp-stats { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
+.lp-stats span { white-space: nowrap; }
+@media (max-width: 520px) {
+  .lp-stats { grid-template-columns: 1fr 1fr; }
+  .lp-stats li:last-child { grid-column: 1 / -1; }
 }

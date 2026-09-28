@@ -82,6 +82,7 @@ export default function Landing({ onSignIn, onGetStarted }) {
           </div>
         </div>
 
+        <div className="lp-hero-side">
         <div className="lp-mock lp-fade" style={{ '--d': '470ms' }}>
           <div className="lp-mock-bar">
             <span className="lp-dot r" /><span className="lp-dot y" /><span className="lp-dot g" />
@@ -106,6 +107,12 @@ export default function Landing({ onSignIn, onGetStarted }) {
               </div>
             </div>
           </div>
+        </div>
+          <ul className="lp-stats lp-fade" style={{ '--d': '560ms' }}>
+            <li><strong>98%</strong><span>Context recall</span></li>
+            <li><strong>98%</strong><span>Faithfulness</span></li>
+            <li><strong>8.6s</strong><span>p95 API latency at 100 users</span></li>
+          </ul>
         </div>
       </header>
 

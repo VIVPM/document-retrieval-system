@@ -1040,3 +1040,27 @@ input[type=range]::-webkit-slider-thumb {
 @media (max-width: 640px) {
   .review-toggle { margin-left: 0; }
 }
+
+.settings-modal { width: min(34rem, 100%); max-height: calc(100vh - 2.5rem); overflow-y: auto; }
+.settings-section { margin-bottom: 1.1rem; }
+.settings-section h3 { margin: 0 0 0.5rem; font-size: 0.86rem; font-weight: 650; color: var(--text-primary); }
+.settings-section .setting-hint a { color: var(--accent); }
+.settings-strip.settings-fields { padding: 0; border-bottom: none; background: none; }
+.key-row { display: flex; gap: 8px; margin-top: 8px; }
+.key-input {
+  flex: 1; min-width: 0; font-family: inherit; font-size: 0.82rem; padding: 7px 10px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg-primary); color: var(--text-primary);
+}
+.key-error { margin: 6px 0 0; font-size: 0.76rem; color: var(--red); }
+.key-active { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 0.8rem; color: var(--green); }
+.header-user .credits-own { color: var(--green); }
+.settings-modal .btn { width: auto; flex: none; }
+.settings-modal .modal-actions { margin-top: 0.4rem; }
+.settings-modal { position: relative; }
+.modal-close {
+  position: absolute; top: 12px; right: 12px; width: 30px; height: 30px;
+  display: grid; place-items: center; border: none; border-radius: var(--radius-sm);
+  background: none; color: var(--text-muted); font-size: 1rem; cursor: pointer;
+}
+.modal-close:hover { background: var(--bg-hover); color: var(--text-primary); }

@@ -8,7 +8,7 @@ A **loan-file copilot** for home-loan (mortgage) officers: upload a borrower's p
 
 ## 🚀 Key Features
 
-*   **Accounts & persistent chats**: JWT auth over bcrypt, DB-backed login lockout, and conversations that survive a restart — including their source citations.
+*   **Accounts & persistent chats**: JWT auth over bcrypt, DB-backed login lockout, and conversations that survive a restart — including their source citations. A login lasts **as long as the tab is open**: tokens live in `sessionStorage`, so a reload keeps you signed in, closing the tab signs you out, and a new tab asks you to log in.
 *   **Session rehydration**: the in-process retriever is a pure cache. On a miss it rebuilds from Neon + Pinecone in **~11s** instead of re-ingesting the document (**~180s**), by persisting the fitted BM25 encoder and recomputing centroids from the index.
 *   **Asynchronous ingestion**: upload returns `202` and processes in the background with a pollable status, because extraction runs for minutes on a real packet.
 *   **Pluggable Extraction**: **AWS Textract** (TABLES + FORMS, default) or **PyMuPDF** (local, no-AI, text-layer only) via `EXTRACT_METHOD`. Contextual chunking attaches each chunk's document identity so entity-specific queries stay unambiguous.
@@ -17,6 +17,7 @@ A **loan-file copilot** for home-loan (mortgage) officers: upload a borrower's p
 *   **Answer Generation**: **gemini-2.5-flash** with thinking capped at 2048 — on an ambiguous multi-candidate question it enumerates candidates with sources instead of guessing. Thinking tokens bill at the output rate, so the cap bounds the tail (dynamic permits 24,576) without touching the ~300-token median.
 *   **Two models, split on measured need**: classification and per-page boundary detection run on **gemini-2.5-flash-lite** (closed-set label, yes/no answer — and boundary detection fires once per *page*, making it the volume driver of ingest cost). Answers and query rewriting stay on flash.
 *   **Automatic file review**: once a packet is ingested, the application's claims (income, employer, balances, declarations, loan terms) are checked against the pay slips, bank statement, Loan Estimate and title report. Each check shows both sides' values with their pages, in a panel beside the chat (a drawer on narrow screens) so the officer can ask about a flag without leaving it. See [Automatic file review](#-automatic-file-review).
+*   **Bring your own Gemini key**: **⚙ Settings** (a popup holding the key and the search parameters) lets a user add their own Gemini API key. It is checked with Gemini first, kept only in that browser tab, sent with each question and **never stored on the server**. With a key set, the daily credit limit is skipped, those questions don't use up credits, and the header shows "Your API key" instead of the credit count. The key pays for the question rewrite and the answer; search and uploads stay on the app's keys.
 *   **Flag decisions with an audit trail**: every mismatch or review flag can be **accepted** (a note is required) or **confirmed** as an issue. Decisions are append-only, record who decided and when, and the sidebar counts open flags per borrower.
 *   **Several PDFs per borrower**: upload up to 20 files at once; they are merged, in order, into the file's one document.
 *   **Grounded answers**: values are quoted exactly with their document and page, never computed or rounded; a question the file cannot answer gets "not in the documents", not a guess. Summaries use their own rules.
@@ -251,7 +252,11 @@ Every endpoint except signup and login requires `Authorization: Bearer <token>`.
 | `POST` | `/api/chats/{id}/message` | Ask a question. Returns `question_asked` and `question_searched` so a rewritten follow-up is diagnosable |
 | `PATCH` | `/api/chats/{id}` | Rename |
 | `DELETE` | `/api/chats/{id}` | Drops the namespace **and** the rows. Flag decisions are kept (audit trail) |
+| `GET` | `/api/account/credits` | `{cap, used, remaining}` for today; questions asked with the user's own key are not counted |
+| `POST` | `/api/account/check-key` | `{key}` — validates a Gemini API key without storing it (reads model metadata, bills nothing). **400** if Gemini rejects it |
 | `POST` | `/api/chats/{id}/review/decisions` | `{check_key, decision: accepted\|confirmed, note}`. Accept requires a note. **409** if the file has no finished review, **422** for an unknown flag |
+
+`POST /message` also accepts an optional **`X-Gemini-Key`** header: the user's own key for that one question — used for the rewrite and the answer, skips the daily cap, never stored or logged.
 
 **Chat lifecycle:** `awaiting_document → processing → ready | failed`
 

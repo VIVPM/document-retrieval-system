@@ -7,9 +7,15 @@ const API = import.meta.env.VITE_API_URL || 'https://document-retrieval-system-5
 const TOKEN_KEY = 'drs_token'
 const REFRESH_KEY = 'drs_refresh'
 const USER_KEY = 'drs_user'
+const OWN_KEY = 'drs_own_gemini_key'
 
-export const getToken = () => localStorage.getItem(TOKEN_KEY)
-export const getUser = () => localStorage.getItem(USER_KEY)
+for (const k of [TOKEN_KEY, REFRESH_KEY, USER_KEY]) localStorage.removeItem(k)
+
+export const getToken = () => sessionStorage.getItem(TOKEN_KEY)
+export const getUser = () => sessionStorage.getItem(USER_KEY)
+export const getOwnKey = () => sessionStorage.getItem(OWN_KEY)
+export const setOwnKey = (key) => sessionStorage.setItem(OWN_KEY, key)
+export const clearOwnKey = () => sessionStorage.removeItem(OWN_KEY)
 
 // True when there is no access token or it has passed its exp. Reading the JWT
 // exp lets the app notice an expired session while idle, instead of only when
@@ -26,19 +32,20 @@ export function accessTokenExpired() {
 }
 
 export function setSession(token, username, refresh) {
-  localStorage.setItem(TOKEN_KEY, token)
-  localStorage.setItem(USER_KEY, username)
-  if (refresh) localStorage.setItem(REFRESH_KEY, refresh)
+  sessionStorage.setItem(TOKEN_KEY, token)
+  sessionStorage.setItem(USER_KEY, username)
+  if (refresh) sessionStorage.setItem(REFRESH_KEY, refresh)
 }
 
 function setAccessToken(token) {
-  localStorage.setItem(TOKEN_KEY, token)
+  sessionStorage.setItem(TOKEN_KEY, token)
 }
 
 export function clearSession() {
-  localStorage.removeItem(TOKEN_KEY)
-  localStorage.removeItem(USER_KEY)
-  localStorage.removeItem(REFRESH_KEY)
+  sessionStorage.removeItem(TOKEN_KEY)
+  sessionStorage.removeItem(USER_KEY)
+  sessionStorage.removeItem(REFRESH_KEY)
+  sessionStorage.removeItem(OWN_KEY)
 }
 
 // Set by App so an expired session drops straight to the login screen instead
@@ -49,7 +56,7 @@ export const setUnauthorizedHandler = (fn) => { onUnauthorized = fn }
 let refreshInFlight = null
 
 async function tryRefresh() {
-  const refresh = localStorage.getItem(REFRESH_KEY)
+  const refresh = sessionStorage.getItem(REFRESH_KEY)
   if (!refresh) return false
   if (!refreshInFlight) {
     refreshInFlight = fetch(`${API}/api/auth/refresh`, {
@@ -127,7 +134,7 @@ export const login = (username, password) =>
   request('/api/auth/login', { method: 'POST', body: { username, password }, auth: false })
 
 export async function logout() {
-  const refresh = localStorage.getItem(REFRESH_KEY)
+  const refresh = sessionStorage.getItem(REFRESH_KEY)
   if (refresh) {
     await fetch(`${API}/api/auth/logout`, {
       method: 'POST',
@@ -142,6 +149,8 @@ export async function logout() {
 // Daily message credits: { cap, used, remaining }. 1 credit = one question
 // and its answer.
 export const getCredits = () => request('/api/account/credits')
+export const checkOwnKey = (key) =>
+  request('/api/account/check-key', { method: 'POST', body: { key } })
 
 // ── Chats ───────────────────────────────────────────────────────────────
 export const listChats = () => request('/api/chats')
@@ -166,9 +175,10 @@ export function uploadDocument(id, files) {
 // this reads the SSE body off a fetch() stream by hand. Calls the handlers as
 // events arrive: onMeta(sources+query), onToken(text), onDone(), onError(msg).
 export async function streamMessage(id, payload, { onMeta, onToken, onDone, onError }) {
+  const ownKey = getOwnKey()
   const res = await authFetch(`/api/chats/${id}/message`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(ownKey ? { 'X-Gemini-Key': ownKey } : {}) },
     body: JSON.stringify(payload),
   })
 

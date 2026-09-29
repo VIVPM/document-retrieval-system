@@ -294,18 +294,20 @@ All three retrieval modes over the same corpus and models — raw per-question o
 
 ## 🔥 Load testing & capacity
 
-`backend/load_test.py` spawns the **real** app with only the retrieval + LLM boundary stubbed, so a run is free and takes seconds — it exercises the async endpoints, the connection pool, JWT auth and SSE, not the model. Idle-vs-saturated phases, a `--ramp` capacity sweep, and `--calibrate` for a few real messages.
+`backend/load_test.py` spawns the **real** app with only the retrieval + LLM boundary stubbed by default, so a local run is free and takes seconds — it exercises the async endpoints, the connection pool, JWT auth and SSE, not the model. With `--base` it instead targets a running API: the `--ramp --mix read` mode only sends GET browse requests and does not call the model. Idle-vs-saturated phases, a `--ramp` capacity sweep, and `--calibrate` for a few real messages.
 
-**Capacity** (live Render instance, `--ramp`, read mix):
+**Live Render re-test, 2026-09-29** — `--base https://document-retrieval-system-5gqx.onrender.com --ramp --mix read --levels 5,25,50,100 --duration 15 --ramp-stop-pct 1`. The four 15-second levels ran against the deployed `main` API (not a locally spawned stub). A single dedicated account supplied the token; each "client" is a concurrent synthetic browse loop, **not a distinct user or an AI answer**. The mix calls `/api/health`, `/api/chats` and `/api/chats/{id}`. Raw results: [`ramp_2026-09-29_11-36-45.json`](backend/load_test_results/ramp_2026-09-29_11-36-45.json).
 
-| Concurrent browse clients | p50 | p95 | errors |
-|---|---|---|---|
-| 5 | 485ms | 625ms | 0 |
-| 25 | 781ms | 1313ms | 0 |
-| 50 | 1578ms | 6828ms | 0 |
-| 100 | 3031ms | 8640ms | 0 |
+| Concurrent browse clients | p50 API | p95 API | req/s | errors / throttled |
+|---|---:|---:|---:|---:|
+| 5 | 578ms | 672ms | 10 | 0% / 0 |
+| 25 | 719ms | 1,641ms | 30 | 0% / 0 |
+| 50 | 1,828ms | 3,079ms | 26 | 0% / 0 |
+| **100** | **2,907ms** | **4,735ms** | **30** | **0% / 0** |
 
-Healthy to **~25 concurrent browse clients**, **zero errors even at 100** (it degrades in latency, never fails). The ceiling is the DB connection pool: an A/B raising it from 15 → 30 (`pool_size=10 + max_overflow=20`) roughly **doubled** read throughput (~18 → ~33 req/s) and pushed the knee from ~50 to ~100. Streaming a `/message` competes for pooled connections with browse reads (`_prepare` / `_save`) — the pool is the lever. **The `/health` half of that finding no longer reproduces:** it was recorded at 31 → 94ms (~3×) and now measures flat (32 → 31ms), so the asyncio thread-pool pressure it was attributed to is not visible on this machine. `/api/chats` still degrades, and that is the pool.
+**Measured healthy ceiling: ~25 concurrent browse clients** under the harness SLO (<1% errors and p95 <3× the 5-client baseline). At 50 and 100, latency crosses that SLO even with no errors; throughput plateaus near 30 req/s. The p95 combines successful responses from the three GET endpoints and **does not measure question-to-answer latency**. This is a single short run, not a sustained capacity guarantee.
+
+An earlier, unsaved Render run reported **8,640ms p95 at 100 clients**, with no error-rate data file. That figure is historical, not the newly measured value. Earlier A/B pool work found that increasing connections from 15 to 30 roughly doubled read throughput (~18 → ~33 req/s); streaming `/message` still competes for DB connections with browse reads (`_prepare` / `_save`). The older ~3× `/health` degradation did not reproduce in local re-runs (32 → 31ms); the pool contention on `/api/chats` remains the relevant signal.
 
 **Measured on one dev box**, the runs behind `backend/load_test_results/`. Absolute numbers are remote-Neon-from-a-laptop and mean little on their own; co-located on Render the floor collapses.
 

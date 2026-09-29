@@ -75,6 +75,35 @@ CREATE INDEX IF NOT EXISTS ix_drs_messages_chat_id_id ON drs_chat_messages (chat
 CREATE INDEX IF NOT EXISTS ix_drs_messages_user_id ON drs_chat_messages (user_id);
 
 
+-- Ingest queue (document-retrieval-v012): one row per queued upload. The PDF
+-- bytes live in `payload`; `claimed_at` is the worker's lease.
+CREATE TABLE IF NOT EXISTS drs_ingest_jobs (
+    id              VARCHAR PRIMARY KEY,
+    idempotency_key VARCHAR,
+    chat_id         VARCHAR NOT NULL,
+    user_id         INTEGER NOT NULL,
+    request_id      VARCHAR,
+    filename        VARCHAR NOT NULL,
+    payload         BYTEA NOT NULL,
+    status          VARCHAR NOT NULL,
+    attempts        INTEGER NOT NULL,
+    max_attempts    INTEGER NOT NULL,
+    error           TEXT,
+    claimed_by      VARCHAR,
+    claimed_at      TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ,
+    updated_at      TIMESTAMPTZ
+);
+-- For a DB created before these two columns existed:
+ALTER TABLE drs_ingest_jobs ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR;
+ALTER TABLE drs_ingest_jobs ADD COLUMN IF NOT EXISTS request_id VARCHAR;
+CREATE UNIQUE INDEX IF NOT EXISTS ix_drs_ingest_jobs_idempotency_key ON drs_ingest_jobs (idempotency_key);
+CREATE INDEX IF NOT EXISTS ix_drs_ingest_jobs_chat_id    ON drs_ingest_jobs (chat_id);
+CREATE INDEX IF NOT EXISTS ix_drs_ingest_jobs_user_id    ON drs_ingest_jobs (user_id);
+CREATE INDEX IF NOT EXISTS ix_drs_ingest_jobs_request_id ON drs_ingest_jobs (request_id);
+CREATE INDEX IF NOT EXISTS ix_drs_ingest_jobs_status     ON drs_ingest_jobs (status);
+CREATE INDEX IF NOT EXISTS ix_drs_jobs_status_created    ON drs_ingest_jobs (status, created_at);
+
 -- Housekeeping, run manually or from a scheduler.
 --
 -- Stranded-ingest reaping now runs automatically at startup (main.py

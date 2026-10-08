@@ -1,4 +1,4 @@
-"""OpenTelemetry tracing and metrics."""
+"""OpenTelemetry LLM tracing to Langfuse."""
 import base64
 import logging
 import os
@@ -15,15 +15,10 @@ if not logger.handlers:
 
 _llm_provider = None
 _llm_tracer = None
-_message_counter = None
 
 
 def _have_langfuse() -> bool:
     return bool(os.getenv("LANGFUSE_PUBLIC_KEY") and os.getenv("LANGFUSE_SECRET_KEY"))
-
-
-def _have_grafana() -> bool:
-    return bool(os.getenv("GRAFANA_OTLP_ENDPOINT") and os.getenv("GRAFANA_OTLP_AUTH"))
 
 
 def _resource():
@@ -37,10 +32,10 @@ def _resource():
 
 
 def init_observability():
-    """Instrument google-genai; export LLM spans to whichever backends are configured."""
+    """Instrument provider calls and export LLM spans to Langfuse."""
     global _llm_provider, _llm_tracer
-    if not (_have_langfuse() or _have_grafana()):
-        logger.info("LLM tracing disabled (no Langfuse/Grafana env).")
+    if not _have_langfuse():
+        logger.info("LLM tracing disabled (no Langfuse env).")
         return
     try:
         from opentelemetry.sdk.trace import TracerProvider
@@ -48,34 +43,22 @@ def init_observability():
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 
         provider = TracerProvider(resource=_resource())
-        enabled = []
-
-        if _have_langfuse():
-            host = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com").rstrip("/")
-            creds = f'{os.environ["LANGFUSE_PUBLIC_KEY"]}:{os.environ["LANGFUSE_SECRET_KEY"]}'
-            auth = base64.b64encode(creds.encode()).decode()
-            provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(
-                endpoint=f"{host}/api/public/otel/v1/traces",
-                headers={"Authorization": f"Basic {auth}"},
-            )))
-            enabled.append(f"Langfuse ({host})")
-
-        if _have_grafana():
-            provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(
-                endpoint=f"{os.environ['GRAFANA_OTLP_ENDPOINT'].rstrip('/')}/v1/traces",
-                headers={"Authorization": os.environ["GRAFANA_OTLP_AUTH"]},
-            )))
-            enabled.append("Grafana Cloud")
+        host = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com").rstrip("/")
+        creds = f'{os.environ["LANGFUSE_PUBLIC_KEY"]}:{os.environ["LANGFUSE_SECRET_KEY"]}'
+        auth = base64.b64encode(creds.encode()).decode()
+        provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(
+            endpoint=f"{host}/api/public/otel/v1/traces",
+            headers={"Authorization": f"Basic {auth}"},
+        )))
 
         from openinference.instrumentation.google_genai import GoogleGenAIInstrumentor
         GoogleGenAIInstrumentor().instrument(tracer_provider=provider)
         if os.getenv("LLM_MODEL", "").strip().upper() == "CLOUDFLARE":
             from openinference.instrumentation.openai import OpenAIInstrumentor
             OpenAIInstrumentor().instrument(tracer_provider=provider)
-            enabled.append("openai-sdk spans")
         _llm_provider = provider
         _llm_tracer = provider.get_tracer("chat")
-        logger.info("LLM tracing enabled via OTLP: %s", ", ".join(enabled))
+        logger.info("LLM tracing enabled via OTLP: Langfuse (%s)", host)
     except Exception:
         logger.exception("LLM tracing init failed — continuing without it.")
 
@@ -116,62 +99,3 @@ def flush():
         _llm_provider.force_flush()
     except Exception as e:
         logger.debug("flush failed: %s", e)
-
-
-def init_http_tracing(app):
-    """Trace every HTTP endpoint to Grafana, on its own provider so Langfuse stays LLM-only."""
-    if not _have_grafana():
-        logger.info("Grafana HTTP tracing disabled (GRAFANA_OTLP_* not set).")
-        return
-    try:
-        from opentelemetry.sdk.trace import TracerProvider
-        from opentelemetry.sdk.trace.export import BatchSpanProcessor
-        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-
-        provider = TracerProvider(resource=_resource())
-        provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(
-            endpoint=f"{os.environ['GRAFANA_OTLP_ENDPOINT'].rstrip('/')}/v1/traces",
-            headers={"Authorization": os.environ["GRAFANA_OTLP_AUTH"]},
-        )))
-        FastAPIInstrumentor.instrument_app(app, tracer_provider=provider)
-        logger.info("Grafana HTTP tracing enabled via OTLP.")
-    except Exception:
-        logger.exception("Grafana HTTP tracing init failed — continuing without it.")
-
-
-def init_metrics():
-    """Export a chat_messages_total counter. A metric, not traces, so alerts are plain PromQL."""
-    global _message_counter
-    if not _have_grafana():
-        return
-    try:
-        from opentelemetry.sdk.metrics import MeterProvider
-        from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
-        from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
-
-        reader = PeriodicExportingMetricReader(
-            OTLPMetricExporter(
-                endpoint=f"{os.environ['GRAFANA_OTLP_ENDPOINT'].rstrip('/')}/v1/metrics",
-                headers={"Authorization": os.environ["GRAFANA_OTLP_AUTH"]},
-            ),
-            export_interval_millis=15000,
-        )
-        provider = MeterProvider(resource=_resource(), metric_readers=[reader])
-        _message_counter = provider.get_meter("chat").create_counter(
-            "chat_messages_total",
-            description="Chat messages handled, by status (ok/error)",
-        )
-        logger.info("Grafana metrics enabled via OTLP.")
-    except Exception:
-        logger.exception("Grafana metrics init failed — continuing without it.")
-
-
-def record_message(status: str):
-    """Increment the message counter."""
-    if _message_counter is None:
-        return
-    try:
-        _message_counter.add(1, {"status": status})
-    except Exception as e:
-        logger.debug("record_message failed: %s", e)

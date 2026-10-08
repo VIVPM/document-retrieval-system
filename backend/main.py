@@ -49,8 +49,7 @@ from db.models import (Account, ChatMessage, ChatSession, LoginFailure,
                        RefreshToken, ReviewDecision, ensure_columns, now_ist)
 from llm.llm_router import check_user_key, embed_model, set_user_key
 from core.review import build_review
-from observability import (flush as trace_flush, init_http_tracing,
-                           init_metrics, init_observability, record_message,
+from observability import (flush as trace_flush, init_observability,
                            set_output, trace_message)
 
 Base.metadata.create_all(bind=engine)
@@ -173,8 +172,6 @@ app.add_middleware(
 )
 
 init_observability()
-init_http_tracing(app)
-init_metrics()
 
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
@@ -933,7 +930,6 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
 
     async def event_stream():
         set_user_key(user_key)
-        ok = False
         with trace_message(body.question, uid, chat_id) as span:
             try:
                 try:
@@ -983,10 +979,8 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
                     return
 
                 yield _sse("done", {"question_searched": search_query})
-                ok = True
             finally:
                 trace_flush()
-                record_message("ok" if ok else "error")
 
     return StreamingResponse(
         event_stream(),

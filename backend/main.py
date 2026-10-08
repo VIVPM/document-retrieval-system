@@ -49,11 +49,8 @@ from db.models import (Account, ChatMessage, ChatSession, IngestJob, ReviewDecis
 import job_queue
 from llm.llm_router import (check_user_key, embed_model, estimate_cost_usd, llm as _llm,
                             set_user_key)
-from observability import (flush as trace_flush, init_http_tracing,
-                           record_cost, record_llm_metrics,
-                           record_stream_quality,
-                           init_metrics, init_observability, record_message,
-                           set_output, trace_message)
+from observability import (flush as trace_flush, init_observability, record_cost,
+                           record_stream_quality, set_output, trace_message)
 
 import contextlib
 import threading
@@ -221,8 +218,6 @@ app.add_middleware(
 )
 
 init_observability()
-init_http_tracing(app)
-init_metrics()
 
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
@@ -929,7 +924,6 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
 
     async def event_stream():
         set_user_key(user_key)
-        ok = False
         with trace_message(body.question, uid, chat_id) as span:
             try:
                 try:
@@ -968,8 +962,6 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
                                       output_tokens=stream_usage.get("output_tokens"))
                 _cost = estimate_cost_usd(stream_usage)
                 record_cost(span, stream_usage, _cost)
-                if not user_key:
-                    record_llm_metrics(stream_usage, _cost, ttft)
 
                 answer = "".join(parts).strip()
                 if not answer and user_key:
@@ -992,10 +984,8 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
                     return
 
                 yield _sse("done", {"question_searched": search_query})
-                ok = True
             finally:
                 trace_flush()
-                record_message("ok" if ok else "error")
 
     return StreamingResponse(
         event_stream(),

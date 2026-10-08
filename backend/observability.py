@@ -1,4 +1,4 @@
-"""OpenTelemetry tracing and metrics."""
+"""OpenTelemetry LLM tracing to Langfuse."""
 import base64
 import logging
 import os
@@ -15,18 +15,10 @@ if not logger.handlers:
 
 _llm_provider = None
 _llm_tracer = None
-_message_counter = None
-_cost_counter = None
-_ttft_hist = None
-_queue_depth_cb = None
 
 
 def _have_langfuse() -> bool:
     return bool(os.getenv("LANGFUSE_PUBLIC_KEY") and os.getenv("LANGFUSE_SECRET_KEY"))
-
-
-def _have_grafana() -> bool:
-    return bool(os.getenv("GRAFANA_OTLP_ENDPOINT") and os.getenv("GRAFANA_OTLP_AUTH"))
 
 
 def _resource():
@@ -40,10 +32,10 @@ def _resource():
 
 
 def init_observability():
-    """Instrument google-genai; export LLM spans to whichever backends are configured."""
+    """Instrument provider calls and export LLM spans to Langfuse."""
     global _llm_provider, _llm_tracer
-    if not (_have_langfuse() or _have_grafana()):
-        logger.info("LLM tracing disabled (no Langfuse/Grafana env).")
+    if not _have_langfuse():
+        logger.info("LLM tracing disabled (no Langfuse env).")
         return
     try:
         from opentelemetry.sdk.trace import TracerProvider
@@ -51,34 +43,22 @@ def init_observability():
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 
         provider = TracerProvider(resource=_resource())
-        enabled = []
-
-        if _have_langfuse():
-            host = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com").rstrip("/")
-            creds = f'{os.environ["LANGFUSE_PUBLIC_KEY"]}:{os.environ["LANGFUSE_SECRET_KEY"]}'
-            auth = base64.b64encode(creds.encode()).decode()
-            provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(
-                endpoint=f"{host}/api/public/otel/v1/traces",
-                headers={"Authorization": f"Basic {auth}"},
-            )))
-            enabled.append(f"Langfuse ({host})")
-
-        if _have_grafana():
-            provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(
-                endpoint=f"{os.environ['GRAFANA_OTLP_ENDPOINT'].rstrip('/')}/v1/traces",
-                headers={"Authorization": os.environ["GRAFANA_OTLP_AUTH"]},
-            )))
-            enabled.append("Grafana Cloud")
+        host = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com").rstrip("/")
+        creds = f'{os.environ["LANGFUSE_PUBLIC_KEY"]}:{os.environ["LANGFUSE_SECRET_KEY"]}'
+        auth = base64.b64encode(creds.encode()).decode()
+        provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(
+            endpoint=f"{host}/api/public/otel/v1/traces",
+            headers={"Authorization": f"Basic {auth}"},
+        )))
 
         from openinference.instrumentation.google_genai import GoogleGenAIInstrumentor
         GoogleGenAIInstrumentor().instrument(tracer_provider=provider)
         if os.getenv("LLM_MODEL", "").strip().upper() == "CLOUDFLARE":
             from openinference.instrumentation.openai import OpenAIInstrumentor
             OpenAIInstrumentor().instrument(tracer_provider=provider)
-            enabled.append("openai-sdk spans")
         _llm_provider = provider
         _llm_tracer = provider.get_tracer("chat")
-        logger.info("LLM tracing enabled via OTLP: %s", ", ".join(enabled))
+        logger.info("LLM tracing enabled via OTLP: Langfuse (%s)", host)
     except Exception:
         logger.exception("LLM tracing init failed — continuing without it.")
 
@@ -159,104 +139,3 @@ def flush():
         _llm_provider.force_flush()
     except Exception as e:
         logger.debug("flush failed: %s", e)
-
-
-def init_http_tracing(app):
-    """Trace every HTTP endpoint to Grafana, on its own provider so Langfuse stays LLM-only."""
-    if not _have_grafana():
-        logger.info("Grafana HTTP tracing disabled (GRAFANA_OTLP_* not set).")
-        return
-    try:
-        from opentelemetry.sdk.trace import TracerProvider
-        from opentelemetry.sdk.trace.export import BatchSpanProcessor
-        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-
-        provider = TracerProvider(resource=_resource())
-        provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(
-            endpoint=f"{os.environ['GRAFANA_OTLP_ENDPOINT'].rstrip('/')}/v1/traces",
-            headers={"Authorization": os.environ["GRAFANA_OTLP_AUTH"]},
-        )))
-        FastAPIInstrumentor.instrument_app(app, tracer_provider=provider)
-        logger.info("Grafana HTTP tracing enabled via OTLP.")
-    except Exception:
-        logger.exception("Grafana HTTP tracing init failed — continuing without it.")
-
-
-def init_metrics():
-    """Export a chat_messages_total counter. A metric, not traces, so alerts are plain PromQL."""
-    global _message_counter, _cost_counter, _ttft_hist, _queue_depth_cb
-    if not _have_grafana():
-        return
-    try:
-        from opentelemetry.sdk.metrics import MeterProvider
-        from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
-        from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
-
-        reader = PeriodicExportingMetricReader(
-            OTLPMetricExporter(
-                endpoint=f"{os.environ['GRAFANA_OTLP_ENDPOINT'].rstrip('/')}/v1/metrics",
-                headers={"Authorization": os.environ["GRAFANA_OTLP_AUTH"]},
-            ),
-            export_interval_millis=15000,
-        )
-        provider = MeterProvider(resource=_resource(), metric_readers=[reader])
-        meter = provider.get_meter("chat")
-        _message_counter = meter.create_counter(
-            "chat_messages_total",
-            description="Chat messages handled, by status (ok/error)",
-        )
-        _cost_counter = meter.create_counter(
-            "llm_cost_usd_total",
-            unit="USD",
-            description="Estimated LLM spend, by model",
-        )
-        _ttft_hist = meter.create_histogram(
-            "llm_ttft_seconds",
-            unit="s",
-            description="Time to first token, by model",
-        )
-
-        # An OBSERVABLE gauge, not a counter: depth is a level, not an event.
-        # The callback runs on the export interval, so the number is sampled
-        # rather than pushed -- nothing has to remember to report it, and a
-        # worker that dies stops contributing without leaving a stale value.
-        def _observe_depth(_options):
-            from opentelemetry.metrics import Observation
-            try:
-                import job_queue
-                return [Observation(n, {"status": st})
-                        for st, n in job_queue.depth().items()]
-            except Exception:
-                return []
-
-        _queue_depth_cb = meter.create_observable_gauge(
-            "ingest_queue_depth",
-            callbacks=[_observe_depth],
-            description="Ingest jobs by status (queued/running/failed)",
-        )
-        logger.info("Grafana metrics enabled via OTLP.")
-    except Exception:
-        logger.exception("Grafana metrics init failed — continuing without it.")
-
-
-def record_llm_metrics(usage: dict, cost_usd: float | None, ttft_s: float | None):
-    """Feed cost and TTFT to Grafana."""
-    model = (usage or {}).get("model") or "unknown"
-    try:
-        if _cost_counter is not None and cost_usd:
-            _cost_counter.add(cost_usd, {"model": model})
-        if _ttft_hist is not None and ttft_s is not None:
-            _ttft_hist.record(ttft_s, {"model": model})
-    except Exception as e:
-        logger.debug("record_llm_metrics failed: %s", e)
-
-
-def record_message(status: str):
-    """Increment the message counter."""
-    if _message_counter is None:
-        return
-    try:
-        _message_counter.add(1, {"status": status})
-    except Exception as e:
-        logger.debug("record_message failed: %s", e)

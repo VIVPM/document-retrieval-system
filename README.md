@@ -103,7 +103,7 @@ graph TD
         Tex["☁️ AWS Textract · TABLES + FORMS"]
     end
 
-    OBS["📈 Observability · cross-cutting<br>Langfuse (LLM) + Grafana (HTTP · metrics · dashboard)"]
+    OBS["📈 Observability · Langfuse LLM traces"]
 
     User --> CLIENT
     CLIENT -->|HTTP + JWT| APP
@@ -113,7 +113,6 @@ graph TD
     DATA -->|hybrid search| QUERY
     INGEST -->|extract · classify · embed| EXT
     QUERY -->|rewrite · answer| EXT
-    APP -.->|HTTP traces · metrics| OBS
     INGEST -.->|LLM traces| OBS
     QUERY -.->|LLM traces| OBS
 ```
@@ -227,8 +226,6 @@ TOKEN_TTL_HOURS=24
 LANGFUSE_PUBLIC_KEY=pk-lf-...
 LANGFUSE_SECRET_KEY=sk-lf-...
 LANGFUSE_HOST=https://us.cloud.langfuse.com
-GRAFANA_OTLP_ENDPOINT=https://otlp-gateway-prod-<region>.grafana.net/otlp
-GRAFANA_OTLP_AUTH=Basic <base64>          # the full Authorization header value
 OTEL_SERVICE_NAME=document-retrieval-system
 ```
 
@@ -434,16 +431,9 @@ One rough edge this exposed: `calibrate()` calls `cleanup()` after printing resu
 
 ## 📈 Observability
 
-OpenTelemetry over OTLP, wired programmatically (not the `opentelemetry-instrument` wrapper). `openinference`'s `GoogleGenAIInstrumentor` auto-traces every Gemini call:
+OpenTelemetry over OTLP exports provider-call spans to Langfuse when `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are set. Each question has a `chat-message` trace with rewrite and answer calls nested beneath it, tagged with user and session. Ingest calls run in raw thread pools and appear as standalone traces. Set `LANGFUSE_HOST` to select the Langfuse endpoint; `OTEL_SERVICE_NAME` is optional. Tracing failures are logged and never break a request.
 
-* **LLM spans → Langfuse + Grafana.** Each message is one `chat-message` trace with the rewrite and answer generations nested under it, tagged with user + session.
-* **HTTP spans → Grafana** (a separate provider, so Langfuse stays LLM-only).
-* **`chat_messages_total` metric → Grafana**, with a paste-importable dashboard and a muted error-rate alert (`backend/grafana/`).
-* **Ingest queue depth** (`ingest_queue_depth`, by status) as an observable gauge, with a panel. This is the signal to scale workers on — not CPU, which stays near-idle while the queue grows because the worker is I/O-bound on Textract and Gemini.
-* **Cost and TTFT.** Estimated spend per call is a counter (`llm_cost_usd_total`) and time-to-first-token a histogram (`llm_ttft_seconds`), both by model, with dashboard panels. Cost rather than tokens because rates differ per model and thinking tokens bill at the *output* rate — measured here, 134 thinking tokens against 37 output on one answer. TTFT is recorded separately from total latency because they move independently; throughput is counted in output tokens, not SSE chunks, since providers chunk differently (Gemini 3 chunks for 88 tokens, Cloudflare 46 for 101).
-* **Structured JSON logs with a correlation id.** Every request gets one (an inbound `X-Request-ID` wins) and it is stored on the job row, so the API line that queued an upload and the worker line that ingested it share a `request_id` — one grep answers "what happened to this upload" across both processes. `LOG_FORMAT=text` for a readable local terminal. **Never name an `extra=` key after a `LogRecord` field** (`filename`, `module`, `process`, `name`, `message`): stdlib logging raises `KeyError` on the collision. `extra={"filename": ...}` on the worker's first log line meant every job was claimed and then abandoned before any work ran, invisibly, until its 1800s lease expired. `_SafeLogger` now suffixes a colliding key instead of raising, so a log call can no longer be what fails.
-
-Everything is a no-op unless the env vars are set, and nothing raises — tracing must never break a request. Set `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_HOST`, and `GRAFANA_OTLP_ENDPOINT` / `GRAFANA_OTLP_AUTH` (the full `Basic <base64>` header) / `OTEL_SERVICE_NAME`.
+**Structured JSON logs with a correlation id** remain available without tracing. Every request gets one (an inbound `X-Request-ID` wins), and it is stored on the job row. The API upload and worker ingest therefore share a `request_id`. Set `LOG_FORMAT=text` for local output. Cost and token usage are recorded per provider call in these logs, including ingest calls without a parent trace.
 
 ---
 
@@ -488,9 +478,8 @@ document-retrieval-system/
 │   │   ├── model_sweep.py             # Generated questions, no judge (trust this)
 │   │   ├── model_eval.py              # flash vs flash-lite, LLM-judged
 │   │   └── prompt_eval.py             # Prompt-change A/B
-│   ├── grafana/                     # Grafana dashboard + alert provisioning
 │   ├── auth.py                      # JWT + bcrypt + refresh tokens
-│   ├── observability.py             # OpenTelemetry → Langfuse + Grafana
+│   ├── observability.py             # OpenTelemetry → Langfuse
 │   ├── main.py                      # API entry point
 │   ├── worker.py                    # ingest worker — claims and runs queued jobs
 │   ├── job_queue.py                 # the queue: enqueue / claim / finish / reclaim

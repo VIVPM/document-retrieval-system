@@ -63,8 +63,7 @@ def serve_mode(port, msg_seconds):
     os.environ["RATE_SIGNUP"] = "1000/hour"
     os.environ["DAILY_MESSAGE_CAP"] = "100000000"
 
-    for k in ("LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY",
-              "GRAFANA_OTLP_ENDPOINT", "GRAFANA_OTLP_AUTH"):
+    for k in ("LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"):
         os.environ[k] = ""
 
     import main

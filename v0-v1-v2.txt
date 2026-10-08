@@ -145,7 +145,7 @@ v1  —  Hardening  (8/8, prompt caching closed on measurement)
 
 
 ------------------------------------------------------------------------
-v2  —  Resilience, cost, observability  (4 done + 1 partial)
+v2  —  Resilience, cost, observability  (4 active + 1 removed)
 ------------------------------------------------------------------------
 
 1. RETRIES + CIRCUIT BREAKER  (llm_router.py)
@@ -176,28 +176,17 @@ v2  —  Resilience, cost, observability  (4 done + 1 partial)
    - An empty completion never fails over and never trips the breaker — both
      providers return the same nothing for a prompt the model will not answer.
 
-3. COST + TTFT DASHBOARDS  (observability.py, grafana/dashboard.json)
-   Metrics:
-   - llm_cost_usd_total (counter — rate() into $/hour; a gauge shows only the
-     last answer's price).
-   - llm_ttft_seconds (histogram — the tail is what users complain about; a
-     mean hides it).
-   - ingest_queue_depth (observable gauge by status).
-
-   Four Grafana panels: LLM spend/hour, LLM spend 24h (labelled a floor, not
-   an invoice — an unpriced model contributes nothing), TTFT p50/p95, queue
-   depth.
-
-   Cost accounting:
+3. COST + TTFT ACCOUNTING  (observability.py, logging_setup.py)
+   The separate metrics exporter and dashboards were later removed. Cost
+   accounting remains:
    - estimate_cost_usd returns None (not 0.0) for an unknown model.
    - Thinking tokens bill at the OUTPUT rate and are reported separately.
-   - Recorded on the span AND per-call in the structured log — the log is the
-     only way to price an ingest (those LLM calls run in raw thread pools with
-     no OTel context).
-   - TTFT recorded separately from total latency (they move independently).
-   - Throughput in OUTPUT TOKENS, not SSE chunks — providers chunk differently
-     (Gemini 3 chunks/88 tokens vs Cloudflare 46/101), and chunks/sec would
-     compare chunking strategy, not speed.
+   - Recorded on the message span AND per-call in the structured log — the log
+     is the only way to price an ingest (those LLM calls run in raw thread
+     pools with no OTel context).
+   - TTFT is attached to the message span, separately from total latency.
+   - Throughput uses OUTPUT TOKENS, not SSE chunks — providers chunk
+     differently (Gemini 3 chunks/88 tokens vs Cloudflare 46/101).
 
 4. PER-TENANT FAIRNESS  (job_queue.py)
    Claim ordering is round-robin by when a user was last served
@@ -218,12 +207,11 @@ v2  —  Resilience, cost, observability  (4 done + 1 partial)
    with FOR UPDATE).  O(n²) in queued jobs — fine at this scale; at thousands,
    move to a per-user last_served table.
 
-5. QUEUE-DEPTH EXPORT  (observability.py)  — partial
-   The depth is exported as an observable gauge and has a Grafana panel.
-   The SCALING half (auto-start a second worker when the backlog grows) needs
-   a Render plan that supports autoscaling.  At DAILY_MESSAGE_CAP=5 there is
-   no traffic that would trigger it — MAX_CONCURRENT_JOBS is the lever at
-   this size.  The panel notes not to scale on CPU: the worker is I/O-bound
+5. QUEUE-DEPTH EXPORT — removed
+   The former observable gauge and dashboard panel were removed with the
+   metrics exporter. Scaling workers remains manual through
+   MAX_CONCURRENT_JOBS; auto-scaling needs a hosting plan that supports it.
+   Worker CPU is not a useful proxy for queue depth: ingestion is I/O-bound
    on Textract and Gemini.
 
 

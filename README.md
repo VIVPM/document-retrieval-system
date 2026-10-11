@@ -10,7 +10,7 @@ A **loan-file copilot** for home-loan (mortgage) officers: upload a borrower's p
 
 *   **Accounts & persistent chats**: JWT auth over bcrypt, DB-backed login lockout, and conversations that survive a restart — including their source citations. A login lasts **as long as the tab is open**: tokens live in `sessionStorage`, so a reload keeps you signed in, closing the tab signs you out, and a new tab asks you to log in.
 *   **Session rehydration**: the in-process retriever is a pure cache. On a miss it rebuilds from Neon + Pinecone in **~11s** instead of re-ingesting the document (**~180s**), by persisting the fitted BM25 encoder and recomputing centroids from the index.
-*   **Queued ingestion**: upload returns `202` and enqueues a job that a worker runs, with a pollable status — as its own process, or inside the API with `RUN_WORKER_IN_PROCESS=1`. Ingest used to run in a FastAPI background task, which dies with the API process — so any deploy or crash destroyed work in flight. A queued job is a row that outlives it.
+*   **Queued ingestion**: upload returns `202` and enqueues a job that a worker runs, with a pollable status — as its own process, or inside the API with `RUN_WORKER_IN_PROCESS=1`. A queued job is a row that outlives the API process, so a deploy or crash does not destroy work in flight.
 *   **Pluggable Extraction**: **AWS Textract** (TABLES + FORMS, default) or **PyMuPDF** (local, no-AI, text-layer only) via `EXTRACT_METHOD`. Contextual chunking attaches each chunk's document identity so entity-specific queries stay unambiguous.
 *   **Hybrid Search Engine**: A single **Pinecone** sparse-dense index holding `gemini-embedding-2` embeddings (768-dim) alongside **BM25** sparse vectors, fused by a tunable `alpha` (0.0 = pure keyword → 1.0 = pure semantic).
 *   **Conversational follow-ups**: a follow-up like *"and when does it lock?"* is condensed into a standalone question **before retrieval**, because retrieval runs before any LLM sees a prompt. History is read server-side from Neon.
@@ -23,7 +23,6 @@ A **loan-file copilot** for home-loan (mortgage) officers: upload a borrower's p
 *   **Grounded answers**: values are quoted exactly with their document and page, never computed or rounded; a question the file cannot answer gets "not in the documents", not a guess. Summaries use their own rules.
 *   **Semantic Routing**: Automatic query routing to specific document sections via embedding centroids — no extra LLM call.
 
-> **Note on reranking:** a cross-encoder reranking stage (BAAI/bge-reranker-base) was built and evaluated on 250 questions, then removed — it changed answer quality by a statistically indistinguishable amount while costing a 3× over-fetch and a GPU round-trip per query. It remains a reasonable optional addition under conditions this corpus does not meet. See [Design FAQ Q2](#q2-when-is-a-reranker-actually-worth-adding) for the measurements.
 
 ---
 
@@ -246,7 +245,7 @@ python backend/worker.py
 
 **Uploads queue but never finish without the worker running.** Ingestion is a
 row in `drs_ingest_jobs`, not a background task inside the API, so a deploy or
-crash of the API no longer destroys work in flight — restarting the worker just
+crash of the API does not destroy work in flight — restarting the worker just
 returns its jobs to the queue. `docker compose up` starts both.
 
 Run more than one worker if ingest is the bottleneck: the claim is a conditional
@@ -355,7 +354,7 @@ All three retrieval modes over the same corpus and models — raw per-question o
 
 **Measured healthy ceiling: ~25 concurrent browse clients** under the harness SLO (<1% errors and p95 <3× the 5-client baseline). At 50 and 100, latency crosses that SLO even with no errors; throughput plateaus near 30 req/s. The p95 combines successful responses from the three GET endpoints and **does not measure question-to-answer latency**. This is a single short run, not a sustained capacity guarantee.
 
-An earlier, unsaved Render run reported **8,640ms p95 at 100 clients**, with no error-rate data file. That figure is historical, not the newly measured value. Earlier A/B pool work found that increasing connections from 15 to 30 roughly doubled read throughput (~18 → ~33 req/s); streaming `/message` still competes for DB connections with browse reads (`_prepare` / `_save`). The older ~3× `/health` degradation did not reproduce in local re-runs (32 → 31ms); the pool contention on `/api/chats` remains the relevant signal.
+An A/B on the pool found that 30 connections instead of 15 roughly doubles read throughput (~18 → ~33 req/s); streaming `/message` competes for DB connections with browse reads (`_prepare` / `_save`). `/health` stays flat under load (32 → 31ms); pool contention on `/api/chats` is the relevant signal.
 
 
 **Local ramp, one dev box (`--ramp`, read mix):**
@@ -376,7 +375,7 @@ Ceiling ~40, zero errors throughout. Retries, the circuit breaker, cost accounti
 | 2026-08-31 | 1375ms | 2156ms | ×1.6 |
 | 2026-09-03 | 938ms | **2156ms** | ×2.3 |
 
-The saturated `chats` p95 is **2156ms in both runs** — identical to the millisecond — while the ratio swung ×1.6 → ×2.3 purely on where the idle baseline landed. `/health` measured flat (16 → 16ms, ×1.0); the old ~3× `/health` degradation does not reproduce. The ramp re-run held its shape: 0 errors at 3/5/10/15/40 clients, ceiling ~40.
+The saturated `chats` p95 is **2156ms in both runs** — identical to the millisecond — while the ratio swung ×1.6 → ×2.3 purely on where the idle baseline landed. `/health` measured flat (16 → 16ms, ×1.0). The ramp re-run held its shape: 0 errors at 3/5/10/15/40 clients, ceiling ~40.
 
 One caveat on that re-run: the 25-client level reported 4.1% errors, and they are **not** the app. The spawned server's log shows `psycopg2.OperationalError: could not translate host name … neon.tech` — intermittent DNS on this machine, measured at roughly 1 failure in 12 `getaddrinfo` calls during the same session, and the reason the run had to be started three times. A level showing errors while the level above it shows none is the signature of an environment flap, not a capacity knee.
 
@@ -401,7 +400,7 @@ One caveat on that re-run: the 25-client level reported 4.1% errors, and they ar
 
 **Login is by far the slowest endpoint (~3.6s) and completely flat under load.** That combination is the point: the cost is bcrypt burning CPU, not the connection pool, so streaming answers do not touch it. It does halve browse throughput when included (6 → 3 req/s), which is why `--mix read` remains the right default for reading the *streaming* signal.
 
-Two notes for whoever runs these next. `login` reported real samples (n=15 idle, n=11 saturated) with **0 throttled** — the spawned server lifts rate limits, so the empty-bucket/`null` case the harness guards against does not arise here. And `health` printed `xnan` because its idle p95 was 0ms; the JSON report is still valid (`null`, no bare `NaN` token), so that is a terminal-display artifact, not the JSON bug that was fixed earlier.
+Two notes for whoever runs these next. `login` reported real samples (n=15 idle, n=11 saturated) with **0 throttled** — the spawned server lifts rate limits, so the empty-bucket/`null` case the harness guards against does not arise here. And `health` printed `xnan` because its idle p95 was 0ms; the JSON report is still valid (`null`, no bare `NaN` token), so that is a terminal-display artifact.
 
 **End to end on live providers (`--calibrate 3`).** The figures above stub the LLM boundary; this run does not. Against a real API + worker, with real Textract, Gemini and Pinecone:
 

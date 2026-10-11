@@ -2,10 +2,7 @@
 v0 / v1 / v2  —  Queue, Hardening, and Resilience
 ========================================================================
 
-Branch: document-retrieval-v012  (v0 + v1 + v2)
-
-Builds on main. The former v0-v1 branch (document-retreival-v0-v1) was
-deleted — its work is a subset of this one.
+Branch: main  (v0 + v1 + v2)
 
 
 ========================================================================

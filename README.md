@@ -344,7 +344,7 @@ All three retrieval modes over the same corpus and models — raw per-question o
 
 `backend/load_test.py` spawns the **real** app with only the retrieval + LLM boundary stubbed, so a run is free and takes seconds — it exercises the async endpoints, the connection pool, JWT auth and SSE, not the model. Idle-vs-saturated phases, a `--ramp` capacity sweep, and `--calibrate` for a few real messages. The spawned server also runs the ingest worker in a background thread, because ingestion now lives in a separate process — without it `--calibrate` would upload a document and poll a chat that stays `processing` until its timeout.
 
-**Live Render re-test, 2026-09-29** — `--base https://document-retrieval-system-5gqx.onrender.com --ramp --mix read --levels 5,25,50,100 --duration 15 --ramp-stop-pct 1`. The four 15-second levels ran against the deployed `main` API (not a locally spawned stub). A single dedicated account supplied the token; each "client" is a concurrent synthetic browse loop, **not a distinct user or an AI answer**. The mix calls `/api/health`, `/api/chats` and `/api/chats/{id}`. Raw results: [`ramp_2026-09-29_11-36-45.json`](backend/load_test_results/ramp_2026-09-29_11-36-45.json).
+**Live Render re-test, 2026-09-29** — `--base https://document-retrieval-system-5gqx.onrender.com --ramp --mix read --levels 5,25,50,100 --duration 15 --ramp-stop-pct 1`. The four 15-second levels ran against the deployed API (not a locally spawned stub). A single dedicated account supplied the token; each "client" is a concurrent synthetic browse loop, **not a distinct user or an AI answer**. The mix calls `/api/health`, `/api/chats` and `/api/chats/{id}`. Raw results: [`ramp_2026-09-29_11-36-45.json`](backend/load_test_results/ramp_2026-09-29_11-36-45.json).
 
 | Concurrent browse clients | p50 API | p95 API | req/s | errors / throttled |
 |---|---:|---:|---:|---:|
@@ -358,28 +358,25 @@ All three retrieval modes over the same corpus and models — raw per-question o
 An earlier, unsaved Render run reported **8,640ms p95 at 100 clients**, with no error-rate data file. That figure is historical, not the newly measured value. Earlier A/B pool work found that increasing connections from 15 to 30 roughly doubled read throughput (~18 → ~33 req/s); streaming `/message` still competes for DB connections with browse reads (`_prepare` / `_save`). The older ~3× `/health` degradation did not reproduce in local re-runs (32 → 31ms); the pool contention on `/api/chats` remains the relevant signal.
 
 
-**This branch, measured on one dev box (`--ramp`, read mix).** Compared against `main` re-run in the same session on the same machine — the Render figures above are months old and from a different environment, so a difference read across them would have been noise:
+**Local ramp, one dev box (`--ramp`, read mix):**
 
-| Concurrent browse clients | p95 `main` | p95 this branch | req/s (both) | errors |
-|---|---|---|---|---|
-| 3 | 1219ms | 1187ms | 4 | 0 |
-| 10 | 1406ms | 1218ms | 13 | 0 |
-| 25 | 1188ms | 1219ms | 33 | 0 |
-| 40 | 2063ms | 2031ms | 39 | 0 |
+| Concurrent browse clients | p95 | req/s | errors |
+|---|---|---|---|
+| 3 | 1187ms | 4 | 0 |
+| 10 | 1218ms | 13 | 0 |
+| 25 | 1219ms | 33 | 0 |
+| 40 | 2031ms | 39 | 0 |
 
-**The queue, the worker and the v2 instrumentation together cost nothing measurable.** Throughput is identical at every level, the ceiling is ~40 on both, and errors are zero throughout. Retries, the circuit breaker, cost accounting and TTFT capture all sit on the request path and none of them show up here.
+Ceiling ~40, zero errors throughout. Retries, the circuit breaker, cost accounting and TTFT capture all sit on the request path and none of them show up as a cost here.
 
-One number needs reading carefully. Under saturation this branch reports `chats` p95 **1375 → 2156ms (×1.6)** against `main`'s **968 → 2109ms (×2.2)**, which looks like an improvement and is not: the *saturated* values are the same (2156 vs 2109), and the ratio only shrank because this run's **idle** baseline happened to land higher. The ratio moved because the denominator moved. Read the saturated figure, not the multiplier.
-
-**A re-run three days later confirmed exactly that.** Same branch, same box, no code change between them:
+**Read the saturated figure, not the multiplier.** Two runs with no code change between them:
 
 | run | idle p95 | saturated p95 | ratio |
 |---|---|---|---|
-| `main`, 2026-08-31 | 968ms | 2109ms | ×2.2 |
-| this branch, 2026-08-31 | 1375ms | 2156ms | ×1.6 |
-| this branch, 2026-09-03 | 938ms | **2156ms** | ×2.3 |
+| 2026-08-31 | 1375ms | 2156ms | ×1.6 |
+| 2026-09-03 | 938ms | **2156ms** | ×2.3 |
 
-The saturated figure is **2156ms in both runs of this branch** — identical to the millisecond — while the ratio swung ×1.6 → ×2.3 purely on where the idle baseline landed. `/health` also measured flat again (16 → 16ms, ×1.0), which is the third independent run agreeing that the old ~3× `/health` degradation does not reproduce. The ramp re-run held its shape too: 0 errors at 3/5/10/15/40 clients, ceiling ~40.
+The saturated `chats` p95 is **2156ms in both runs** — identical to the millisecond — while the ratio swung ×1.6 → ×2.3 purely on where the idle baseline landed. `/health` measured flat (16 → 16ms, ×1.0); the old ~3× `/health` degradation does not reproduce. The ramp re-run held its shape: 0 errors at 3/5/10/15/40 clients, ceiling ~40.
 
 One caveat on that re-run: the 25-client level reported 4.1% errors, and they are **not** the app. The spawned server's log shows `psycopg2.OperationalError: could not translate host name … neon.tech` — intermittent DNS on this machine, measured at roughly 1 failure in 12 `getaddrinfo` calls during the same session, and the reason the run had to be started three times. A level showing errors while the level above it shows none is the signature of an environment flap, not a capacity knee.
 

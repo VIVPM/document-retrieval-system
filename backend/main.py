@@ -207,7 +207,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-_DEFAULT_ORIGINS = "https://document-retrieval-system-frontend.onrender.com,http://localhost:5173"
+_DEFAULT_ORIGINS = "http://localhost:5173"
 ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", _DEFAULT_ORIGINS).split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,

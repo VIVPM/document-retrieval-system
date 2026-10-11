@@ -75,7 +75,7 @@ CREATE INDEX IF NOT EXISTS ix_drs_messages_chat_id_id ON drs_chat_messages (chat
 CREATE INDEX IF NOT EXISTS ix_drs_messages_user_id ON drs_chat_messages (user_id);
 
 
--- Ingest queue (document-retrieval-v012): one row per queued upload. The PDF
+-- Ingest queue: one row per queued upload. The PDF
 -- bytes live in `payload`; `claimed_at` is the worker's lease.
 CREATE TABLE IF NOT EXISTS drs_ingest_jobs (
     id              VARCHAR PRIMARY KEY,

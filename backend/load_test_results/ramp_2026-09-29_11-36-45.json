@@ -1,0 +1,48 @@
+{
+  "base": "https://document-retrieval-system-5gqx.onrender.com",
+  "duration": 15.0,
+  "mix": "read",
+  "estimated_ceiling": 25,
+  "levels": [
+    {
+      "clients": 5,
+      "fast_p50_ms": 578.0,
+      "fast_p95_ms": 672.0,
+      "login_p95_ms": null,
+      "req_s": 10,
+      "error_pct": 0.0,
+      "throttled": 0,
+      "err_samples": []
+    },
+    {
+      "clients": 25,
+      "fast_p50_ms": 719.0,
+      "fast_p95_ms": 1641.0,
+      "login_p95_ms": null,
+      "req_s": 30,
+      "error_pct": 0.0,
+      "throttled": 0,
+      "err_samples": []
+    },
+    {
+      "clients": 50,
+      "fast_p50_ms": 1828.0,
+      "fast_p95_ms": 3079.0,
+      "login_p95_ms": null,
+      "req_s": 26,
+      "error_pct": 0.0,
+      "throttled": 0,
+      "err_samples": []
+    },
+    {
+      "clients": 100,
+      "fast_p50_ms": 2907.0,
+      "fast_p95_ms": 4735.0,
+      "login_p95_ms": null,
+      "req_s": 30,
+      "error_pct": 0.0,
+      "throttled": 0,
+      "err_samples": []
+    }
+  ]
+}

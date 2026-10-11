@@ -111,7 +111,7 @@ export default function Landing({ onSignIn, onGetStarted }) {
           <ul className="lp-stats lp-fade" style={{ '--d': '560ms' }}>
             <li><strong>98%</strong><span>Context recall</span></li>
             <li><strong>98%</strong><span>Faithfulness</span></li>
-            <li><strong>8.6s</strong><span>p95 API latency at 100 users</span></li>
+            <li title="2026-09-29 Render browse ramp: 100 concurrent virtual clients, three GET endpoints, 15 seconds; not answer latency."><strong>4.7s</strong><span>p95 API latency at 100 users</span></li>
           </ul>
         </div>
       </header>

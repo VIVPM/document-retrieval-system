@@ -4,6 +4,7 @@ frontend/.env
 notebooks
 frontend/dist
 upgrade_roadmap.txt
+v0-v1-v2.txt
 # eval transcripts / cached extractions
 backend/eval/*_results.json
 backend/eval/extract_*.json

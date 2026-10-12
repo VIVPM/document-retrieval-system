@@ -341,7 +341,7 @@ All three retrieval modes over the same corpus and models — raw per-question o
 
 `backend/load_test.py` spawns the **real** app with only the retrieval + LLM boundary stubbed, so a run is free and takes seconds — it exercises the async endpoints, the connection pool, JWT auth and SSE, not the model. Idle-vs-saturated phases, a `--ramp` capacity sweep, and `--calibrate` for a few real messages. The spawned server also runs the ingest worker in a background thread, because ingestion now lives in a separate process — without it `--calibrate` would upload a document and poll a chat that stays `processing` until its timeout.
 
-**Live Render re-test, 2026-09-29** — `--base https://document-retrieval-system-5gqx.onrender.com --ramp --mix read --levels 5,25,50,100 --duration 15 --ramp-stop-pct 1`. The four 15-second levels ran against the deployed API (not a locally spawned stub). A single dedicated account supplied the token; each "client" is a concurrent synthetic browse loop. The mix calls `/api/health`, `/api/chats` and `/api/chats/{id}`. Raw results: [`ramp_2026-09-29_11-36-45.json`](backend/load_test_results/ramp_2026-09-29_11-36-45.json).
+**Live Render ramp** — `--base https://document-retrieval-system-5gqx.onrender.com --ramp --mix read --levels 5,25,50,100 --duration 15 --ramp-stop-pct 1`. The four 15-second levels ran against the deployed API (not a locally spawned stub). A single dedicated account supplied the token; each "client" is a concurrent synthetic browse loop. The mix calls `/api/health`, `/api/chats` and `/api/chats/{id}`. Raw results: [`ramp_2026-09-29_11-36-45.json`](backend/load_test_results/ramp_2026-09-29_11-36-45.json).
 
 | Concurrent browse clients | p50 API | p95 API | req/s | errors / throttled |
 |---|---:|---:|---:|---:|
@@ -370,8 +370,8 @@ Ceiling ~40, zero errors throughout. Retries, the circuit breaker, cost accounti
 
 | run | idle p95 | saturated p95 | ratio |
 |---|---|---|---|
-| 2026-08-31 | 1375ms | 2156ms | ×1.6 |
-| 2026-09-03 | 938ms | **2156ms** | ×2.3 |
+| run 1 | 1375ms | 2156ms | ×1.6 |
+| run 2 | 938ms | **2156ms** | ×2.3 |
 
 The saturated `chats` p95 is **2156ms in both runs** — identical to the millisecond — while the ratio swung ×1.6 → ×2.3 purely on where the idle baseline landed. `/health` measured flat (16 → 16ms, ×1.0). The ramp re-run held its shape: 0 errors at 3/5/10/15/40 clients, ceiling ~40.
 

@@ -301,7 +301,7 @@ this branch against a live API + worker:
     ramp        3/5/10/15/40 clients at 0% errors, ceiling ~40,
                 req/s 4 / 7 / 14 / 20 / 40
 
-  The saturated number is the point.  Against the 2026-08-31 run of this
+  The saturated number is the point.  Against an earlier run of this
   same branch, with no code change between them, chats p95 saturated at
   2156ms BOTH TIMES — identical to the millisecond — while the ratio moved
   x1.6 -> x2.3 purely because the idle baseline landed at 938 instead of

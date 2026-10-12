@@ -334,8 +334,6 @@ All three retrieval modes over the same corpus and models — raw per-question o
 
 > [!NOTE]
 > Evaluation was performed on a multi-document mortgage packet (21 logical documents across 50 pages). Raw per-question output for all configurations lives in `results/`.
->
-> **Model provenance for these numbers:** the 250-question RAGAS runs above used **`gemini-2.5-flash-lite`** as the answer generator (and **`gemini-3.5-flash-lite`** as the judge) — chosen to keep the eval affordable. The deployed app, however, answers real user questions with **`gemini-2.5-flash`** (see `GEMINI_CHAT_MODEL` in `backend/llm/llm_router.py`).
 
 ---
 
@@ -343,7 +341,7 @@ All three retrieval modes over the same corpus and models — raw per-question o
 
 `backend/load_test.py` spawns the **real** app with only the retrieval + LLM boundary stubbed, so a run is free and takes seconds — it exercises the async endpoints, the connection pool, JWT auth and SSE, not the model. Idle-vs-saturated phases, a `--ramp` capacity sweep, and `--calibrate` for a few real messages. The spawned server also runs the ingest worker in a background thread, because ingestion now lives in a separate process — without it `--calibrate` would upload a document and poll a chat that stays `processing` until its timeout.
 
-**Live Render re-test, 2026-09-29** — `--base https://document-retrieval-system-5gqx.onrender.com --ramp --mix read --levels 5,25,50,100 --duration 15 --ramp-stop-pct 1`. The four 15-second levels ran against the deployed API (not a locally spawned stub). A single dedicated account supplied the token; each "client" is a concurrent synthetic browse loop, **not a distinct user or an AI answer**. The mix calls `/api/health`, `/api/chats` and `/api/chats/{id}`. Raw results: [`ramp_2026-09-29_11-36-45.json`](backend/load_test_results/ramp_2026-09-29_11-36-45.json).
+**Live Render re-test, 2026-09-29** — `--base https://document-retrieval-system-5gqx.onrender.com --ramp --mix read --levels 5,25,50,100 --duration 15 --ramp-stop-pct 1`. The four 15-second levels ran against the deployed API (not a locally spawned stub). A single dedicated account supplied the token; each "client" is a concurrent synthetic browse loop. The mix calls `/api/health`, `/api/chats` and `/api/chats/{id}`. Raw results: [`ramp_2026-09-29_11-36-45.json`](backend/load_test_results/ramp_2026-09-29_11-36-45.json).
 
 | Concurrent browse clients | p50 API | p95 API | req/s | errors / throttled |
 |---|---:|---:|---:|---:|
@@ -352,7 +350,7 @@ All three retrieval modes over the same corpus and models — raw per-question o
 | 50 | 1,828ms | 3,079ms | 26 | 0% / 0 |
 | **100** | **2,907ms** | **4,735ms** | **30** | **0% / 0** |
 
-**Measured healthy ceiling: ~25 concurrent browse clients** under the harness SLO (<1% errors and p95 <3× the 5-client baseline). At 50 and 100, latency crosses that SLO even with no errors; throughput plateaus near 30 req/s. The p95 combines successful responses from the three GET endpoints and **does not measure question-to-answer latency**. This is a single short run, not a sustained capacity guarantee.
+**Measured healthy ceiling: ~25 concurrent browse clients** under the harness SLO (<1% errors and p95 <3× the 5-client baseline). At 50 and 100, latency crosses that SLO even with no errors; throughput plateaus near 30 req/s. The p95 combines successful responses from the three GET endpoints.
 
 An A/B on the pool found that 30 connections instead of 15 roughly doubles read throughput (~18 → ~33 req/s); streaming `/message` competes for DB connections with browse reads (`_prepare` / `_save`). `/health` stays flat under load (32 → 31ms); pool contention on `/api/chats` is the relevant signal.
 

@@ -57,30 +57,34 @@ def classify_document_type(text: str, max_length: int = 1500) -> str:
     text = text[:max_length]
 
     prompt = f"""
-    Analyze this document and classify it into ONE of these categories:
-    - Lender Fee Sheet: Lender Fee Sheet, loan estimate, Fee Details and Summary, loan amount, interest rate, ORIGINATION CHARGES, Annual Percentage Rate (APR), Total Interest Percentage (TIP), Calyx Form - LE1_1col.frm, Calyx Form - LE2_fixed.frm, Calyx Form - LE3_conf.frm, Calyx Form - feews.frm, monthly principal & interest, loan term, loan purpose, loan type (conventional/FHA/VA), rate lock, projected payments, Loan fees, lender charges, closing costs, loan terms, cash-to-close tables, FEES WORKSHEET
-    - Loan Application: Uniform Residential Loan Application, URLA, Form 1003, Fannie Mae Form 1003, Freddie Mac Form 65, loan application form, home loan application, applicant details, co-applicant, co-borrower, Borrower Information, Personal Information, Employment and Income, current employer, years on the job, gross monthly income, Assets and Liabilities, existing loans / EMIs, Declarations, Demographic Information, Military Service, Acknowledgments and Agreements, loan amount requested, applicant's signature
-    - Mortgage: MORTGAGE, Security Instrument, FHA Wisconsin Mortgage, VA Mortgage, mortgagor, mortgagee, MERS, Mortgage Electronic Registration Systems, deed of trust, borrower owes lender, principal sum, recording data, parcel identifier number, FHA Case No, UNIFORM COVENANTS, BORROWER COVENANTS, Doc Yr, VMP, Wolters Kluwer
-    - Discount Notice: CA Discount Notice, Notice of Available Discounts, fee reduction settlement program, disaster loans, churches or charitable non-profit organizations, employee rate, CTIC, TTCC, Ticor Title Company, Chicago Title Insurance Company, FNF Underwritten Title Company, FNF Underwriter, Section 2355.3, California Code of Regulations, credit for preliminary reports
-    - Contract: Contract, Term of Employment, Probation, Legal agreement, SAMPLE CONTRACT OF EMPLOYMENT, Working Conditions, Interpretation of Agreement, Severability, service agreement, Compensation and Benefits, Termination of Employment, Annexure, Duties and Responsibilities, Confidentiality, Assignment
-    - Preliminary Title Report: Preliminary Report, title report, vesting owners, CREDIT LINE / EQUITY LINE OF CREDIT CLOSURE REQUEST, STATEMENT OF INFORMATION, AFFIDAVIT, CERTIFICATION OF TRUST, CERTIFICATE OF ACKNOWLEDGEMENT, INFORMATIONAL NOTES SECTION, Ticor Title Company of California, CONFIDENTIAL INFORMATION STATEMENT, ORDER NO, LEGAL DESCRIPTION, TRANSMITTAL, wire instructions, ATTACHMENT ONE, APN, legal description, recorded deeds/deeds of trust, easements, recording numbers/dates, CLTA, ALTA
-    - Pay Slip: Sample W-2, Pay slip, Payslip, 2020 W-2 and Earnings Summary, 1099, Salary statement, wage slip, earnings statement, Earnings, Amount, Employee Signature, Deductions, Payworks, Net Pay, Gross Earnings, Benefits & Accruals
-    - Bank Statement: Bank Statement, TD Business Premier Checking, KE: CONTRACT LLC, DAILY ACCOUNT ACTIVITY, Electronic deposits, Account statement, transaction history, ACCOUNT SUMMARY, Beginning Balance, Ending Balance
-    - Privacy Statement: Privacy Statement, Privacy Notice, Privacy Policy, information we collect, information we share, information we disclose, affiliated companies, nonaffiliated third parties, opt-out, privacy practices, Fidelity National Financial
-    - Tax Document: Property Tax Document, Employee Reference Copy, tax return, tax form, Tax installments, fiscal year, code area, delinquency dates, penalties, exemptions
-    - Insurance: Insurance policy, coverage document, LIMITATIONS ON COVERED RISKS, SCHEDULE B, PART I, RESIDENTIAL INSURANCE POLICY, COVERAGE RESIDENTIAL LOAN POLICY, STANDARD COVERAGE POLICY, EXCEPTIONS FROM COVERAGE, LAND ASSOCIATION LOAN POLICY, ENDORSEMENT-FORM 1, Policy conditions, exclusions, endorsements, coverage/limitations language, EXCLUSIONS FROM COVERAGE
-    - Letter: Correspondence, memo, communication, from, to, Address of qualifying property, CA Settlement, Approximate date of transaction, To Whom It May Concern
-    - ID Document: Driver's license, LIC. NO, ISS, EXP, HGT, WGT, passport, identification, KANSAS, DRIVER'S LICENSE
-    - Resume: Resume, CV, professional profile, work history, Education, Employment History, Adult Care Experience, Career Summary, Functional Resume
-    - Invoice: Line items, Item and Description, quantities, taxes, subtotals, grand total, Invoice#, Bill To, Ship To, Balance Due
-    - Other: Doesn't fit other categories
+    This page comes from a mortgage loan file: the borrower's application plus
+    the documents that support it. Classify the page by what the document IS,
+    judged mainly by its title and layout, not by values it merely mentions.
 
-    IMPORTANT RULES:
-    - If the document asks the applicant to PROVIDE personal, employment, income, asset or liability details (e.g. "Borrower Information", "Employment and Income", "Declarations", Form 1003 / URLA), classify as "Loan Application" NOT "Lender Fee Sheet", even though both mention loan amount and interest rate. A Lender Fee Sheet STATES fees and costs; a Loan Application COLLECTS the applicant's information.
-    - If the document contains "MORTGAGE" as a title and mentions "Security Instrument", "mortgagor", "MERS", or "FHA Case No", classify as "Mortgage" NOT "Contract" or "Lender Fee Sheet".
-    - If the document mentions "Notice of Available Discounts", "CA Discount Notice", "fee reduction settlement program", or "disaster loans", classify as "Discount Notice" NOT "Other" or "Insurance".
-    - If the document mentions "CREDIT LINE / EQUITY LINE OF CREDIT CLOSURE REQUEST", classify as "Preliminary Title Report".
-    - If the document mentions "STATEMENT OF INFORMATION" or "TRANSMITTAL", classify as "Preliminary Title Report".
+    Categories:
+    - Loan Application: the borrower's application (Uniform Residential Loan Application, URLA, Fannie Mae Form 1003, Freddie Mac Form 65). It COLLECTS the borrower's information: Borrower Information, Employment and Income, Assets and Liabilities, Loan and Property Information, Declarations, Military Service, Demographic Information, borrower signature.
+    - Lender Fee Sheet: a lender's disclosure that STATES the loan's terms and costs: Loan Estimate, Closing Disclosure, fees worksheet, fee sheet. Loan Terms, Projected Payments, Origination Charges, Services You Can/Cannot Shop For, Prepaids, Initial Escrow, Cash to Close, APR, Total Interest Percentage (TIP), rate lock.
+    - Pay Slip: a per-pay-period earnings statement from an employer: pay period, pay date, gross earnings, deductions, net pay, year-to-date columns, employee ID.
+    - Bank Statement: a statement for a bank or credit union account over a period: account number, statement period, beginning/ending balance, deposits and withdrawals, daily activity or transaction list.
+    - Tax Document: a tax form or tax record: W-2, 1099, tax return (Form 1040), tax transcript, property tax bill or statement (installments, delinquency dates, assessed value).
+    - Preliminary Title Report: a title company's report on the property: Preliminary Report, order number, effective date, title vested in, legal description, APN, Schedule A / Schedule B exceptions (taxes, easements, recorded deeds of trust to be paid off), informational notes, CLTA/ALTA policies to be issued. Also the title company's related forms in the same package: Statement of Information, transmittal, payoff or credit line closure requests.
+    - Mortgage: the recorded security instrument itself, titled "Mortgage" or "Deed of Trust": parties (borrower/mortgagor, lender/mortgagee, trustee, MERS), Uniform Covenants, Non-Uniform Covenants, signatures and notary acknowledgment.
+    - Insurance: an insurance policy or its terms: homeowner's or hazard insurance declarations page, or a title insurance policy jacket with Covered Risks, Exclusions from Coverage, Conditions, endorsements.
+    - Discount Notice: a title or escrow company's notice of available fee discounts (e.g. disaster-area, charitable organization, employee rates).
+    - Privacy Statement: a company's privacy notice: what information it collects and shares, affiliates, opt-out choices.
+    - Contract: an agreement between parties that is not a mortgage, e.g. purchase agreement, employment contract, service agreement.
+    - Letter: correspondence: letter of explanation, gift letter, verification letter, memo addressed to someone.
+    - ID Document: driver's license, passport, state ID.
+    - Resume: a person's CV or work history.
+    - Invoice: a bill with line items and a total due.
+    - Other: none of the above.
+
+    RULES for categories that are easy to confuse:
+    - Loan Application vs Lender Fee Sheet: both show a loan amount and interest rate. If the page collects the borrower's details or answers (declarations, employment, assets), it is "Loan Application". If it states fees, payments and cash to close, it is "Lender Fee Sheet".
+    - Pay Slip vs Tax Document: one pay period with net pay is "Pay Slip". A W-2 or 1099 covers a whole year and is "Tax Document".
+    - Preliminary Title Report vs Mortgage: a title report LISTS a recorded deed of trust as an exception; that does not make it a "Mortgage". Only the instrument itself is a "Mortgage".
+    - Preliminary Title Report vs Insurance: a preliminary report says what policy WILL be issued and lists Schedule B exceptions; it is not "Insurance". Only an issued policy is "Insurance".
+    - Bank Statement vs Pay Slip: payroll deposits on an account statement are still a "Bank Statement".
 
     Document sample:
     {text}

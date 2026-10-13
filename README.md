@@ -49,7 +49,7 @@ A loan officer's core check is *stare and compare*: the application holds the bo
 
 Each check is **mismatch**, **review**, **missing**, **match** or **info**. A review that fails is stored as failed and never fails the upload: the document stays searchable. If a worker is killed mid-review, the job's lease brings it back and the review is rebuilt; a review left on `running` with no job able to finish it is marked failed ("re-upload to review") by the worker's periodic check, so the panel never spins forever.
 
-**Try it:** `samples/synthetic_borrower/whitfield_loan_packet.pdf` is an 8-page synthetic packet (or the same pages as 5 separate PDFs) with planted issues. `answer_key.md` lists the expected review and 35 test questions. The packet is regenerated with `python samples/synthetic_borrower/make_samples.py`.
+**Try it:** `samples/synthetic_borrower/whitfield_loan_packet.pdf` is an 8-page synthetic packet with five logical documents and planted issues. `whitfield_3doc_packet.pdf` is a three-page alternative: loan application, loan estimate, then bank statement. `answer_key.md` covers the 8-page packet's review and 35 test questions. Regenerate both with `python samples/synthetic_borrower/make_samples.py`.
 
 ### Citations and reliability
 

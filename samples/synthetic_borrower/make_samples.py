@@ -107,15 +107,13 @@ th { background: #f2f2f2; text-align: left; }
 BANNER = '<p class="banner">SYNTHETIC TEST DATA — all names, numbers and addresses are fictitious.</p>'
 
 
-def pdf(filename, pages):
-    doc = fitz.open()
+def pdf(doc, filename, pages):
     for html in pages:
         page = doc.new_page(width=612, height=792)
         rc = page.insert_htmlbox(fitz.Rect(40, 36, 572, 756), BANNER + html, css=CSS)
         if rc[0] < 0:
             raise RuntimeError(f"{filename}: content overflows the page")
-    doc.save(os.path.join(OUT, filename), garbage=3, deflate=True)
-    return doc.page_count
+    return len(pages)
 
 
 def kv(rows):
@@ -359,9 +357,10 @@ def key():
         ("Seller's lien", "Title report exception 3: $312,000 deed of trust (Wells Fargo) must be paid off and reconveyed at closing."),
     ]
     lines = ["# Answer key — synthetic borrower file", "",
-             "SYNTHETIC TEST DATA. Page numbers are of `whitfield_loan_packet.pdf` — the same "
-             "as uploading the five separate PDFs together in filename order (01 → 05):", ""]
-    lines += [f"- `{f}` → pages {a}–{b}" if a != b else f"- `{f}` → page {a}" for f, (a, b) in pages.items()]
+             "SYNTHETIC TEST DATA. Page numbers are of `whitfield_loan_packet.pdf`, "
+             "five documents in one file:", ""]
+    lines += [f"- {f[3:-4].replace('_', ' ')} → pages {a}–{b}" if a != b else f"- {f[3:-4].replace('_', ' ')} → page {a}"
+              for f, (a, b) in pages.items()]
     lines += ["", "## Answerable (expected answer — source)", ""]
     lines += [f"{i}. **{qq}**  \n   {ans} — *{src}*" for i, (qq, ans, src) in enumerate(q, 1)]
     lines += ["", "## Not in the file — the correct answer is \"not found\"", ""]
@@ -377,14 +376,11 @@ def key():
 
 if __name__ == "__main__":
     total = 0
-    for f, pages in files:
-        n_ = pdf(f, pages)
-        total += n_
-        print(f"{f:36} {n_} page(s)  {os.path.getsize(os.path.join(OUT, f)) / 1024:6.1f} KB")
     packet = fitz.open()
-    for f, _ in files:
-        with fitz.open(os.path.join(OUT, f)) as part:
-            packet.insert_pdf(part)
+    for f, pages in files:
+        n_ = pdf(packet, f, pages)
+        total += n_
+        print(f"{f:36} {n_} page(s)")
     packet.save(os.path.join(OUT, "whitfield_loan_packet.pdf"), garbage=3, deflate=True)
     print(f"{'whitfield_loan_packet.pdf':36} {packet.page_count} page(s)  "
           f"{os.path.getsize(os.path.join(OUT, 'whitfield_loan_packet.pdf')) / 1024:6.1f} KB  <- the packet")

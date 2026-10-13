@@ -157,6 +157,11 @@ app1 = f"""
 <tr><td>Installment (Auto)</td><td>{AUTO['creditor']}</td><td class='r'>{money(AUTO['balance'])}</td><td class='r'>{money(AUTO['monthly'])}</td></tr>
 <tr><td>Revolving</td><td>{CARD['creditor']}</td><td class='r'>{money(CARD['balance'])}</td><td class='r'>{money(CARD['monthly'])}</td></tr></table>
 """
+# Application for the 3-document packet: only facts the Loan Estimate or bank
+# statement can confirm. No employment/income (no pay slips), no 401(k).
+app1_lite = app1[:app1.index("<p><b>1b.")] + app1[app1.index("<h2>Section 2"):]
+app1_lite = app1_lite.replace(
+    app1_lite[app1_lite.index("<tr><td>Retirement"):app1_lite.index("</table>", app1_lite.index("<tr><td>Retirement"))], "")
 app2 = f"""
 <h1>Uniform Residential Loan Application (continued)</h1>
 <p class="small">Borrower: {B['name']} &nbsp;|&nbsp; Lender Loan No. PHL-2026-38815</p>
@@ -384,5 +389,10 @@ if __name__ == "__main__":
     packet.save(os.path.join(OUT, "whitfield_loan_packet.pdf"), garbage=3, deflate=True)
     print(f"{'whitfield_loan_packet.pdf':36} {packet.page_count} page(s)  "
           f"{os.path.getsize(os.path.join(OUT, 'whitfield_loan_packet.pdf')) / 1024:6.1f} KB  <- the packet")
+    small = fitz.open()
+    for f, pages in [("loan application", [app1_lite + app2[app2.index("<h2>"):app2.index("<h2>Section 6")] + app2[app2.index("<p style"):]]), ("loan estimate", [le1]), ("bank statement", [bank])]:
+        pdf(small, f, pages)
+    small.save(os.path.join(OUT, "whitfield_3doc_packet.pdf"), garbage=3, deflate=True)
+    print(f"{'whitfield_3doc_packet.pdf':36} {small.page_count} page(s)  <- application, loan estimate, bank statement")
     a, nf = key()
     print(f"total {total} pages; answer_key.md: {a} answerable + {nf} not-found questions")

@@ -1,12 +1,12 @@
 # Answer key — synthetic borrower file
 
-SYNTHETIC TEST DATA. Page numbers are of `whitfield_loan_packet.pdf` — the same as uploading the five separate PDFs together in filename order (01 → 05):
+SYNTHETIC TEST DATA. Page numbers are of `whitfield_loan_packet.pdf`, five documents in one file:
 
-- `01_loan_application.pdf` → pages 1–2
-- `02_pay_slips.pdf` → pages 3–4
-- `03_bank_statement.pdf` → page 5
-- `04_loan_estimate.pdf` → pages 6–7
-- `05_preliminary_title_report.pdf` → page 8
+- loan application → pages 1–2
+- pay slips → pages 3–4
+- bank statement → page 5
+- loan estimate → pages 6–7
+- preliminary title report → page 8
 
 ## Answerable (expected answer — source)
 

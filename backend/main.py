@@ -7,7 +7,7 @@ import re
 import uuid
 from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Literal, Optional
 
 import multiprocess.resource_tracker as rt
 
@@ -47,8 +47,8 @@ from db.database import Base, SessionLocal, engine
 from db.models import (Account, ChatMessage, ChatSession, IngestJob, ReviewDecision, ensure_columns,
                        LoginFailure, RefreshToken, now_ist)
 import job_queue
-from llm.llm_router import (check_user_key, embed_model, estimate_cost_usd, llm as _llm,
-                            set_user_key)
+from llm.llm_router import (check_user_cloudflare, check_user_key, embed_model,
+                            estimate_cost_usd, llm as _llm, set_user_credentials)
 from observability import (flush as trace_flush, init_observability, record_cost,
                            record_stream_quality, set_output, trace_message)
 
@@ -616,18 +616,51 @@ def get_credits(current_user: dict = Depends(get_current_user)):
 class KeyCheckRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    key: str = Field(min_length=10, max_length=200)
+    provider: Literal["GEMINI", "CLOUDFLARE"] = "GEMINI"
+    key: str = Field(min_length=10, max_length=512)
+    account_id: str = ""
+
+
+_CF_ACCOUNT_RE = re.compile(r"^[0-9a-fA-F]{32}$")
+
+
+def _own_credentials(request: Request) -> tuple[str | None, str, str]:
+    has_gemini = "X-Gemini-Key" in request.headers
+    has_cf = "X-Cloudflare-API-Token" in request.headers or "X-Cloudflare-Account-ID" in request.headers
+    gemini = (request.headers.get("X-Gemini-Key") or "").strip()
+    token = (request.headers.get("X-Cloudflare-API-Token") or "").strip()
+    account = (request.headers.get("X-Cloudflare-Account-ID") or "").strip()
+    if has_gemini and has_cf:
+        raise HTTPException(status_code=400, detail="Choose one own-credential provider.")
+    if has_cf:
+        if not token or len(token) > 512 or not _CF_ACCOUNT_RE.fullmatch(account):
+            raise HTTPException(status_code=400, detail="Cloudflare needs a valid account ID and API token.")
+        return "CLOUDFLARE", token, account
+    if has_gemini:
+        if not gemini or len(gemini) > 512:
+            raise HTTPException(status_code=400, detail="Invalid Gemini API key.")
+        return "GEMINI", gemini, ""
+    return None, "", ""
 
 
 @app.post("/api/account/check-key")
 @limiter.limit("10/minute")
 def check_key(request: Request, body: KeyCheckRequest,
               current_user: dict = Depends(get_current_user)):
-    """Validate a user's own Gemini API key. The key is never stored."""
+    """Validate own credentials without storing them."""
     try:
-        check_user_key(body.key.strip())
+        if body.provider == "CLOUDFLARE":
+            if not _CF_ACCOUNT_RE.fullmatch(body.account_id):
+                raise HTTPException(status_code=400, detail="Invalid Cloudflare account ID.")
+            check_user_cloudflare(body.account_id, body.key.strip())
+        else:
+            if body.account_id:
+                raise HTTPException(status_code=400, detail="Gemini does not use a Cloudflare account ID.")
+            check_user_key(body.key.strip())
+    except HTTPException:
+        raise
     except Exception:
-        raise HTTPException(status_code=400, detail="Gemini rejected that API key.")
+        raise HTTPException(status_code=400, detail=f"{body.provider.title()} rejected those credentials.")
     return {"ok": True}
 
 
@@ -851,7 +884,7 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
       done  -> stream finished and both turns are persisted
       error -> a message to show in place of the answer"""
     uid = current_user["user_id"]
-    user_key = (request.headers.get("X-Gemini-Key") or "").strip()[:200] or None
+    own_provider, own_key, own_account = _own_credentials(request)
 
     def _prepare():
         """Own the chat, rehydrate, rewrite the follow-up, retrieve. Returns
@@ -860,12 +893,12 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
         try:
             chat = _owned_chat(db, chat_id, uid)
 
-            if user_key is None and _credits_used_today(db, uid) >= DAILY_MESSAGE_CAP:
+            if own_provider is None and _credits_used_today(db, uid) >= DAILY_MESSAGE_CAP:
                 raise HTTPException(
                     status_code=429,
                     detail=(f"Daily limit reached — {DAILY_MESSAGE_CAP} messages "
                             f"per day. Your credits reset at midnight IST, or add "
-                            f"your own Gemini API key in Settings to keep asking."),
+                            f"your own provider credentials in Settings to keep asking."),
                 )
 
             store = _get_retriever(db, chat)
@@ -913,7 +946,7 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
             if is_first and chat.title in ("New Chat", chat.filename):
                 chat.title = _title_from_question(body.question)
             db.add(ChatMessage(chat_id=chat_id, user_id=uid, role="user",
-                               content=body.question, own_key=bool(user_key)))
+                               content=body.question, own_key=bool(own_provider)))
             db.add(ChatMessage(chat_id=chat_id, user_id=uid, role="assistant",
                                content=answer, sources=sources))
             chat.updated_at = now_ist()
@@ -923,7 +956,7 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
             db.close()
 
     async def event_stream():
-        set_user_key(user_key)
+        set_user_credentials(own_provider, own_key, own_account)
         with trace_message(body.question, uid, chat_id) as span:
             try:
                 try:
@@ -964,9 +997,9 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
                 record_cost(span, stream_usage, _cost)
 
                 answer = "".join(parts).strip()
-                if not answer and user_key:
-                    yield _sse("error", "Your Gemini API key returned no answer. It may be invalid, "
-                                        "expired or out of quota; check it in Settings.")
+                if not answer and own_provider:
+                    yield _sse("error", f"Your {own_provider.title()} credentials returned no answer. "
+                                        "Check them in Settings or try again.")
                     return
                 if not answer:
                     answer = LLM_EMPTY_ANSWER

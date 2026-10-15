@@ -156,24 +156,38 @@ def provider_down(provider: str | None = None) -> bool:
     return _breakers[(provider or LLM_MODEL)].is_open
 
 
-_user_key: ContextVar[str | None] = ContextVar("user_gemini_key", default=None)
-_user_clients: dict = {}
+_user_credentials: ContextVar[tuple[str, str, str] | None] = ContextVar(
+    "user_llm_credentials", default=None)
 
 
-def set_user_key(key: str | None) -> None:
-    """Use this Gemini key for the current request's completions. Never stored."""
-    _user_key.set(key or None)
+def set_user_credentials(provider: str | None, key: str = "", account_id: str = "") -> None:
+    """Use these credentials only for the current request's completions."""
+    _user_credentials.set((provider, key, account_id) if provider else None)
+
+
+def _user_cloudflare_client(account_id: str, token: str):
+    from openai import OpenAI
+    return OpenAI(
+        api_key=token,
+        base_url=f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1",
+        timeout=LLM_TIMEOUT_S,
+        max_retries=0,
+    )
+
+
+def check_user_cloudflare(account_id: str, token: str) -> None:
+    """Check that these credentials can call the model used for answers."""
+    _user_cloudflare_client(account_id, token).chat.completions.create(
+        model=CLOUDFLARE_MODEL,
+        messages=[{"role": "user", "content": "Say OK"}],
+        max_tokens=4,
+    )
 
 
 def _user_client(key: str):
-    """A Gemini client for one user's key, cached in memory only."""
-    client = _user_clients.get(key)
-    if client is None:
-        if len(_user_clients) >= 64:
-            _user_clients.clear()
-        client = _user_clients[key] = genai.Client(
-            api_key=key, http_options=types.HttpOptions(timeout=LLM_TIMEOUT_S * 1000))
-    return client
+    """Build a Gemini client for this call; never cache user credentials."""
+    return genai.Client(
+        api_key=key, http_options=types.HttpOptions(timeout=LLM_TIMEOUT_S * 1000))
 
 
 def check_user_key(key: str) -> None:
@@ -201,7 +215,9 @@ def _with_retries(fn, provider: str, what: str):
             log.warning("provider call failed", extra={
                 "provider": provider, "op": what, "attempt": attempt,
                 "of": RETRY_ATTEMPTS, "status": _status_of(exc),
-                "retryable": retryable, "error": f"{type(exc).__name__}: {exc}"[:200]})
+                "retryable": retryable,
+                "error": type(exc).__name__ if provider.startswith("USER_")
+                         else f"{type(exc).__name__}: {exc}"[:200]})
             if not retryable or attempt == RETRY_ATTEMPTS:
                 raise
             delay = min(RETRY_MAX_S, RETRY_BASE_S * (2 ** (attempt - 1)))
@@ -296,9 +312,9 @@ class LLMRouter:
         return self._gemini_complete(prompt, temp, max_tok, thinking, model)
 
     def _cloudflare_complete(self, prompt: str, temperature: float,
-                             max_tokens: int) -> tuple[str, dict]:
+                             max_tokens: int, client=None) -> tuple[str, dict]:
         """Single Workers AI call through the OpenAI-compatible endpoint."""
-        r = self._cf.chat.completions.create(
+        r = (client or self._cf).chat.completions.create(
             model=CLOUDFLARE_MODEL,
             messages=[{"role": "user", "content": prompt}],
             temperature=temperature,
@@ -360,16 +376,21 @@ class LLMRouter:
         model    = kwargs.get("model") or (GEMINI_FAST_MODEL if kwargs.get("fast")
                                            else GEMINI_CHAT_MODEL)
 
-        key = _user_key.get()
-        if key:
+        own = _user_credentials.get()
+        if own:
+            provider, key, account_id = own
             try:
-                text, usage = _with_retries(
-                    lambda: self._gemini_complete(prompt, temp, max_tok, thinking, model,
-                                                  client=_user_client(key)),
-                    "USER_GEMINI", "complete")
+                if provider == "GEMINI":
+                    call = lambda: self._gemini_complete(
+                        prompt, temp, max_tok, thinking, model, client=_user_client(key))
+                else:
+                    call = lambda: self._cloudflare_complete(
+                        prompt, temp, max_tok, client=_user_cloudflare_client(account_id, key))
+                text, usage = _with_retries(call, f"USER_{provider}", "complete")
                 return MockResponse(text, usage)
             except Exception as e:
-                log.error("own-key call failed", extra={"error": f"{type(e).__name__}: {e}"[:200]})
+                log.error("own-credential call failed", extra={"provider": provider,
+                                                                  "error": type(e).__name__})
                 return MockResponse("")
 
         primary = LLM_MODEL
@@ -414,12 +435,12 @@ class LLMRouter:
         model    = kwargs.get("model") or GEMINI_CHAT_MODEL
 
         self.last_stream_usage = {}
-        key = _user_key.get()
-        gemini = _user_client(key) if key else self._gemini
+        own = _user_credentials.get()
 
-        if self._cf and not key:
+        if (own and own[0] == "CLOUDFLARE") or (self._cf and not own):
             try:
-                for chunk in self._cf.chat.completions.create(
+                cf = _user_cloudflare_client(own[2], own[1]) if own else self._cf
+                for chunk in cf.chat.completions.create(
                     model=CLOUDFLARE_MODEL,
                     messages=[{"role": "user", "content": prompt}],
                     temperature=temp,
@@ -442,12 +463,16 @@ class LLMRouter:
                     if delta is not None and delta != "":
                         yield delta if isinstance(delta, str) else str(delta)
             except Exception as e:
-                print(f"⚠️  {CLOUDFLARE_MODEL} stream failed ({type(e).__name__}: {e})")
+                if own:
+                    log.warning("own Cloudflare stream failed", extra={"error": type(e).__name__})
+                else:
+                    print(f"⚠️  {CLOUDFLARE_MODEL} stream failed ({type(e).__name__}: {e})")
             return
 
-        if not gemini:
-            return
         try:
+            gemini = _user_client(own[1]) if own and own[0] == "GEMINI" else self._gemini
+            if not gemini:
+                return
             for chunk in gemini.models.generate_content_stream(
                 model=model,
                 contents=prompt,
@@ -469,7 +494,10 @@ class LLMRouter:
                 if chunk.text:
                     yield chunk.text
         except Exception as e:
-            print(f"⚠️  {model} stream failed ({type(e).__name__}: {e})")
+            if own:
+                log.warning("own Gemini stream failed", extra={"error": type(e).__name__})
+            else:
+                print(f"⚠️  {model} stream failed ({type(e).__name__}: {e})")
 
 
 class GeminiEmbeddingModel:

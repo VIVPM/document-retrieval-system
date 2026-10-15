@@ -380,12 +380,13 @@ class LLMRouter:
         if own:
             provider, key, account_id = own
             try:
-                if provider == "GEMINI":
-                    call = lambda: self._gemini_complete(
-                        prompt, temp, max_tok, thinking, model, client=_user_client(key))
-                else:
-                    call = lambda: self._cloudflare_complete(
+                def call():
+                    if provider == "GEMINI":
+                        return self._gemini_complete(
+                            prompt, temp, max_tok, thinking, model, client=_user_client(key))
+                    return self._cloudflare_complete(
                         prompt, temp, max_tok, client=_user_cloudflare_client(account_id, key))
+
                 text, usage = _with_retries(call, f"USER_{provider}", "complete")
                 return MockResponse(text, usage)
             except Exception as e:

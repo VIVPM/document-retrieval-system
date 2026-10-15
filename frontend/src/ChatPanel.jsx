@@ -301,21 +301,28 @@ function ReviewPanel({ review, onAsk, full = false, decisions = {}, history = []
   )
 }
 
-// The user's own Gemini key: checked with Gemini, then kept only in this tab.
+// Own credentials are checked before they are kept in this tab.
 function OwnKeySection({ hasOwnKey, onOwnKeyChange }) {
+  const [provider, setProvider] = useState('GEMINI')
+  const [accountId, setAccountId] = useState('')
   const [draft, setDraft] = useState('')
   const [checking, setChecking] = useState(false)
   const [error, setError] = useState(null)
 
   const save = async () => {
     const key = draft.trim()
-    if (!key) return
+    const account_id = accountId.trim()
+    if (!key || (provider === 'CLOUDFLARE' && !account_id)) return
     setChecking(true)
     setError(null)
     try {
-      await api.checkOwnKey(key)
-      api.setOwnKey(key)
+      const credentials = provider === 'CLOUDFLARE'
+        ? { provider, key, account_id }
+        : { provider, key }
+      await api.checkOwnCredentials(credentials)
+      api.setOwnCredentials(credentials)
       setDraft('')
+      setAccountId('')
       onOwnKeyChange(true)
     } catch (err) {
       setError(err.message)
@@ -324,30 +331,43 @@ function OwnKeySection({ hasOwnKey, onOwnKeyChange }) {
     }
   }
 
+  const active = api.getOwnCredentials()?.provider
   return (
     <section className="settings-section">
-      <h3>Your Gemini API key</h3>
+      <h3>Use your own credentials</h3>
       {hasOwnKey ? (
         <div className="key-active">
-          <span>✓ Using your own key. Daily credits don&rsquo;t apply.</span>
-          <button className="btn btn-secondary btn-sm" onClick={() => { api.clearOwnKey(); onOwnKeyChange(false) }}>
-            Remove key
+          <span>✓ Using your own {active === 'CLOUDFLARE' ? 'Cloudflare' : 'Gemini'} credentials. Daily credits don&rsquo;t apply.</span>
+          <button className="btn btn-secondary btn-sm" onClick={() => { api.clearOwnCredentials(); onOwnKeyChange(false) }}>
+            Use app credits
           </button>
         </div>
       ) : (
         <>
           <p className="setting-hint">
-            Add your own key to keep asking after the daily credits run out. It stays in this
-            browser tab, is sent only with your questions, and is never stored on our server.{' '}
-            <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">Get a key</a>
+            Select a provider for questions and answers. Uploads and retrieval embeddings still use the app&rsquo;s key.
+            Your credentials stay in this browser tab and are never stored on our server.
           </p>
+          <label className="setting-hint" htmlFor="own-provider">Provider</label>
+          <select id="own-provider" value={provider} onChange={(e) => { setProvider(e.target.value); setError(null); setDraft('') }}>
+            <option value="GEMINI">Gemini</option>
+            <option value="CLOUDFLARE">Cloudflare</option>
+          </select>
+          {provider === 'CLOUDFLARE' && (
+            <input type="text" className="key-input" placeholder="Cloudflare account ID"
+                   aria-label="Cloudflare account ID" value={accountId} autoComplete="off" spellCheck={false}
+                   onChange={(e) => setAccountId(e.target.value)} />
+          )}
           <div className="key-row">
-            <input type="password" className="key-input" placeholder="Paste your Gemini API key"
+            <input type="password" className="key-input"
+                   placeholder={provider === 'GEMINI' ? 'Gemini API key' : 'Cloudflare API token'}
+                   aria-label={provider === 'GEMINI' ? 'Gemini API key' : 'Cloudflare API token'}
                    value={draft} autoComplete="off" spellCheck={false}
                    onChange={(e) => setDraft(e.target.value)}
                    onKeyDown={(e) => { if (e.key === 'Enter') save() }} />
-            <button className="btn btn-primary btn-sm" onClick={save} disabled={checking || !draft.trim()}>
-              {checking ? 'Checking…' : 'Save key'}
+            <button className="btn btn-primary btn-sm" onClick={save}
+                    disabled={checking || !draft.trim() || (provider === 'CLOUDFLARE' && !accountId.trim())}>
+              {checking ? 'Checking…' : 'Save credentials'}
             </button>
           </div>
           {error && <p className="key-error">{error}</p>}

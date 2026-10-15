@@ -106,7 +106,7 @@ export default function App() {
   const [deleting, setDeleting] = useState(false)
   const [loading, setLoading] = useState(true)
   const [credits, setCredits] = useState(null)
-  const [hasOwnKey, setHasOwnKey] = useState(Boolean(api.getOwnKey()))
+  const [hasOwnKey, setHasOwnKey] = useState(Boolean(api.getOwnCredentials()))
 
   useEffect(() => {
     api.setUnauthorizedHandler(() => {
@@ -238,8 +238,8 @@ export default function App() {
         <span className="lp-wordmark"><span className="lp-logo">📄</span> DocQA</span>
         <div className="header-user">
           {hasOwnKey ? (
-            <span className="credits credits-own" title="Questions use your own Gemini API key, so daily credits don't apply.">
-              Your API key
+            <span className="credits credits-own" title={`Questions use your own ${api.getOwnCredentials()?.provider === 'CLOUDFLARE' ? 'Cloudflare' : 'Gemini'} credentials, so daily credits don't apply.`}>
+              Using your own account
             </span>
           ) : credits && (
             <span

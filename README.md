@@ -17,7 +17,7 @@ A **loan-file copilot** for home-loan (mortgage) officers: upload a borrower's p
 *   **Answer Generation**: **gemini-2.5-flash** with thinking capped at 2048 — on an ambiguous multi-candidate question it enumerates candidates with sources instead of guessing. Thinking tokens bill at the output rate, so the cap bounds the tail (dynamic permits 24,576) without touching the ~300-token median.
 *   **Two models, split on measured need**: classification and per-page boundary detection run on **gemini-2.5-flash-lite** (closed-set label, yes/no answer — and boundary detection fires once per *page*, making it the volume driver of ingest cost). Answers and query rewriting stay on flash.
 *   **Automatic file review**: once a packet is ingested, the application's claims (income, employer, balances, declarations, loan terms) are checked against the pay slips, bank statement, Loan Estimate and title report. Each check shows both sides' values with their pages, in a panel beside the chat (a drawer on narrow screens) so the officer can ask about a flag without leaving it. See [Automatic file review](#-automatic-file-review).
-*   **Bring your own Gemini key**: **⚙ Settings** (a popup holding the key and the search parameters) lets a user add their own Gemini API key. It is checked with Gemini first, kept only in that browser tab, sent with each question and **never stored on the server**. With a key set, the daily credit limit is skipped, those questions don't use up credits, and the header shows "Your API key" instead of the credit count. The key pays for the question rewrite and the answer; search and uploads stay on the app's keys.
+*   **Use your own provider**: Settings lets a user choose Gemini (API key) or Cloudflare Workers AI (account ID and API token). Credentials are validated before they are kept in the browser tab, sent only with questions, and never stored by the server. Question rewriting and answers use the selected provider without spending daily credits; uploads and retrieval embeddings still use the app's keys. Without own credentials, the app's daily cap applies.
 *   **Flag decisions with an audit trail**: every mismatch or review flag can be **accepted** (a note is required) or **confirmed** as an issue. Decisions are append-only, record who decided and when, and the sidebar counts open flags per borrower.
 *   **Several PDFs per borrower**: upload up to 20 files at once; they are merged, in order, into the file's one document.
 *   **Grounded answers**: values are quoted exactly with their document and page, never computed or rounded; a question the file cannot answer gets "not in the documents", not a guess. Summaries use their own rules.
@@ -291,8 +291,8 @@ Every endpoint except signup and login requires `Authorization: Bearer <token>`.
 | `POST` | `/api/chats/{id}/message` | Ask a question. Returns `question_asked` and `question_searched` so a rewritten follow-up is diagnosable |
 | `PATCH` | `/api/chats/{id}` | Rename |
 | `DELETE` | `/api/chats/{id}` | Drops the namespace **and** the rows. Flag decisions are kept (audit trail) |
-| `GET` | `/api/account/credits` | `{cap, used, remaining}` for today; questions asked with the user's own key are not counted |
-| `POST` | `/api/account/check-key` | `{key}` — validates a Gemini API key without storing it (reads model metadata, bills nothing). **400** if Gemini rejects it |
+| `GET` | `/api/account/credits` | `{cap, used, remaining}` for today; questions using own credentials are not counted |
+| `POST` | `/api/account/check-key` | `{provider: "GEMINI"\|"CLOUDFLARE", key, account_id?}` — validates own credentials; Cloudflare checks the answer model with a small completion |
 | `POST` | `/api/chats/{id}/review/decisions` | `{check_key, decision: accepted\|confirmed, note}`. Accept requires a note. **409** if the file has no finished review, **422** for an unknown flag |
 
 ### Request and response headers
@@ -302,7 +302,8 @@ Every endpoint except signup and login requires `Authorization: Bearer <token>`.
 | `Idempotency-Key` | request | Optional, on `POST /document`. A resubmitted upload otherwise ingests twice and bills Textract twice. When absent the server derives a key from the chat id plus a hash of the bytes, so a double-tap or a client retry after a timeout is deduplicated with no client change. The response carries `duplicate: true` when a job was reused. |
 | `X-Request-ID` | both | Echoed on every response. Send one to have it used as the correlation id; otherwise the server generates it. The same id is stored on the job row and adopted by the worker, so one value follows an upload across both processes. |
 | `Retry-After` | response | Sent with every `429`, in seconds, derived from the limit that tripped. |
-| `X-Gemini-Key` | request | Optional, on `POST /message`. The user's own Gemini key for this one question: used for the rewrite and the answer, skips the daily cap, never stored or logged. |
+| `X-Gemini-Key` | request | Optional, on `POST /message`. Uses the user's Gemini key for rewrite and answer, without spending app credits. |
+| `X-Cloudflare-Account-ID`, `X-Cloudflare-API-Token` | request | Optional pair, on `POST /message`. Uses the user's Cloudflare account for rewrite and answer, without spending app credits. Never send with `X-Gemini-Key`. |
 
 
 **Chat lifecycle:** `awaiting_document → processing → ready | failed`

@@ -36,14 +36,10 @@ VALID_DOC_TYPES = {
 
 @lru_cache(maxsize=1)
 def _api_key() -> str:
-    key = os.getenv("TYPESAFE_API_KEY")
+    key = os.getenv("TYPESAFE_API_KEY") or dotenv_values(
+        Path(__file__).resolve().parents[1] / ".env").get("TYPESAFE_API_KEY")
     if not key:
-        for folder in list(Path(__file__).resolve().parents)[:5]:
-            key = dotenv_values(folder / ".env").get("TYPESAFE_API_KEY")
-            if key:
-                break
-    if not key:
-        raise RuntimeError("TYPESAFE_API_KEY is required for Jev ingestion.")
+        raise RuntimeError("TYPESAFE_API_KEY is required for Jev ingestion. Set it in backend/.env.")
     return key
 
 

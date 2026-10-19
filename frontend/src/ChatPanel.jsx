@@ -249,10 +249,12 @@ function ReviewPanel({ review, onAsk, full = false, decisions = {}, history = []
   const flagKeys = review.checks.map((c, i) => `${c.id}:${i}`)
     .filter((k, i) => ['mismatch', 'review'].includes(review.checks[i].status))
   const resolved = flagKeys.filter((k) => decisions[k]).length
+  const absent = review.checks.filter((c) => c.id.startsWith('not_in_packet_')).length
   const headline = [
     s.mismatch && `${s.mismatch} mismatch${s.mismatch > 1 ? 'es' : ''}`,
     s.review && `${s.review} to review`,
-    s.missing && `${s.missing} not found`,
+    s.missing && `${s.missing} field${s.missing > 1 ? 's' : ''} not found`,
+    absent && `${absent} not in packet`,
     `${s.match} matched`,
     resolved && `${resolved}/${flagKeys.length} decided`,
   ].filter(Boolean).join(' · ')

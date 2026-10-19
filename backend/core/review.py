@@ -75,7 +75,7 @@ SCHEMAS: dict[str, dict] = {
         },
     },
 }
-REQUIRED_TYPES = ("Loan Application", "Pay Slip", "Bank Statement")
+COMPARISON_TYPES = ("Loan Application", "Pay Slip", "Bank Statement")
 
 
 def norm_label(s: str) -> str:
@@ -364,6 +364,7 @@ def _end(s) -> str:
     return str(s).rstrip(".")
 
 
+# Packet contents are evidence, not a loan-completeness checklist.
 def run_rules(docs: list[dict]) -> list[dict]:
     """Compare extracted fields across documents. Pure function of `docs`."""
     first = {}
@@ -375,52 +376,57 @@ def run_rules(docs: list[dict]) -> list[dict]:
     le, title = first.get("Lender Fee Sheet"), first.get("Preliminary Title Report")
     checks = []
 
-    for t in REQUIRED_TYPES:
+    for t in COMPARISON_TYPES:
         if t not in first:
-            checks.append(_check(f"missing_{t.lower().replace(' ', '_')}", f"{t} present",
-                                 "missing", f"No {t} found in the packet.", []))
+            checks.append(_check(f"not_in_packet_{t.lower().replace(' ', '_')}", f"{t} not in packet",
+                                 "info", f"No {t} was included; comparisons needing it were not run.", []))
 
-    stated = _val(app, "stated_monthly_income")
-    gross = _val(slip, "gross_pay")
-    ppm = periods_per_month(_val(slip, "pay_frequency"), _val(slip, "period_start"),
-                            _val(slip, "period_end")) if slip else None
-    verified = round(gross * ppm, 2) if gross and ppm else None
-    ev = [_ev(app, "stated_monthly_income", "Stated monthly income"),
-          _ev(slip, "gross_pay", "Gross pay per period")]
-    if stated is None or verified is None:
-        checks.append(_check("income", "Income", "missing",
-                             "Could not read " + ("stated income" if stated is None else
-                                                  "pay-slip gross or pay frequency") + ".", ev))
-    else:
-        diff = stated - verified
-        ok = abs(diff) <= INCOME_TOLERANCE * verified
-        checks.append(_check("income", "Income", "match" if ok else "mismatch",
-                             f"Stated {_money(stated)}/month; pay slips support {_money(verified)}/month"
-                             + ("" if ok else f" — {'over' if diff > 0 else 'under'}stated by {_money(abs(diff))}/month")
-                             + ".", ev))
+    if app is not None and slip is not None:
+        stated = _val(app, "stated_monthly_income")
+        gross = _val(slip, "gross_pay")
+        ppm = periods_per_month(_val(slip, "pay_frequency"), _val(slip, "period_start"),
+                                _val(slip, "period_end"))
+        verified = round(gross * ppm, 2) if gross and ppm else None
+        ev = [_ev(app, "stated_monthly_income", "Stated monthly income"),
+              _ev(slip, "gross_pay", "Gross pay per period")]
+        if stated is None or verified is None:
+            checks.append(_check("income", "Income", "missing",
+                                 "Could not read " + ("stated income" if stated is None else
+                                                      "pay-slip gross or pay frequency") + ".", ev))
+        else:
+            diff = stated - verified
+            ok = abs(diff) <= INCOME_TOLERANCE * verified
+            checks.append(_check("income", "Income", "match" if ok else "mismatch",
+                                 f"Stated {_money(stated)}/month; pay slips support {_money(verified)}/month"
+                                 + ("" if ok else f" — {'over' if diff > 0 else 'under'}stated by {_money(abs(diff))}/month")
+                                 + ".", ev))
 
-    a_emp, s_emp = _val(app, "employer"), _val(slip, "employer")
-    ev = [_ev(app, "employer", "Employer (application)"), _ev(slip, "employer", "Employer (pay slip)")]
-    if not a_emp or not s_emp:
-        checks.append(_check("employer", "Employer", "missing", "Employer not found on both documents.", ev))
+        a_emp, s_emp = _val(app, "employer"), _val(slip, "employer")
+        ev = [_ev(app, "employer", "Employer (application)"), _ev(slip, "employer", "Employer (pay slip)")]
+        if not a_emp or not s_emp:
+            checks.append(_check("employer", "Employer", "missing", "Employer not found on both documents.", ev))
+        else:
+            na, ns = _norm_company(a_emp), _norm_company(s_emp)
+            ok = na == ns or na in ns or ns in na
+            checks.append(_check("employer", "Employer", "match" if ok else "mismatch",
+                                 f"Application: {a_emp}; pay slip: {_end(s_emp)}.", ev))
     else:
-        na, ns = _norm_company(a_emp), _norm_company(s_emp)
-        ok = na == ns or na in ns or ns in na
-        checks.append(_check("employer", "Employer", "match" if ok else "mismatch",
-                             f"Application: {a_emp}; pay slip: {_end(s_emp)}.", ev))
+        verified = None
+        s_emp = _val(slip, "employer")
 
-    a_bal, e_bal = _val(app, "checking_balance"), _val(bank, "ending_balance")
-    ev = [_ev(app, "checking_balance", "Stated balance"), _ev(bank, "ending_balance", "Statement ending balance")]
-    if a_bal is None or e_bal is None:
-        checks.append(_check("balance", "Checking balance", "missing", "Balance not found on both documents.", ev))
-    else:
-        ok = abs(a_bal - e_bal) <= BALANCE_TOLERANCE * max(e_bal, 1)
-        checks.append(_check("balance", "Checking balance", "match" if ok else "mismatch",
-                             f"Application {_money(a_bal)}; statement ends at {_money(e_bal)}.", ev))
+    if app is not None and bank is not None:
+        a_bal, e_bal = _val(app, "checking_balance"), _val(bank, "ending_balance")
+        ev = [_ev(app, "checking_balance", "Stated balance"), _ev(bank, "ending_balance", "Statement ending balance")]
+        if a_bal is None or e_bal is None:
+            checks.append(_check("balance", "Checking balance", "missing", "Balance not found on both documents.", ev))
+        else:
+            ok = abs(a_bal - e_bal) <= BALANCE_TOLERANCE * max(e_bal, 1)
+            checks.append(_check("balance", "Checking balance", "match" if ok else "mismatch",
+                                 f"Application {_money(a_bal)}; statement ends at {_money(e_bal)}.", ev))
 
     net = _val(slip, "net_pay")
     deposits = (bank or {}).get("lists", {}).get("deposits", [])
-    employer_words = set(_norm_company(s_emp or a_emp).split())
+    employer_words = set(_norm_company(s_emp or _val(app, "employer")).split())
 
     def is_payroll(dep):
         desc = str(dep.get("description", "")).lower()
@@ -440,7 +446,7 @@ def run_rules(docs: list[dict]) -> list[dict]:
                                  [_ev(slip, "net_pay", "Net pay")] +
                                  [{"doc_type": "Bank Statement", "label": d.get("description"),
                                    "value": d.get("amount"), "page": d.get("page")} for d in hits]))
-        income = verified or stated
+        income = verified or _val(app, "stated_monthly_income")
         if income:
             big = [d for d in deposits if d not in payroll and d.get("amount_value") is not None
                    and abs(d["amount_value"]) > LARGE_DEPOSIT_SHARE * income]
@@ -659,7 +665,14 @@ if __name__ == "__main__":
     assert "$8,750.00" in inc["detail"] and "overstated by $750.00" in inc["detail"], inc["detail"]
 
     got = {c["id"]: c["status"] for c in run_rules(docs[:1])}
-    assert got["missing_pay_slip"] == "missing" and got["missing_bank_statement"] == "missing"
+    assert got["not_in_packet_pay_slip"] == "info" and got["not_in_packet_bank_statement"] == "info"
+    assert "income" not in got and "employer" not in got and "balance" not in got
+    three_docs = [{**docs[0], "fields": {k: v for k, v in docs[0]["fields"].items()
+                                        if k not in ("stated_monthly_income", "employer")}}, docs[2], docs[3]]
+    got = {c["id"]: c["status"] for c in run_rules(three_docs)}
+    assert got["not_in_packet_pay_slip"] == "info"
+    assert "income" not in got and "employer" not in got and "large_deposits" not in got
+    assert got["balance"] == "match" and got["loan_amount"] == "match"
     table_page = [(5, _flat("07/15 | DIRECT DEP SIERRA RIDGE LOGISTICS PAYROLL | +$2,845.31 | $50,479.00"))]
     assert _locate("07/15 DIRECT DEP SIERRA RIDGE LOGISTICS PAYROLL +$2,845.31", table_page) == 5
     assert _locate("DIRECT DEP ACME PAYROLL", table_page) is None

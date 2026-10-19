@@ -15,7 +15,7 @@ A **loan-file copilot** for home-loan (mortgage) officers: upload a borrower's p
 *   **Hybrid Search Engine**: A single **Pinecone** sparse-dense index holding `gemini-embedding-2` embeddings (768-dim) alongside **BM25** sparse vectors, fused by a tunable `alpha` (0.0 = pure keyword → 1.0 = pure semantic).
 *   **Conversational follow-ups**: a follow-up like *"and when does it lock?"* is condensed into a standalone question **before retrieval**, because retrieval runs before any LLM sees a prompt. History is read server-side from Neon.
 *   **Answer Generation**: **gemini-2.5-flash** with thinking capped at 2048 — on an ambiguous multi-candidate question it enumerates candidates with sources instead of guessing. Thinking tokens bill at the output rate, so the cap bounds the tail (dynamic permits 24,576) without touching the ~300-token median.
-*   **Two models, split on measured need**: classification and per-page boundary detection run on **gemini-2.5-flash-lite** (closed-set label, yes/no answer — and boundary detection fires once per *page*, making it the volume driver of ingest cost). Answers and query rewriting stay on flash.
+*   **Two decision paths**: page classification and boundary detection use **TypeSafe Jev** (closed-set choice and yes/no probability). Gemini flash-lite still handles per-document context lines and review field extraction; answers and query rewriting stay on flash.
 *   **Automatic file review**: once a packet is ingested, the application's claims (income, employer, balances, declarations, loan terms) are checked against the pay slips, bank statement, Loan Estimate and title report. Each check shows both sides' values with their pages, in a panel beside the chat (a drawer on narrow screens) so the officer can ask about a flag without leaving it. See [Automatic file review](#-automatic-file-review).
 *   **Use your own provider**: Settings lets a user choose Gemini (API key) or Cloudflare Workers AI (account ID and API token). Credentials are validated before they are kept in the browser tab, sent only with questions, and never stored by the server. Question rewriting and answers use the selected provider without spending daily credits; uploads and retrieval embeddings still use the app's keys. Without own credentials, the app's daily cap applies.
 *   **Flag decisions with an audit trail**: every mismatch or review flag can be **accepted** (a note is required) or **confirmed** as an issue. Decisions are append-only, record who decided and when, and the sidebar counts open flags per borrower.
@@ -45,9 +45,9 @@ A loan officer's core check is *stare and compare*: the application holds the bo
 | Loan amount, purchase price | application vs Loan Estimate |
 | Stated debt payments | stated monthly payments vs statement debits |
 | Liens, easements | title report; "payoff required" read from the report's own wording |
-| Missing documents | required document types absent from the file |
+| Packet contents | Loan Application, Pay Slip and Bank Statement are noted when absent; comparisons needing absent documents are skipped, not called failed |
 
-Each check is **mismatch**, **review**, **missing**, **match** or **info**. A review that fails is stored as failed and never fails the upload: the document stays searchable. If a worker is killed mid-review, the job's lease brings it back and the review is rebuilt; a review left on `running` with no job able to finish it is marked failed ("re-upload to review") by the worker's periodic check, so the panel never spins forever.
+Each check is **mismatch**, **review**, **missing**, **match** or **info**. Documents absent from the packet are informational, not a loan-completeness verdict. The original uploaded/merged PDF is retained separately for an owner-only preview available as soon as upload completes. Swipe left/right or use arrow buttons to view its pages; review evidence opens the cited page. Older chats uploaded before this feature have no original to show. A review that fails is stored as failed and never fails the upload: the document stays searchable. If a worker is killed mid-review, the job's lease brings it back and the review is rebuilt; a review left on `running` with no job able to finish it is marked failed ("re-upload to review") by the worker's periodic check, so the panel never spins forever.
 
 **Try it:** `samples/synthetic_borrower/whitfield_loan_packet.pdf` is an 8-page synthetic packet with five logical documents and planted issues. `whitfield_3doc_packet.pdf` is a three-page alternative: loan application, loan estimate, then bank statement. `answer_key.md` covers the 8-page packet's review and 35 test questions. Regenerate both with `python samples/synthetic_borrower/make_samples.py`.
 
@@ -84,7 +84,7 @@ graph TD
 
     subgraph INGEST ["3 · Ingest pipeline — worker.py, from the job queue"]
         direction LR
-        Ext["📄 Extract · Textract / PyMuPDF"] --> Split["🏷️ Classify + split · flash-lite"] --> Chunk["✂️ Chunk · tables atomic · contextual"] --> Emb["🧬 Embed · 768d"] --> Up["📤 BM25 fit + Pinecone upsert"]
+        Ext["📄 Extract · Textract / PyMuPDF"] --> Split["🏷️ Classify + split · Jev"] --> Chunk["✂️ Chunk · tables atomic · contextual"] --> Emb["🧬 Embed · 768d"] --> Up["📤 BM25 fit + Pinecone upsert"]
     end
 
     subgraph DATA ["4 · Data layer — Neon Postgres + Pinecone"]
@@ -99,6 +99,7 @@ graph TD
 
     subgraph EXT ["6 · External AI services"]
         Gem["☁️ Google Gemini · flash / flash-lite / embeddings"]
+        Jev["☁️ TypeSafe Jev · page labels + boundaries"]
         Tex["☁️ AWS Textract · TABLES + FORMS"]
     end
 
@@ -187,6 +188,7 @@ EXTRACT_METHOD=textract
 AWS_ACCESS_KEY_ID=your_aws_access_key
 AWS_SECRET_ACCESS_KEY=your_aws_secret
 AWS_REGION=us-east-1
+TYPESAFE_API_KEY=your_typesafe_key   # required for Jev page classification; locally read from ancestor .env if unset
 
 # Database + auth
 DATABASE_URL=postgresql://user:pass@ep-xxx-pooler.region.aws.neon.tech/dbname?sslmode=require
@@ -197,7 +199,7 @@ ALLOWED_ORIGINS=https://your-frontend.onrender.com,http://localhost:5173  # CORS
 MAX_UPLOAD_MB=3           # upload cap (MB), enforced while streaming
 DAILY_MESSAGE_CAP=5       # REQUIRED — messages per account per day (1 credit = question + answer)
 GEMINI_THINKING_BUDGET=2048  # fixed ceiling (default); 0 = off, -1 = dynamic
-GEMINI_FAST_MODEL=gemini-2.5-flash-lite   # classification + boundary detection
+GEMINI_FAST_MODEL=gemini-2.5-flash-lite   # contextual identities and review extraction
 CONTEXTUAL_CHUNKING=1     # attach per-document identity to each chunk (default 1, set 0 to disable)
 
 # Ingest queue / worker (all optional — defaults shown)
@@ -293,6 +295,8 @@ Every endpoint except signup and login requires `Authorization: Bearer <token>`.
 | `DELETE` | `/api/chats/{id}` | Drops the namespace **and** the rows. Flag decisions are kept (audit trail) |
 | `GET` | `/api/account/credits` | `{cap, used, remaining}` for today; questions using own credentials are not counted |
 | `POST` | `/api/account/check-key` | `{provider: "GEMINI"\|"CLOUDFLARE", key, account_id?}` — validates own credentials; Cloudflare checks the answer model with a small completion |
+| `GET` | `/api/chats/{id}/pdf` | Owner-only original PDF; unavailable for pre-feature uploads |
+| `GET` | `/api/chats/{id}/pdf/pages/{page}` | Owner-only PNG of a 1-based page; includes `X-PDF-Pages` count |
 | `POST` | `/api/chats/{id}/review/decisions` | `{check_key, decision: accepted\|confirmed, note}`. Accept requires a note. **409** if the file has no finished review, **422** for an unknown flag |
 
 ### Request and response headers
@@ -316,7 +320,9 @@ A chat that belongs to another user returns **404, not 403** — a 403 would con
 
 The system's performance is validated using the **Ragas** evaluation framework, focusing on faithfulness, relevancy, and retrieval quality.
 
-### Current pipeline — k=6, 250 questions (AWS Textract extraction + contextual chunking; generator `gemini-2.5-flash-lite`, judge `gemini-3.5-flash-lite`)
+### Historical 250-question baseline — k=6 (Textract + contextual chunking; generator `gemini-2.5-flash-lite`, judge `gemini-3.5-flash-lite`)
+
+These scores predate the Jev ingestion switch. Re-ingest and rerun before treating them as results for the active pipeline.
 
 All three retrieval modes over the same corpus and models — raw per-question output in `results/ragas_k_6_{hybrid_new, vector_6, sparse_6}.csv`:
 
@@ -413,6 +419,20 @@ Two notes for whoever runs these next. `login` reported real samples (n=15 idle,
 
 This is also the first confirmation that one correlation id spans both processes on live traffic: `3e16af72` appears on the API's `upload queued` and the worker's `ingest started` for the same document. Note `--calibrate` needs an API **and** a worker already running (`docker compose up`); unlike `--ramp`, it does not spawn them.
 
+**Post-ingest query-path timing (local, 3 questions).** Directly timed the message-route functions against an already-ingested `whitfield_3doc_packet.pdf` chat (24 chunks), with real Gemini and Pinecone. No upload or re-ingest occurred. These are step medians, **not** HTTP end-to-end latency:
+
+| Step | Median | Range |
+|---|---:|---:|
+| DB ownership, credits and history | 714ms | 706–758ms |
+| Rewrite question | 950ms | 894–1,162ms |
+| Retrieval (including embedding and Pinecone) | 978ms | 876–2,359ms |
+| └ Query embedding | 694ms | 592–939ms |
+| └ Pinecone query | 284ms | 283–1,386ms |
+| Build citations | <1ms | <1ms |
+| Generate full answer | 1,875ms | 1,698–2,415ms |
+
+The sum of step medians is **~4.5s** with a warm retriever. Rehydrating it after a restart or eviction added **2,016ms** on this run (~6.5s total estimate). First answer token arrived **1,685ms into generation** (included in its full-stream time, not extra). DB answer-save, SSE/HTTP overhead and browser delay were not measured. The separate live `--calibrate` run above measured **9.3s p50** end to end; do not compare the two as like-for-like.
+
 **A second calibrate run accidentally became the best test of the retry path we have.** Gemini returned `429 RESOURCE_EXHAUSTED` mid-ingest — a real quota exhaustion, not a simulated fault — and the job failed on attempt 1 (66.5s), failed again on attempt 2 (57.3s), and **succeeded on attempt 3 of 3** (71.3s). Answers were unaffected: p50 8.9s, p95 12.5s, matching the clean run's 9.3s / 12.8s.
 
 Everything the queue is supposed to do under a provider outage, it did:
@@ -461,7 +481,8 @@ document-retrieval-system/
 │   │   ├── retriever.py               # Hybrid search, routing, namespaces
 │   │   ├── pdf_processor.py           # AWS Textract integration (TABLES + FORMS)
 │   │   ├── chunker.py                 # Structure-aware chunking
-│   │   ├── document_classifier.py     # Doc-type & boundary detection
+│   │   ├── document_classifier_jev.py # Active doc-type & boundary decisions (TypeSafe Jev)
+│   │   ├── document_classifier_gemini.py # Previous Gemini implementation (inactive)
 │   │   ├── query_rewriter.py          # Follow-up → standalone question
 │   │   ├── answer_generator.py        # Grounded answer prompt
 │   │   ├── review.py                  # Automatic file review: fields, grounding guard, rules

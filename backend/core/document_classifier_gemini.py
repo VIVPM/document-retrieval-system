@@ -1,5 +1,4 @@
-"""document_classifier.py — LLM-based document type classification and
-                          boundary detection between consecutive pages."""
+"""Gemini document type classification and boundary detection (inactive backup)."""
 
 from llm.llm_router import llm as gemma_llm
 from logging_setup import get_logger
@@ -53,7 +52,10 @@ def _validate_doc_type(raw: str) -> str:
 
 
 def classify_document_type(text: str, max_length: int = 1500) -> str:
-    """    Classify the document type based on its textual content."""
+    """    Classify the document type based on its textual content.
+    A page with no text is "Other": the model guesses a label from an empty prompt."""
+    if not (text or "").strip():
+        return "Other"
     text = text[:max_length]
 
     prompt = f"""

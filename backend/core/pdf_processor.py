@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import List, Tuple
 
 from core.models import Block, PageInfo, LogicalDocument
-from core.document_classifier import classify_document_type, detect_document_boundary
+from core.document_classifier_jev import classify_document_type, detect_document_boundary
 
 PAGE_CONCURRENCY = int(os.getenv("PAGE_CONCURRENCY", "8"))
 
@@ -177,6 +177,15 @@ def _extract_pymupdf(file_path: str, y_tol: float = 3.0) -> dict:
     return pages
 
 
+# Two neighbouring pages classified as different reviewed document types always
+# start a new document: the boundary model calls an application and its Loan
+# Estimate "same" because they share applicant, loan number and amount.
+def _split_on_type_change(page_types: List[str], same_as_prev: List[bool]) -> List[bool]:
+    from core.review import SCHEMAS
+    return [same and not (a != b and a in SCHEMAS and b in SCHEMAS)
+            for same, a, b in zip(same_as_prev, page_types, page_types[1:])]
+
+
 def extract_and_analyze_pdf(
     pdf_file,
     filename: str = "document.pdf",
@@ -267,6 +276,7 @@ def extract_and_analyze_pdf(
             range(1, len(pages_info)),
         ))
 
+    same_as_prev = _split_on_type_change(page_types, same_as_prev)
     for p, t in zip(pages_info, page_types):
         p.page_type = t
     starts = [0] + [i for i, same in enumerate(same_as_prev, start=1) if not same]

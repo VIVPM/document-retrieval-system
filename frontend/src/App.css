@@ -966,9 +966,10 @@ input[type=range]::-webkit-slider-thumb {
 .review-chip {
   font-size: 0.7rem; color: var(--text-secondary);
   background: var(--bg-card); border: 1px solid var(--border);
-  border-radius: 999px; padding: 2px 8px;
+  border-radius: 999px; padding: 2px 8px; font-family: inherit; cursor: pointer;
   max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.review-chip:hover { border-color: var(--accent); }
 .review-chip b { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
 .review-ask {
   flex: none; align-self: center;
@@ -1040,6 +1041,24 @@ input[type=range]::-webkit-slider-thumb {
 @media (max-width: 640px) {
   .review-toggle { margin-left: 0; }
 }
+
+.pdf-modal {
+  position: relative; width: min(900px, 100%); height: min(90vh, 1000px);
+  display: flex; flex-direction: column; gap: 8px;
+}
+.pdf-modal h2 { padding-right: 28px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pdf-page {
+  flex: 1; min-height: 0; display: grid; grid-template-rows: minmax(100%, auto);
+  justify-items: center; align-items: start; overflow-y: auto;
+  background: var(--bg-primary); border: 1px solid var(--border); touch-action: pan-y;
+}
+.pdf-page img { width: 100%; height: auto; user-select: none; }
+.pdf-page > .spinner, .pdf-page > p { align-self: center; }
+.pdf-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px; font-size: 0.82rem; }
+.pdf-controls button { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-card); color: var(--text-primary); cursor: pointer; font-size: 1.4rem; line-height: 1; }
+.pdf-controls button:disabled { opacity: 0.4; cursor: default; }
+.pdf-controls a { margin-left: auto; color: var(--accent); }
+.proc-head .doc-strip-btn { flex-shrink: 0; }
 
 .settings-modal { width: min(34rem, 100%); max-height: calc(100vh - 2.5rem); overflow-y: auto; }
 .settings-section { margin-bottom: 1.1rem; }

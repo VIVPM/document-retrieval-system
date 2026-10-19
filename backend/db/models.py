@@ -35,6 +35,15 @@ class LoginFailure(Base):
     created_at = Column(DateTime(timezone=True), default=now_ist)
 
 
+class ChatDocument(Base):
+    """Original packet for owner-only preview; separate from chat list queries."""
+
+    __tablename__ = "drs_chat_documents"
+
+    chat_id = Column(String, primary_key=True)
+    payload = Column(LargeBinary, nullable=False)
+
+
 class ChatSession(Base):
     """One chat, owning one uploaded document."""
 
@@ -65,6 +74,8 @@ def ensure_columns(engine) -> None:
     every read of ChatSession. Idempotent; run by both the API and the worker."""
     from sqlalchemy import text
     with engine.begin() as c:
+        c.execute(text("CREATE TABLE IF NOT EXISTS drs_chat_documents "
+                       "(chat_id VARCHAR PRIMARY KEY, payload BYTEA NOT NULL)"))
         c.execute(text("ALTER TABLE drs_chat_sessions ADD COLUMN IF NOT EXISTS review JSONB"))
         c.execute(text("ALTER TABLE drs_chat_messages ADD COLUMN IF NOT EXISTS own_key BOOLEAN DEFAULT FALSE"))
         c.execute(text(

@@ -114,7 +114,7 @@ async function authFetch(path, opts, retry = true) {
   return res
 }
 
-async function request(path, { method = 'GET', body, form, auth = true } = {}) {
+async function request(path, { method = 'GET', body, form, auth = true, blob = false, raw = false } = {}) {
   const headers = {}
   if (body) headers['Content-Type'] = 'application/json'
   const opts = { method, headers, body: form || (body ? JSON.stringify(body) : undefined) }
@@ -140,7 +140,7 @@ async function request(path, { method = 'GET', body, form, auth = true } = {}) {
     throw new Error(detail || `Request failed (${res.status})`)
   }
 
-  return res.status === 204 ? null : res.json()
+  return res.status === 204 ? null : raw ? res : blob ? res.blob() : res.json()
 }
 
 // ── Auth ────────────────────────────────────────────────────────────────
@@ -177,6 +177,11 @@ export const chatStatus = (id) => request(`/api/chats/${id}/status`)
 export const renameChat = (id, title) =>
   request(`/api/chats/${id}`, { method: 'PATCH', body: { title } })
 export const deleteChat = (id) => request(`/api/chats/${id}`, { method: 'DELETE' })
+export const getPdf = (id) => request(`/api/chats/${id}/pdf`, { blob: true })
+export async function getPdfPage(id, page) {
+  const res = await request(`/api/chats/${id}/pdf/pages/${page}`, { raw: true })
+  return { image: await res.blob(), pages: Number(res.headers.get('X-PDF-Pages')) }
+}
 export const decideFlag = (id, check_key, decision, note) =>
   request(`/api/chats/${id}/review/decisions`, { method: 'POST', body: { check_key, decision, note } })
 

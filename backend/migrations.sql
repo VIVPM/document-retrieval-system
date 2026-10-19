@@ -62,6 +62,12 @@ ALTER TABLE drs_chat_sessions ADD COLUMN IF NOT EXISTS stage TEXT;
 ALTER TABLE drs_chat_sessions ADD COLUMN IF NOT EXISTS review JSONB;
 
 
+CREATE TABLE IF NOT EXISTS drs_chat_documents (
+    chat_id VARCHAR PRIMARY KEY,
+    payload BYTEA NOT NULL
+);
+
+
 CREATE TABLE IF NOT EXISTS drs_chat_messages (
     id         SERIAL PRIMARY KEY,
     chat_id    TEXT NOT NULL,

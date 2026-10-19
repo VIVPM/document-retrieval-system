@@ -11,10 +11,78 @@ const STAGES = [
   { key: 'store', label: 'Storing in vector DB', sub: 'Indexing in Pinecone for hybrid search', at: 47 },
 ]
 
+function PdfPreview({ chatId, filename, startPage, onClose }) {
+  const [page, setPage] = useState(startPage)
+  const [pages, setPages] = useState(0)
+  const [pageResult, setPageResult] = useState(null)
+  const [pdfUrl, setPdfUrl] = useState(null)
+  const [pdfError, setPdfError] = useState(null)
+  const touch = useRef(null)
+  const loading = pageResult?.page !== page
+
+  useEffect(() => () => { if (pageResult?.url) URL.revokeObjectURL(pageResult.url) }, [pageResult])
+  useEffect(() => () => { if (pdfUrl) URL.revokeObjectURL(pdfUrl) }, [pdfUrl])
+  useEffect(() => {
+    let active = true
+    api.getPdf(chatId).then((blob) => {
+      const url = URL.createObjectURL(blob)
+      if (active) setPdfUrl(url)
+      else URL.revokeObjectURL(url)
+    }).catch((err) => { if (active) setPdfError(err.message) })
+    return () => { active = false }
+  }, [chatId])
+  useEffect(() => {
+    let active = true
+    api.getPdfPage(chatId, page).then(({ image, pages: count }) => {
+      const url = URL.createObjectURL(image)
+      if (active) { setPageResult({ page, url }); setPages(count) }
+      else URL.revokeObjectURL(url)
+    }).catch((err) => { if (active) setPageResult({ page, error: err.message }) })
+    return () => { active = false }
+  }, [chatId, page])
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose()
+      if (e.key === 'ArrowLeft') setPage((p) => Math.max(1, p - 1))
+      if (e.key === 'ArrowRight') setPage((p) => Math.min(pages || p, p + 1))
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [pages, onClose])
+
+  return (
+    <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="modal pdf-modal" role="dialog" aria-modal="true" aria-labelledby="pdf-title">
+        <button className="modal-close" autoFocus aria-label="Close PDF preview" onClick={onClose}>✕</button>
+        <h2 id="pdf-title">{filename}</h2>
+        <div className="pdf-page" onTouchStart={(e) => { touch.current = [e.changedTouches[0].screenX, e.changedTouches[0].screenY] }}
+             onTouchEnd={(e) => {
+               if (!touch.current) return
+               const dx = e.changedTouches[0].screenX - touch.current[0]
+               const dy = e.changedTouches[0].screenY - touch.current[1]
+               if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy))
+                 setPage((p) => Math.max(1, Math.min(pages || p, p + (dx < 0 ? 1 : -1))))
+               touch.current = null
+             }}>
+          {loading ? <span className="spinner spinner-lg" />
+            : pageResult.error ? <p>{pageResult.error}</p> : <img src={pageResult.url} alt={`Page ${page} of ${pages}`} />}
+        </div>
+        <div className="pdf-controls">
+          <button type="button" onClick={() => setPage((p) => p - 1)} disabled={page <= 1} aria-label="Previous page">‹</button>
+          <span aria-live="polite">Page {page}{pages ? ` of ${pages}` : ''}</span>
+          <button type="button" onClick={() => setPage((p) => p + 1)} disabled={!pages || page >= pages} aria-label="Next page">›</button>
+          {pdfUrl && <a href={pdfUrl} target="_blank" rel="noopener noreferrer">Open original PDF</a>}
+          {pdfError && <span>{pdfError}</span>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // Ingestion runs for ~a minute (GPU extraction, per-page LLM calls, per-chunk
 // embeddings), so the upload response only says "processing". This walks the
 // user through what's actually happening rather than parking on a spinner.
-function ProcessingView({ filename, since, stage }) {
+function ProcessingView({ filename, since, stage, onPreview }) {
   const [elapsed, setElapsed] = useState(() => Math.max(0, Math.floor((Date.now() - since) / 1000)))
   useEffect(() => {
     const t = setInterval(() => setElapsed(Math.max(0, Math.floor((Date.now() - since) / 1000))), 500)
@@ -34,6 +102,7 @@ function ProcessingView({ filename, since, stage }) {
       <div className="proc-card">
         <div className="proc-head">
           <span className="proc-file">📄 {filename}</span>
+          <button className="doc-strip-btn" onClick={onPreview}>Preview PDF</button>
           <span className="proc-clock">{Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, '0')}</span>
         </div>
 
@@ -233,7 +302,7 @@ function FlagDecision({ flagKey, decision, history, onDecide }) {
 // Below this width the review panel overlays the chat as a drawer.
 const isNarrow = () => window.innerWidth <= 1100
 
-function ReviewPanel({ review, onAsk, full = false, decisions = {}, history = [], onDecide }) {
+function ReviewPanel({ review, onAsk, onPreview, full = false, decisions = {}, history = [], onDecide }) {
   const issues = review?.summary ? review.summary.mismatch + review.summary.review : 0
   const [open, setOpen] = useState(true)
   if (!review) return null
@@ -278,9 +347,10 @@ function ReviewPanel({ review, onAsk, full = false, decisions = {}, history = []
                 {c.evidence?.some((e) => e.value) && (
                   <div className="review-ev">
                     {c.evidence.filter((e) => e.value).map((e, j) => (
-                      <span key={j} className="review-chip" title={e.doc_type}>
+                      <button key={j} type="button" className="review-chip" title={`Preview ${e.doc_type} page ${e.page}`}
+                              onClick={() => onPreview(e.page || 1)}>
                         {e.label}: <b>{String(e.value)}</b>{e.page ? ` · p.${e.page}` : ''}
-                      </span>
+                      </button>
                     ))}
                   </div>
                 )}
@@ -391,6 +461,9 @@ export default function ChatPanel({ chat, onChatChanged, addToast, hasOwnKey, on
   const [decisions, setDecisions] = useState({})
   const [history, setHistory] = useState([])
   const [showReview, setShowReview] = useState(() => !isNarrow())
+  const [previewPage, setPreviewPage] = useState(null)
+  const openPdf = (page = 1) => setPreviewPage(page)
+  const closePdf = () => setPreviewPage(null)
 
   const [docFilter, setDocFilter] = useState('All')
   const [numChunks, setNumChunks] = useState(6)
@@ -409,6 +482,7 @@ export default function ChatPanel({ chat, onChatChanged, addToast, hasOwnKey, on
   useEffect(() => {
     let cancelled = false
     setLoading(true)
+    closePdf()
     setMessages([])
     setDocFilter('All')
     setReview(null)
@@ -496,10 +570,16 @@ export default function ChatPanel({ chat, onChatChanged, addToast, hasOwnKey, on
   const summarize = useCallback(
     () => runMessage('Summarize this document.', { summarize: true }), [runMessage])
 
+  const pdfPreview = previewPage !== null && (
+    <PdfPreview key={chatId} chatId={chatId} filename={chat.filename} startPage={previewPage} onClose={closePdf} />
+  )
+
   if (chat.status === 'processing') {
     return (
       <section className="chat-panel lp-mesh">
-        <ProcessingView filename={chat.filename || 'your document'} since={uploadStartedAt} stage={stage} />
+        <ProcessingView filename={chat.filename || 'your document'} since={uploadStartedAt} stage={stage}
+                        onPreview={() => openPdf()} />
+        {pdfPreview}
       </section>
     )
   }
@@ -559,6 +639,9 @@ export default function ChatPanel({ chat, onChatChanged, addToast, hasOwnKey, on
           </button>
         )}
         <div className="doc-strip-actions">
+          <button className="doc-strip-btn" onClick={() => openPdf()} title="Preview the original PDF">
+            📄 Preview PDF
+          </button>
           <button className="doc-strip-btn" onClick={() => { if (isNarrow()) setShowReview(false); summarize() }} disabled={querying}
                   title="Summarize the whole document (reads every page, not just the top matches)">
             📝 Summarize
@@ -568,6 +651,8 @@ export default function ChatPanel({ chat, onChatChanged, addToast, hasOwnKey, on
           </button>
         </div>
       </div>
+
+      {pdfPreview}
 
       <div className="file-body">
       <div className="chat-col">
@@ -654,7 +739,7 @@ export default function ChatPanel({ chat, onChatChanged, addToast, hasOwnKey, on
 
       {review && showReview && (
         <aside className="review-aside" aria-label="File review">
-          <ReviewPanel review={review} onAsk={askAbout} full
+          <ReviewPanel review={review} onAsk={askAbout} onPreview={openPdf} full
                        decisions={decisions} history={history} onDecide={decide} />
         </aside>
       )}

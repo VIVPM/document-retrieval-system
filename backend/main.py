@@ -29,7 +29,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 from fastapi import (Depends, FastAPI, File, HTTPException,
                      Request, UploadFile)
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -42,9 +42,10 @@ from auth import (LOGIN_LOCKOUT_MINUTES, MAX_LOGIN_FAILURES, REFRESH_TTL_DAYS,
 from core.answer_generator import (LLM_EMPTY_ANSWER, build_sources,
                                     stream_answer)
 from core.document_store import EnhancedDocumentStoreHybrid
+from core.pdf_preview import page_png
 from core.query_rewriter import MAX_HISTORY_MESSAGES, rewrite_standalone
 from db.database import Base, SessionLocal, engine
-from db.models import (Account, ChatMessage, ChatSession, IngestJob, ReviewDecision, ensure_columns,
+from db.models import (Account, ChatDocument, ChatMessage, ChatSession, IngestJob, ReviewDecision, ensure_columns,
                        LoginFailure, RefreshToken, now_ist)
 import job_queue
 from llm.llm_router import (check_user_cloudflare, check_user_key, embed_model,
@@ -215,6 +216,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-PDF-Pages"],
 )
 
 init_observability()
@@ -728,6 +730,50 @@ def get_chat(chat_id: str, current_user: dict = Depends(get_current_user)):
         db.close()
 
 
+def _pdf_bytes(db, chat_id: str, user_id: int) -> bytes:
+    _owned_chat(db, chat_id, user_id)
+    document = db.get(ChatDocument, chat_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="Original PDF is unavailable for this chat.")
+    return bytes(document.payload)
+
+
+@app.get("/api/chats/{chat_id}/pdf")
+def preview_pdf(chat_id: str, current_user: dict = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        data = _pdf_bytes(db, chat_id, current_user["user_id"])
+        return Response(data, media_type="application/pdf", headers={
+            "Cache-Control": "private, no-store",
+            "Content-Disposition": 'inline; filename="document.pdf"',
+            "X-Content-Type-Options": "nosniff",
+        })
+    finally:
+        db.close()
+
+
+# Render one page on demand; use object storage for larger packets.
+@app.get("/api/chats/{chat_id}/pdf/pages/{page}")
+def preview_pdf_page(chat_id: str, page: int, current_user: dict = Depends(get_current_user)):
+    import fitz
+
+    db = SessionLocal()
+    try:
+        data = _pdf_bytes(db, chat_id, current_user["user_id"])
+    finally:
+        db.close()
+    try:
+        image, count = page_png(data, page)
+    except IndexError:
+        raise HTTPException(status_code=404, detail="Page not found.")
+    except (fitz.FileDataError, RuntimeError, ValueError, ZeroDivisionError):
+        raise HTTPException(status_code=422, detail="PDF preview unavailable.")
+    return Response(image, media_type="image/png", headers={
+        "Cache-Control": "private, no-store", "X-PDF-Pages": str(count),
+        "X-Content-Type-Options": "nosniff",
+    })
+
+
 @app.post("/api/chats/{chat_id}/review/decisions", status_code=201)
 def decide_flag(chat_id: str, body: DecisionRequest,
                 current_user: dict = Depends(get_current_user)):
@@ -848,6 +894,7 @@ async def upload_document(
             idempotency_key=(request.headers.get("Idempotency-Key") or "").strip() or None,
             request_id=logging_setup.correlation_id.get(),
         )
+        db.merge(ChatDocument(chat_id=chat_id, payload=bytes(buf)))
         db.commit()
 
         log.info("upload queued" if created else "upload deduplicated",
@@ -1061,6 +1108,7 @@ def delete_chat(chat_id: str, current_user: dict = Depends(get_current_user)):
         ).retriever.delete_chat()
 
         db.query(ChatMessage).filter(ChatMessage.chat_id == chat_id).delete()
+        db.query(ChatDocument).filter(ChatDocument.chat_id == chat_id).delete()
         db.query(IngestJob).filter(IngestJob.chat_id == chat_id).delete()
         db.delete(chat)
         db.commit()

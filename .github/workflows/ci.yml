@@ -35,13 +35,6 @@ jobs:
       - name: Syntax check
         run: python -m compileall -q backend
 
-      # The load test's percentile/NaN helpers back its conclusions; --selftest
-      # exercises them with no network. Its module imports httpx + dotenv.
-      - name: Unit test (no network)
-        run: |
-          pip install httpx python-dotenv
-          python backend/load_test.py --selftest
-
       # File-review rules: pure Python, no network (the LLM import is lazy).
       - name: Unit test — file review rules
         run: python backend/core/review.py

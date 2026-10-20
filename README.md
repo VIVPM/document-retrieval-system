@@ -69,6 +69,7 @@ are reached once per layer rather than by every stage, so the flow stays
 legible. Observability is cross-cutting.
 
 ```mermaid
+%%{init: {"flowchart": {"rankSpacing": 12, "nodeSpacing": 12, "padding": 4}, "themeVariables": {"fontSize": "12px"}}}%%
 graph TD
     User(["👤 User"])
 
@@ -166,7 +167,7 @@ python -c "from db.database import engine, Base; import db.models; Base.metadata
 
 #### D. Configure `backend/.env`
 
-Copy `backend/.env.example` to `backend/.env` and fill in your credentials. The `.env` file is not committed.
+Copy `backend/.env.example` to `backend/.env` and fill in your credentials.
 
 
 ### 4. Running the Backend and the Ingest Worker

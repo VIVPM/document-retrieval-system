@@ -164,71 +164,9 @@ python -c "from db.database import engine, Base; import db.models; Base.metadata
 # ...or paste migrations.sql into the Neon SQL editor
 ```
 
-#### D. Complete `backend/.env`
+#### D. Configure `backend/.env`
 
-```text
-# Vector store
-PINECONE_API_KEY=your_key
-PINECONE_INDEX_NAME=your_index
-PINECONE_HOST=https://your-index-xxxxx.svc.region.pinecone.io
-
-# Text generation provider — GEMINI or CLOUDFLARE. Required, no default.
-LLM_MODEL=GEMINI
-
-# Embeddings (always Gemini) + generation when LLM_MODEL=GEMINI
-GEMINI_API_KEY=your_gemini_key
-
-# Cloudflare Workers AI — only required when LLM_MODEL=CLOUDFLARE
-CLOUDFLARE_ACCOUNT_ID=your_account_id
-CLOUDFLARE_API_TOKEN=your_workers_ai_token
-
-# Extraction — pluggable. Default textract; set to "pymupdf" for local text-layer read (no AWS calls).
-EXTRACT_METHOD=textract
-# AWS Textract (only required when EXTRACT_METHOD=textract)
-AWS_ACCESS_KEY_ID=your_aws_access_key
-AWS_SECRET_ACCESS_KEY=your_aws_secret
-AWS_REGION=us-east-1
-TYPESAFE_API_KEY=your_typesafe_key   # required for Jev page classification; locally read from ancestor .env if unset
-
-# Database + auth
-DATABASE_URL=postgresql://user:pass@ep-xxx-pooler.region.aws.neon.tech/dbname?sslmode=require
-JWT_SECRET=<python -c "import secrets; print(secrets.token_urlsafe(48))">
-
-# Optional
-ALLOWED_ORIGINS=https://your-frontend.onrender.com,http://localhost:5173  # CORS allow-list (comma-separated)
-MAX_UPLOAD_MB=3           # upload cap (MB), enforced while streaming
-DAILY_MESSAGE_CAP=5       # REQUIRED — messages per account per day (1 credit = question + answer)
-GEMINI_THINKING_BUDGET=2048  # fixed ceiling (default); 0 = off, -1 = dynamic
-GEMINI_FAST_MODEL=gemini-2.5-flash-lite   # contextual identities and review extraction
-CONTEXTUAL_CHUNKING=1     # attach per-document identity to each chunk (default 1, set 0 to disable)
-
-# Ingest queue / worker (all optional — defaults shown)
-MAX_CONCURRENT_JOBS=2       # ingests one worker runs at once
-INGEST_MAX_ATTEMPTS=3       # tries before a job is failed for good
-WORKER_POLL_SECONDS=2       # idle poll interval
-RUN_WORKER_IN_PROCESS=0     # 1 = run the worker inside the API (one process)
-# The job timeout (900s) and the claim lease (1800s) are constants in code, not
-# env vars: they are one invariant (timeout < lease) and env vars let the two
-# halves drift apart per environment. worker.py / job_queue.py.
-
-# Timeouts
-LLM_TIMEOUT_S=120           # ceiling on one provider call (both providers)
-ALLOW_FAILOVER=1            # on a provider outage, retry on the other one if
-                            # its credentials are set. 0 pins traffic to
-                            # LLM_MODEL even during an outage.
-
-# Logging — JSON by default so lines are machine-readable in a log drain.
-# LOG_FORMAT=text gives a readable line for a local terminal.
-LOG_FORMAT=json             # json | text
-LOG_LEVEL=INFO
-TOKEN_TTL_HOURS=24
-
-# Observability (optional — all tracing stays off unless these are set)
-LANGFUSE_PUBLIC_KEY=pk-lf-...
-LANGFUSE_SECRET_KEY=sk-lf-...
-LANGFUSE_HOST=https://us.cloud.langfuse.com
-OTEL_SERVICE_NAME=document-retrieval-system
-```
+Copy `backend/.env.example` to `backend/.env` and fill in your credentials. The `.env` file is not committed.
 
 
 ### 4. Running the Backend and the Ingest Worker
@@ -320,9 +258,7 @@ A chat that belongs to another user returns **404, not 403** — a 403 would con
 
 The system's performance is validated using the **Ragas** evaluation framework, focusing on faithfulness, relevancy, and retrieval quality.
 
-### Historical 250-question baseline — k=6 (Textract + contextual chunking; generator `gemini-2.5-flash-lite`, judge `gemini-3.5-flash-lite`)
-
-These scores predate the Jev ingestion switch. Re-ingest and rerun before treating them as results for the active pipeline.
+### 250-question evaluation — k=6 (generator `gemini-2.5-flash-lite`, judge `gemini-3.5-flash-lite`)
 
 All three retrieval modes over the same corpus and models — raw per-question output in `results/ragas_k_6_{hybrid_new, vector_6, sparse_6}.csv`:
 
@@ -344,108 +280,6 @@ All three retrieval modes over the same corpus and models — raw per-question o
 
 ---
 
-## 🔥 Load testing & capacity
-
-`backend/load_test.py` spawns the **real** app with only the retrieval + LLM boundary stubbed, so a run is free and takes seconds — it exercises the async endpoints, the connection pool, JWT auth and SSE, not the model. Idle-vs-saturated phases, a `--ramp` capacity sweep, and `--calibrate` for a few real messages. The spawned server also runs the ingest worker in a background thread, because ingestion now lives in a separate process — without it `--calibrate` would upload a document and poll a chat that stays `processing` until its timeout.
-
-**Live Render ramp** — `--base https://document-retrieval-system-5gqx.onrender.com --ramp --mix read --levels 5,25,50,100 --duration 15 --ramp-stop-pct 1`. The four 15-second levels ran against the deployed API (not a locally spawned stub). A single dedicated account supplied the token; each "client" is a concurrent synthetic browse loop. The mix calls `/api/health`, `/api/chats` and `/api/chats/{id}`. Raw results: [`ramp_2026-09-29_11-36-45.json`](backend/load_test_results/ramp_2026-09-29_11-36-45.json).
-
-| Concurrent browse clients | p50 API | p95 API | req/s | errors / throttled |
-|---|---:|---:|---:|---:|
-| 5 | 578ms | 672ms | 10 | 0% / 0 |
-| 25 | 719ms | 1,641ms | 30 | 0% / 0 |
-| 50 | 1,828ms | 3,079ms | 26 | 0% / 0 |
-| **100** | **2,907ms** | **4,735ms** | **30** | **0% / 0** |
-
-**Measured healthy ceiling: ~25 concurrent browse clients** under the harness SLO (<1% errors and p95 <3× the 5-client baseline). At 50 and 100, latency crosses that SLO even with no errors; throughput plateaus near 30 req/s. The p95 combines successful responses from the three GET endpoints.
-
-An A/B on the pool found that 30 connections instead of 15 roughly doubles read throughput (~18 → ~33 req/s); streaming `/message` competes for DB connections with browse reads (`_prepare` / `_save`). `/health` stays flat under load (32 → 31ms); pool contention on `/api/chats` is the relevant signal.
-
-
-**Local ramp, one dev box (`--ramp`, read mix):**
-
-| Concurrent browse clients | p95 | req/s | errors |
-|---|---|---|---|
-| 3 | 1187ms | 4 | 0 |
-| 10 | 1218ms | 13 | 0 |
-| 25 | 1219ms | 33 | 0 |
-| 40 | 2031ms | 39 | 0 |
-
-Ceiling ~40, zero errors throughout. Retries, the circuit breaker, cost accounting and TTFT capture all sit on the request path and none of them show up as a cost here.
-
-**Read the saturated figure, not the multiplier.** Two runs with no code change between them:
-
-| run | idle p95 | saturated p95 | ratio |
-|---|---|---|---|
-| run 1 | 1375ms | 2156ms | ×1.6 |
-| run 2 | 938ms | **2156ms** | ×2.3 |
-
-The saturated `chats` p95 is **2156ms in both runs** — identical to the millisecond — while the ratio swung ×1.6 → ×2.3 purely on where the idle baseline landed. `/health` measured flat (16 → 16ms, ×1.0). The ramp re-run held its shape: 0 errors at 3/5/10/15/40 clients, ceiling ~40.
-
-One caveat on that re-run: the 25-client level reported 4.1% errors, and they are **not** the app. The spawned server's log shows `psycopg2.OperationalError: could not translate host name … neon.tech` — intermittent DNS on this machine, measured at roughly 1 failure in 12 `getaddrinfo` calls during the same session, and the reason the run had to be started three times. A level showing errors while the level above it shows none is the signature of an environment flap, not a capacity knee.
-
-### The two modes that had never been run
-
-**`--msg-seconds` at a realistic value.** Every saturated run above simulates generation at the default **2.0s**, but `--calibrate` measures the real figure at **~9s** — and feeding it back is the whole reason that mode prints *"feed a value near p50 to `--msg-seconds`"*. Done at last:
-
-| generation time | saturated `chats` p95 | answers streamed | errors |
-|---|---|---|---|
-| 2.0s (default) | 2156ms | 45 | 0 |
-| **8.9s (measured)** | **2312ms** | 27 | 0 |
-
-**A 4.5× longer generation costs browsing about 7%.** That is the useful result: pool contention is driven by how often a message *starts and finishes* — `_prepare` and `_save` are the bookends that take connections — not by how long the model streams in between. So the cheap default is not lying to you, and the realistic run mainly costs throughput (27 answers vs 45).
-
-**`--mix all`**, which adds login to every cycle and is the only way to get login numbers at all:
-
-| endpoint | idle p95 | saturated p95 | ratio |
-|---|---|---|---|
-| login | 3594ms | 3640ms | ×1.0 |
-| chats | 1594ms | 2515ms | ×1.6 |
-| health | 15ms | 16ms | ×1.1 |
-
-**Login is by far the slowest endpoint (~3.6s) and completely flat under load.** That combination is the point: the cost is bcrypt burning CPU, not the connection pool, so streaming answers do not touch it. It does halve browse throughput when included (6 → 3 req/s), which is why `--mix read` remains the right default for reading the *streaming* signal.
-
-Two notes for whoever runs these next. `login` reported real samples (n=15 idle, n=11 saturated) with **0 throttled** — the spawned server lifts rate limits, so the empty-bucket/`null` case the harness guards against does not arise here. And `health` printed `xnan` because its idle p95 was 0ms; the JSON report is still valid (`null`, no bare `NaN` token), so that is a terminal-display artifact.
-
-**End to end on live providers (`--calibrate 3`).** The figures above stub the LLM boundary; this run does not. Against a real API + worker, with real Textract, Gemini and Pinecone:
-
-| | |
-|---|---|
-| Ingest | upload → `ready` in **64s** (58.5s inside the worker) |
-| Pipeline | 7 pages → 3 logical documents → 18 chunks, contextual chunking + BM25 fit |
-| Answers | 3 real questions — **p50 9.3s**, p95 12.8s (min 8.9, max 12.8) |
-| Rewriter | 2 calls for 3 messages (the first has no history), $0.00023 / $0.000242 |
-| Cost | ~$0.03–0.05 for the run — 7 Textract pages plus a handful of Flash calls |
-
-This is also the first confirmation that one correlation id spans both processes on live traffic: `3e16af72` appears on the API's `upload queued` and the worker's `ingest started` for the same document. Note `--calibrate` needs an API **and** a worker already running (`docker compose up`); unlike `--ramp`, it does not spawn them.
-
-**Post-ingest query-path timing (local, 3 questions).** Directly timed the message-route functions against an already-ingested `whitfield_3doc_packet.pdf` chat (24 chunks), with real Gemini and Pinecone. No upload or re-ingest occurred. These are step medians, **not** HTTP end-to-end latency:
-
-| Step | Median | Range |
-|---|---:|---:|
-| DB ownership, credits and history | 714ms | 706–758ms |
-| Rewrite question | 950ms | 894–1,162ms |
-| Retrieval (including embedding and Pinecone) | 978ms | 876–2,359ms |
-| └ Query embedding | 694ms | 592–939ms |
-| └ Pinecone query | 284ms | 283–1,386ms |
-| Build citations | <1ms | <1ms |
-| Generate full answer | 1,875ms | 1,698–2,415ms |
-
-The sum of step medians is **~4.5s** with a warm retriever. Rehydrating it after a restart or eviction added **2,016ms** on this run (~6.5s total estimate). First answer token arrived **1,685ms into generation** (included in its full-stream time, not extra). DB answer-save, SSE/HTTP overhead and browser delay were not measured. The separate live `--calibrate` run above measured **9.3s p50** end to end; do not compare the two as like-for-like.
-
-**A second calibrate run accidentally became the best test of the retry path we have.** Gemini returned `429 RESOURCE_EXHAUSTED` mid-ingest — a real quota exhaustion, not a simulated fault — and the job failed on attempt 1 (66.5s), failed again on attempt 2 (57.3s), and **succeeded on attempt 3 of 3** (71.3s). Answers were unaffected: p50 8.9s, p95 12.5s, matching the clean run's 9.3s / 12.8s.
-
-Everything the queue is supposed to do under a provider outage, it did:
-
-* **`ready` took 207s instead of 64s** — the retries are visible in the wall clock and nowhere else.
-* **The chat was never flipped to `failed`** while attempts remained, so the user never saw "your upload is lost" during work that was about to succeed.
-* **Teardown ran between attempts** (`Deleted 0 vectors` each time), so no partial document accumulated across retries.
-* It used its **last attempt**. `INGEST_MAX_ATTEMPTS=3` is the whole margin against a provider having a bad minute.
-
-One rough edge this exposed: `calibrate()` calls `cleanup()` after printing results, and that call is not resilient to a transient DB blip — a DNS flap killed it, so the run reported its numbers and *then* traced back, leaving the load user behind. The numbers were already correct; re-run `--cleanup` and move on.
-
----
-
 ## 📈 Observability
 
 OpenTelemetry over OTLP exports provider-call spans to Langfuse when `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are set. Each question has a `chat-message` trace with rewrite and answer calls nested beneath it, tagged with user and session. Ingest calls run in raw thread pools and appear as standalone traces. Set `LANGFUSE_HOST` to select the Langfuse endpoint; `OTEL_SERVICE_NAME` is optional. Tracing failures are logged and never break a request.
@@ -458,7 +292,7 @@ OpenTelemetry over OTLP exports provider-call spans to Langfuse when `LANGFUSE_P
 
 `.github/workflows/ci.yml` runs on every push and PR:
 
-1. **backend** — `ruff`, `compileall`, `load_test.py --selftest` and `core/review.py` (file-review rules and grounding guard), all with no network.
+1. **backend** — `ruff`, `compileall` and `core/review.py` (file-review rules and grounding guard), all with no network.
 2. **frontend** — `npm ci`, `npm run lint`, `npm run build`.
 3. **docker** — build both images (no push), so a broken Dockerfile fails here, not at deploy.
 4. **deploy** — only after all three pass, only on push to `main`: POSTs the Render deploy hooks (`RENDER_DEPLOY_HOOK_*` secrets), skipping gracefully if they're unset.
@@ -502,7 +336,6 @@ document-retrieval-system/
 │   ├── worker.py                    # ingest worker — claims and runs queued jobs
 │   ├── job_queue.py                 # the queue: enqueue / claim / finish / reclaim
 │   ├── logging_setup.py             # JSON logs + correlation id
-│   ├── load_test.py                 # Capacity / responsiveness harness
 │   ├── Dockerfile                   # python:3.12-slim + uvicorn
 │   ├── migrations.sql               # Schema + housekeeping queries
 │   ├── requirements.txt
@@ -521,7 +354,7 @@ document-retrieval-system/
 ├── docker-compose.yml               # local api + frontend stack
 ├── ruff.toml
 ├── samples/synthetic_borrower/      # Synthetic loan packet + answer key for the review
-├── results/                         # Ragas metrics (k=6 CSVs; results_old/ = pre-migration baselines)
+├── results/                         # Ragas metrics (k=6 CSVs)
 └── README.md
 ```
 

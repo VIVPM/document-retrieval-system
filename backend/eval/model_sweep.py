@@ -21,6 +21,9 @@ from core.answer_generator import generate_answer_with_sources
 from core.chunker import chunk_by_structure
 from core.pdf_processor import extract_and_analyze_pdf
 from llm.llm_router import embed_model
+from observability import flush, init_observability, set_evaluation_output, trace_evaluation
+
+init_observability()
 
 MODELS = (os.getenv("EVAL_MODELS") or
           "gemini-2.5-flash,gemini-2.5-flash-lite,"
@@ -155,13 +158,19 @@ misses = defaultdict(list)
 
 for model in MODELS:
     t_start = time.time()
-    for q in QUESTIONS:
+    for i, q in enumerate(QUESTIONS):
         if q["kind"] == "lookup" and not q["retrieved"]:
             continue
-        for _ in range(TRIALS):
+        for trial in range(TRIALS):
             t0 = time.time()
-            r = generate_answer_with_sources(q["q"], q["ranked"], model=model)
-            ans, u = r["answer"], (r.get("usage") or {})
+            with trace_evaluation(q["q"], f"model-sweep-Q{i+1}-{model}-trial{trial+1}") as span:
+                r = generate_answer_with_sources(q["q"], q["ranked"], model=model)
+                ans, u = r["answer"], (r.get("usage") or {})
+                if q["kind"] == "absent":
+                    ok = bool(REFUSAL.search(ans))
+                else:
+                    ok = any(e in ans for e in q["expect"])
+                set_evaluation_output(span, ans, ok)
             secs[model] += time.time() - t0
             calls[model] += 1
             p = PRICE.get(model)
@@ -172,11 +181,9 @@ for model in MODELS:
             res[model]["think"] += u.get("thinking_tokens", 0)
 
             if q["kind"] == "absent":
-                ok = bool(REFUSAL.search(ans))
                 res[model]["absent_n"] += 1
                 res[model]["absent_ok"] += ok
             else:
-                ok = any(e in ans for e in q["expect"])
                 res[model]["look_n"] += 1
                 res[model]["look_ok"] += ok
             if not ok:
@@ -233,3 +240,4 @@ with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                "scores": {m: dict(res[m]) for m in MODELS},
                "misses": {m: misses[m] for m in MODELS}},
               f, indent=2, default=str)
+flush()

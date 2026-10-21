@@ -64,6 +64,27 @@ def init_observability():
 
 
 @contextmanager
+def trace_evaluation(question: str, case_id: str):
+    """Trace one evaluation case and nest its provider call beneath it."""
+    if _llm_tracer is None:
+        yield None
+        return
+    with _llm_tracer.start_as_current_span("evaluation-case") as span:
+        span.set_attribute("langfuse.trace.name", "evaluation-case")
+        span.set_attribute("langfuse.observation.input", question)
+        span.set_attribute("langfuse.observation.metadata.case_id", case_id)
+        yield span
+
+
+def set_evaluation_output(span, answer: str, passed: bool | None = None):
+    if span is None:
+        return
+    span.set_attribute("langfuse.observation.output", answer)
+    if passed is not None:
+        span.set_attribute("langfuse.observation.metadata.passed", passed)
+
+
+@contextmanager
 def trace_message(question: str, user_id, session_id):
     """Wrap one message so its LLM calls share a trace. Yields the span, or None if off."""
     if _llm_tracer is None:

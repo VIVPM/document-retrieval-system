@@ -19,6 +19,9 @@ import core.answer_generator as ag
 from core.chunker import chunk_by_structure
 from core.pdf_processor import extract_and_analyze_pdf
 from llm.llm_router import embed_model
+from observability import flush, init_observability, set_evaluation_output, trace_evaluation
+
+init_observability()
 
 MODEL = os.getenv("EVAL_MODEL", "gemini-2.5-flash")
 TRIALS = int(os.getenv("EVAL_TRIALS", "3"))
@@ -125,9 +128,12 @@ for i, (group, question, expect, forbid) in enumerate(CASES):
         ag.SYSTEM_RULES = rules
         ok = 0
         sample = ""
-        for _ in range(TRIALS):
-            ans = ag.generate_answer_with_sources(question, ranked, model=MODEL)["answer"]
-            ok += verdict(group, ans, expect, forbid)
+        for trial in range(TRIALS):
+            with trace_evaluation(question, f"prompt-eval-Q{i+1}-{name}-trial{trial+1}") as span:
+                ans = ag.generate_answer_with_sources(question, ranked, model=MODEL)["answer"]
+                passed = bool(verdict(group, ans, expect, forbid))
+                set_evaluation_output(span, ans, passed)
+            ok += passed
             sample = sample or ans
         ag.SYSTEM_RULES = VARIANTS["old"]
 
@@ -154,3 +160,4 @@ for d in bad:
     print(f"  [{d['group']}] {d['q']}  old={d['old']} new={d['new']}")
 if not bad:
     print("  none")
+flush()

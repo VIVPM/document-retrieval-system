@@ -28,6 +28,9 @@ from core.answer_generator import generate_answer_with_sources
 from core.chunker import chunk_by_structure
 from core.pdf_processor import extract_and_analyze_pdf
 from llm.llm_router import embed_model, llm
+from observability import flush, init_observability, set_evaluation_output, trace_evaluation
+
+init_observability()
 
 ARM_SPECS = [
     ("flash+think2048", "gemini-2.5-flash",      2048),
@@ -155,15 +158,17 @@ for i, (question, expect) in enumerate(QUESTIONS):
     for arm in ARMS:
         _, model, think = SPEC[arm]
         t0 = time.time()
-        r = generate_answer_with_sources(question, ranked, model=model,
-                                         thinking_budget=think)
-        u, ans = r.get("usage") or {}, r["answer"]
-        if expect is None:
-            hit = None
-        elif in_context:
-            hit = any(e in ans for e in expect)
-        else:
-            hit = bool(REFUSAL.search(ans))
+        with trace_evaluation(question, f"model-eval-Q{i+1}-{arm}") as span:
+            r = generate_answer_with_sources(question, ranked, model=model,
+                                             thinking_budget=think)
+            u, ans = r.get("usage") or {}, r["answer"]
+            if expect is None:
+                hit = None
+            elif in_context:
+                hit = any(e in ans for e in expect)
+            else:
+                hit = bool(REFUSAL.search(ans))
+            set_evaluation_output(span, ans, hit)
         out[arm] = {"answer": ans, "secs": time.time() - t0, "usage": u,
                     "hit": hit}
         spend[arm] += cost(u)
@@ -175,12 +180,14 @@ for i, (question, expect) in enumerate(QUESTIONS):
                               for ltr, arm in slots.items())
     verdict = {}
     try:
-        raw = llm.complete(
-            JUDGE_PROMPT.format(context=context, question=question,
-                                answers=answers_block),
-            model=JUDGE, temperature=0.0, max_tokens=16384, thinking_budget=-1,
-        ).text.strip().removeprefix("```json").removeprefix("```").removesuffix("```")
-        verdict = json.loads(raw)
+        with trace_evaluation(question, f"model-eval-Q{i+1}-judge") as span:
+            raw = llm.complete(
+                JUDGE_PROMPT.format(context=context, question=question,
+                                    answers=answers_block),
+                model=JUDGE, temperature=0.0, max_tokens=16384, thinking_budget=-1,
+            ).text.strip().removeprefix("```json").removeprefix("```").removesuffix("```")
+            set_evaluation_output(span, raw)
+            verdict = json.loads(raw)
     except Exception as e:
         print(f"   ⚠️ judge failed on Q{i+1}: {type(e).__name__}: {e}")
 
@@ -256,3 +263,4 @@ with open(out_path, "w", encoding="utf-8") as f:
                 "arms": o, "slots": s, "verdict": v}
                for q, e, o, s, v, ic in rows], f, indent=2, default=str)
 print(f"\nfull transcript → {out_path}")
+flush()

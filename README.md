@@ -149,7 +149,7 @@ PDF extraction runs on **AWS Textract** (TABLES + FORMS features), billed at **$
 #### A. AWS
 1.  Create an IAM user with `AmazonTextractFullAccess` (or a scoped policy granting `textract:AnalyzeDocument`).
 2.  Generate an access key pair for that user.
-3.  Set the credentials in `backend/.env` (see section E).
+3.  Set the credentials in `backend/.env` (see section D).
 
 #### B. Pinecone
 Create a serverless index with **`dimension=768`** and **`metric=dotproduct`** — dotproduct is required for sparse-dense hybrid queries, and the dimension must equal `EMBED_DIM` in `llm/llm_router.py`, which also drives the embedding call itself. The backend verifies both at startup and refuses to run on a mismatch, rather than failing minutes later at upsert.
@@ -218,7 +218,7 @@ VITE_API_URL=https://your-backend.onrender.com npm run build
 
 ## 🔌 API
 
-Every endpoint except signup and login requires `Authorization: Bearer <token>`.
+Chat and account endpoints require `Authorization: Bearer <token>`; signup, login, token refresh, `/` and `/api/health` do not.
 
 | Method | Path | Notes |
 |---|---|---|
@@ -242,7 +242,7 @@ Every endpoint except signup and login requires `Authorization: Bearer <token>`.
 
 | Header | Direction | Notes |
 |---|---|---|
-| `Idempotency-Key` | request | Optional, on `POST /document`. A resubmitted upload otherwise ingests twice and bills Textract twice. When absent the server derives a key from the chat id plus a hash of the bytes, so a double-tap or a client retry after a timeout is deduplicated with no client change. The response carries `duplicate: true` when a job was reused. |
+| `Idempotency-Key` | request | Optional, on `POST /document`. Without it, the server derives a key from the chat id and uploaded PDF bytes, so retries of the same upload reuse its job. Supply a key to identify retries explicitly. The response carries `duplicate: true` when a job was reused. |
 | `X-Request-ID` | both | Echoed on every response. Send one to have it used as the correlation id; otherwise the server generates it. The same id is stored on the job row and adopted by the worker, so one value follows an upload across both processes. |
 | `Retry-After` | response | Sent with every `429`, in seconds, derived from the limit that tripped. |
 | `X-Gemini-Key` | request | Optional, on `POST /message`. Uses the user's Gemini key for rewrite and answer, without spending app credits. |
@@ -300,7 +300,7 @@ OpenTelemetry over OTLP exports provider-call spans to Langfuse when `LANGFUSE_P
 
 `docker compose up --build` runs the stack locally: **three** services — `api` and `worker` from the same `backend/Dockerfile` (`python:3.12-slim`, non-root, `/api/health` probe) with different commands, plus `frontend/Dockerfile` (Vite build → nginx). Extraction runs on AWS Textract, so the backend image needs no GPU/GL libraries.
 
-**Deploying needs the worker running somewhere.** Either a second service — the same image with `python worker.py` as its command (a Render **Background Worker**, which needs no public URL; it talks to the API only through the database) — or `RUN_WORKER_IN_PROCESS=1` on the API service, so one web service does both. Without either, uploads queue and are never processed — the API returns 202 and the chat sits on `processing` for ever.
+**Deploying needs the worker running somewhere.** Either a second service — the same image with `python worker.py` as its command (a Render **Background Worker**, which needs no public URL; it talks to the API only through the database) — or `RUN_WORKER_IN_PROCESS=1` on the API service, so one web service does both. Without either, uploads remain queued until a worker starts.
 
 The backend runs with `--forwarded-allow-ips *` (in the Dockerfile CMD) so slowapi's per-IP rate limits key on the real client (`X-Forwarded-For`) behind a proxy/balancer rather than the proxy's own IP — otherwise every user shares one rate-limit bucket. On a non-Docker deploy, set `FORWARDED_ALLOW_IPS=*` in the service env instead (uvicorn reads it).
 

@@ -1,8 +1,8 @@
 # 📄 Advanced Document Retrieval System
 
-A **loan-file copilot** for home-loan (mortgage) officers: upload a borrower's packet, get an automatic review of the application against its supporting documents, record a decision on every flag, and ask anything else with page-cited answers. Under the hood it is a multi-user RAG (Retrieval-Augmented Generation) application for PDF documents. Built with a **React** frontend and a **FastAPI** backend, featuring accounts, persistent per-document conversations, open-source document extraction and hybrid sparse-dense search.
+A **loan-file copilot** for home-loan (mortgage) officers: upload a borrower's packet, get an automatic review of the application against its supporting documents, record a decision on every flag, and ask anything else with page-cited answers. Under the hood it is a multi-user RAG (Retrieval-Augmented Generation) application for PDF documents. Built with a **React** frontend and a **FastAPI** backend, featuring accounts, persistent per-document conversations, PDF extraction via AWS Textract or PyMuPDF, and hybrid sparse-dense search.
 
-**One account → many chats → exactly one document each.** A chat session's id *is* its Pinecone namespace, so chat ↔ document ↔ namespace is 1:1. Neon/Postgres owns identity, ownership and conversation history; Pinecone holds only vectors.
+**One account → many chats → one uploaded document per chat.** Chats share the account's Pinecone namespace; each chat's vectors are identified by its chat id. Neon/Postgres owns identity, ownership and conversation history; Pinecone holds vectors.
 
 ---
 
@@ -13,13 +13,13 @@ A **loan-file copilot** for home-loan (mortgage) officers: upload a borrower's p
 *   **Queued ingestion**: upload returns `202` and enqueues a job that a worker runs, with a pollable status — as its own process, or inside the API with `RUN_WORKER_IN_PROCESS=1`. A queued job is a row that outlives the API process, so a deploy or crash does not destroy work in flight.
 *   **Pluggable Extraction**: **AWS Textract** (TABLES + FORMS, default) or **PyMuPDF** (local, no-AI, text-layer only) via `EXTRACT_METHOD`. Contextual chunking attaches each chunk's document identity so entity-specific queries stay unambiguous.
 *   **Hybrid Search Engine**: A single **Pinecone** sparse-dense index holding `gemini-embedding-2` embeddings (768-dim) alongside **BM25** sparse vectors, fused by a tunable `alpha` (0.0 = pure keyword → 1.0 = pure semantic).
-*   **Conversational follow-ups**: a follow-up like *"and when does it lock?"* is condensed into a standalone question **before retrieval**, because retrieval runs before any LLM sees a prompt. History is read server-side from Neon.
+*   **Conversational follow-ups**: a follow-up like *"and when does it lock?"* is rewritten as a standalone question before retrieval. When there is no history, the question is used as-is. History is read server-side from Neon.
 *   **Answer Generation**: **gemini-2.5-flash** with thinking capped at 2048 — on an ambiguous multi-candidate question it enumerates candidates with sources instead of guessing. Thinking tokens bill at the output rate, so the cap bounds the tail (dynamic permits 24,576) without touching the ~300-token median.
 *   **Two decision paths**: page classification and boundary detection use **TypeSafe Jev** (closed-set choice and yes/no probability). Gemini flash-lite still handles per-document context lines and review field extraction; answers and query rewriting stay on flash.
 *   **Automatic file review**: once a packet is ingested, the application's claims (income, employer, balances, declarations, loan terms) are checked against the pay slips, bank statement, Loan Estimate and title report. Each check shows both sides' values with their pages, in a panel beside the chat (a drawer on narrow screens) so the officer can ask about a flag without leaving it. See [Automatic file review](#-automatic-file-review).
 *   **Use your own provider**: Settings lets a user choose Gemini (API key) or Cloudflare Workers AI (account ID and API token). Credentials are validated before they are kept in the browser tab, sent only with questions, and never stored by the server. Question rewriting and answers use the selected provider without spending daily credits; uploads and retrieval embeddings still use the app's keys. Without own credentials, the app's daily cap applies.
 *   **Flag decisions with an audit trail**: every mismatch or review flag can be **accepted** (a note is required) or **confirmed** as an issue. Decisions are append-only, record who decided and when, and the sidebar counts open flags per borrower.
-*   **Several PDFs per borrower**: upload up to 20 files at once; they are merged, in order, into the file's one document.
+*   **Several PDFs per borrower**: upload up to 20 files at once; they are merged in order into one PDF for the chat, then split into logical documents during ingestion.
 *   **Grounded answers**: values are quoted exactly with their document and page, never computed or rounded; a question the file cannot answer gets "not in the documents", not a guess. Summaries use their own rules.
 *   **Semantic Routing**: Automatic query routing to specific document sections via embedding centroids — no extra LLM call.
 

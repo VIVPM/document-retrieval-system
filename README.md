@@ -283,7 +283,7 @@ All three retrieval modes over the same corpus and models — raw per-question o
 
 ## 📈 Observability
 
-OpenTelemetry over OTLP exports provider-call spans to Langfuse when `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are set. Each question has a `chat-message` trace with rewrite and answer calls nested beneath it, tagged with user and session. Ingest calls run in raw thread pools and appear as standalone traces. Set `LANGFUSE_HOST` to select the Langfuse endpoint; `OTEL_SERVICE_NAME` is optional. Tracing failures are logged and never break a request.
+OpenTelemetry over OTLP exports provider-call spans to Langfuse when `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are set. Each question has a `chat-message` trace with rewrite and answer calls nested beneath it, tagged with user and session. Evaluation scripts in `backend/eval/` send one `evaluation-case` trace per model or prompt trial, with the question, answer, result and case id. Ingest calls run in raw thread pools and appear as standalone traces. Set `LANGFUSE_HOST` to select the Langfuse endpoint; `OTEL_SERVICE_NAME` is optional. Tracing failures are logged and never break a request.
 
 **Structured JSON logs with a correlation id** remain available without tracing. Every request gets one (an inbound `X-Request-ID` wins), and it is stored on the job row. The API upload and worker ingest therefore share a `request_id`. Set `LOG_FORMAT=text` for local output. Cost and token usage are recorded per provider call in these logs, including ingest calls without a parent trace.
 

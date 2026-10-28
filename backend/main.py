@@ -910,9 +910,58 @@ async def upload_document(
     names = [f.filename for f in files]
     filename = names[0] if len(names) == 1 else f"{names[0]} + {len(names) - 1} more"
 
+    # Ownership is checked before the body is read; the database and Pinecone
+    # calls run in a thread so a slow round trip never stalls the event loop.
+    await asyncio.to_thread(_check_upload_target, chat_id, current_user["user_id"])
+
+    parts, total = [], 0
+    for f in files:
+        buf = bytearray()
+        while chunk := await f.read(1024 * 1024):
+            buf.extend(chunk)
+            total += len(chunk)
+            if total > MAX_UPLOAD_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Upload is larger than the {MAX_UPLOAD_MB} MB limit.",
+                )
+        if not buf:
+            raise HTTPException(status_code=400, detail=f"{f.filename} is empty.")
+        parts.append(bytes(buf))
+
+    if len(parts) == 1:
+        buf = parts[0]
+    else:
+        try:
+            buf = await asyncio.to_thread(_merge_pdfs, parts)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        if len(buf) > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Merged document is larger than the {MAX_UPLOAD_MB} MB limit.",
+            )
+
+    idempotency_key = (request.headers.get("Idempotency-Key") or "").strip() or None
+    return await asyncio.to_thread(
+        _queue_upload, chat_id, current_user["user_id"], filename, bytes(buf),
+        len(parts), idempotency_key)
+
+
+def _check_upload_target(chat_id: str, user_id: int) -> None:
     db = SessionLocal()
     try:
-        chat = _owned_chat(db, chat_id, current_user["user_id"])
+        if _owned_chat(db, chat_id, user_id).status == "processing":
+            raise HTTPException(status_code=409, detail="This chat is already processing a document.")
+    finally:
+        db.close()
+
+
+def _queue_upload(chat_id: str, user_id: int, filename: str, buf: bytes,
+                  file_count: int, idempotency_key: str | None) -> dict:
+    db = SessionLocal()
+    try:
+        chat = _owned_chat(db, chat_id, user_id)
         if chat.status == "processing":
             raise HTTPException(status_code=409, detail="This chat is already processing a document.")
 
@@ -921,34 +970,6 @@ async def upload_document(
             EnhancedDocumentStoreHybrid(
                 namespace=_ns(db, chat.user_id), chat_id=chat_id
             ).retriever.delete_chat()
-
-        parts, total = [], 0
-        for f in files:
-            buf = bytearray()
-            while chunk := await f.read(1024 * 1024):
-                buf.extend(chunk)
-                total += len(chunk)
-                if total > MAX_UPLOAD_BYTES:
-                    raise HTTPException(
-                        status_code=413,
-                        detail=f"Upload is larger than the {MAX_UPLOAD_MB} MB limit.",
-                    )
-            if not buf:
-                raise HTTPException(status_code=400, detail=f"{f.filename} is empty.")
-            parts.append(bytes(buf))
-
-        if len(parts) == 1:
-            buf = parts[0]
-        else:
-            try:
-                buf = await asyncio.to_thread(_merge_pdfs, parts)
-            except ValueError as e:
-                raise HTTPException(status_code=400, detail=str(e))
-            if len(buf) > MAX_UPLOAD_BYTES:
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"Merged document is larger than the {MAX_UPLOAD_MB} MB limit.",
-                )
 
         chat.status = "processing"
         chat.stage = None
@@ -960,16 +981,16 @@ async def upload_document(
         chat.updated_at = now_ist()
 
         job_id, created = job_queue.enqueue(
-            db, chat_id, chat.user_id, filename, bytes(buf),
-            idempotency_key=(request.headers.get("Idempotency-Key") or "").strip() or None,
+            db, chat_id, chat.user_id, filename, buf,
+            idempotency_key=idempotency_key,
             request_id=logging_setup.correlation_id.get(),
         )
-        db.merge(ChatDocument(chat_id=chat_id, payload=bytes(buf)))
+        db.merge(ChatDocument(chat_id=chat_id, payload=buf))
         db.commit()
 
         log.info("upload queued" if created else "upload deduplicated",
                  extra={"job_id": job_id, "chat_id": chat_id, "user_id": chat.user_id,
-                        "doc_filename": filename, "files": len(parts),
+                        "doc_filename": filename, "files": file_count,
                         "bytes": len(buf), "duplicate": not created})
         return {"chat_id": chat_id, "status": "processing",
                 "filename": filename, "duplicate": not created}

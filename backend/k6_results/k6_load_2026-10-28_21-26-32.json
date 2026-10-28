@@ -1,0 +1,398 @@
+{
+  "settings": {
+    "render_suspended": true,
+    "levels": "25,50,75,100,150",
+    "ramp_up": 30,
+    "hold": 180,
+    "workers": 3,
+    "slots": 20,
+    "stub_seconds": 4.0,
+    "drain_timeout": 600,
+    "stop_error_pct": 25,
+    "port": 8021,
+    "tag": "k6-03f729e6"
+  },
+  "levels": [
+    {
+      "users": 25,
+      "requests": 1526,
+      "error_pct": 0,
+      "thresholds_failed": [],
+      "passed": true,
+      "endpoints": {
+        "login": {
+          "p(50)": 3822,
+          "p(95)": 5025,
+          "p(99)": 5052,
+          "count": 25,
+          "error_pct": 0
+        },
+        "health": {
+          "p(95)": 4,
+          "p(99)": 8,
+          "count": 458,
+          "p(50)": 1,
+          "error_pct": 0
+        },
+        "chats": {
+          "p(99)": 3301,
+          "count": 458,
+          "p(50)": 1173,
+          "p(95)": 1636,
+          "error_pct": 0
+        },
+        "chat": {
+          "p(50)": 1407,
+          "p(95)": 1490,
+          "p(99)": 2227,
+          "count": 458,
+          "error_pct": 0
+        },
+        "create_chat": {
+          "p(95)": 2400,
+          "p(99)": 2542,
+          "count": 25,
+          "p(50)": 2129,
+          "error_pct": 0
+        },
+        "upload": {
+          "p(50)": 4458,
+          "p(95)": 4612,
+          "p(99)": 4983,
+          "count": 25,
+          "error_pct": 0
+        },
+        "job_status": {
+          "p(99)": 2134,
+          "count": 77,
+          "p(50)": 945,
+          "p(95)": 1529,
+          "error_pct": 0
+        }
+      },
+      "job_total_ms": {
+        "p(50)": 6857,
+        "p(95)": 9556,
+        "p(99)": 9696,
+        "count": 25
+      },
+      "jobs": {
+        "submitted": 25,
+        "done": 25,
+        "failed": 0,
+        "unfinished": 0,
+        "queue_wait_s": {
+          "p50": 1.0,
+          "p95": 2.5,
+          "p99": 2.5
+        }
+      }
+    },
+    {
+      "users": 50,
+      "requests": 3017,
+      "error_pct": 0,
+      "thresholds_failed": [],
+      "passed": true,
+      "endpoints": {
+        "login": {
+          "p(95)": 6464,
+          "p(99)": 6600,
+          "count": 50,
+          "p(50)": 4033,
+          "error_pct": 0
+        },
+        "health": {
+          "p(95)": 3,
+          "p(99)": 5,
+          "count": 898,
+          "p(50)": 1,
+          "error_pct": 0
+        },
+        "chats": {
+          "p(50)": 1176,
+          "p(95)": 1512,
+          "p(99)": 2428,
+          "count": 898,
+          "error_pct": 0
+        },
+        "chat": {
+          "p(50)": 1412,
+          "p(95)": 1543,
+          "p(99)": 1879,
+          "count": 898,
+          "error_pct": 0
+        },
+        "create_chat": {
+          "count": 50,
+          "p(50)": 2149,
+          "p(95)": 2621,
+          "p(99)": 3558,
+          "error_pct": 0
+        },
+        "upload": {
+          "p(99)": 7067,
+          "count": 50,
+          "p(50)": 4687,
+          "p(95)": 6356,
+          "error_pct": 0
+        },
+        "job_status": {
+          "p(50)": 947,
+          "p(95)": 1653,
+          "p(99)": 2200,
+          "count": 173,
+          "error_pct": 0
+        }
+      },
+      "job_total_ms": {
+        "p(50)": 8820,
+        "p(95)": 11931,
+        "p(99)": 12963,
+        "count": 50
+      },
+      "jobs": {
+        "submitted": 50,
+        "done": 50,
+        "failed": 0,
+        "unfinished": 0,
+        "queue_wait_s": {
+          "p50": 2.1,
+          "p95": 3.6,
+          "p99": 3.9
+        }
+      }
+    },
+    {
+      "users": 75,
+      "requests": 4455,
+      "error_pct": 0,
+      "thresholds_failed": [],
+      "passed": true,
+      "endpoints": {
+        "login": {
+          "p(99)": 7125,
+          "count": 75,
+          "p(50)": 4503,
+          "p(95)": 5721,
+          "error_pct": 0
+        },
+        "health": {
+          "count": 1305,
+          "p(50)": 1,
+          "p(95)": 3,
+          "p(99)": 6,
+          "error_pct": 0
+        },
+        "chats": {
+          "p(99)": 2630,
+          "count": 1305,
+          "p(50)": 1175,
+          "p(95)": 2342,
+          "error_pct": 0
+        },
+        "chat": {
+          "count": 1305,
+          "p(50)": 1407,
+          "p(95)": 1678,
+          "p(99)": 2624,
+          "error_pct": 0
+        },
+        "create_chat": {
+          "p(50)": 2498,
+          "p(95)": 3585,
+          "p(99)": 3783,
+          "count": 75,
+          "error_pct": 0
+        },
+        "upload": {
+          "p(50)": 6969,
+          "p(95)": 9397,
+          "p(99)": 9937,
+          "count": 75,
+          "error_pct": 0
+        },
+        "job_status": {
+          "count": 315,
+          "p(50)": 1151,
+          "p(95)": 2371,
+          "p(99)": 2851,
+          "error_pct": 0
+        }
+      },
+      "job_total_ms": {
+        "count": 75,
+        "p(50)": 9856,
+        "p(95)": 26786,
+        "p(99)": 28993
+      },
+      "jobs": {
+        "submitted": 75,
+        "done": 75,
+        "failed": 0,
+        "unfinished": 0,
+        "queue_wait_s": {
+          "p50": 2.6,
+          "p95": 21.0,
+          "p99": 24.4
+        }
+      }
+    },
+    {
+      "users": 100,
+      "requests": 5566,
+      "error_pct": 0,
+      "thresholds_failed": [
+        "api_upload"
+      ],
+      "passed": false,
+      "endpoints": {
+        "login": {
+          "p(99)": 7246,
+          "count": 100,
+          "p(50)": 4890,
+          "p(95)": 6430,
+          "error_pct": 0
+        },
+        "health": {
+          "p(99)": 163,
+          "count": 1630,
+          "p(50)": 2,
+          "p(95)": 7,
+          "error_pct": 0
+        },
+        "chats": {
+          "p(95)": 2007,
+          "p(99)": 2586,
+          "count": 1630,
+          "p(50)": 1183,
+          "error_pct": 0
+        },
+        "chat": {
+          "p(50)": 1416,
+          "p(95)": 1930,
+          "p(99)": 3152,
+          "count": 1630,
+          "error_pct": 0
+        },
+        "create_chat": {
+          "p(50)": 3129,
+          "p(95)": 5106,
+          "p(99)": 5477,
+          "count": 100,
+          "error_pct": 0
+        },
+        "upload": {
+          "p(95)": 19795,
+          "p(99)": 20622,
+          "count": 100,
+          "p(50)": 16625,
+          "error_pct": 0
+        },
+        "job_status": {
+          "count": 376,
+          "p(50)": 1431,
+          "p(95)": 3700,
+          "p(99)": 4787,
+          "error_pct": 0
+        }
+      },
+      "job_total_ms": {
+        "p(50)": 9784,
+        "p(95)": 28389,
+        "p(99)": 37258,
+        "count": 100
+      },
+      "jobs": {
+        "submitted": 100,
+        "done": 100,
+        "failed": 0,
+        "unfinished": 0,
+        "queue_wait_s": {
+          "p50": 2.9,
+          "p95": 22.6,
+          "p99": 32.8
+        }
+      }
+    },
+    {
+      "users": 150,
+      "requests": 5897,
+      "error_pct": 0,
+      "thresholds_failed": [
+        "api_job_status",
+        "api_upload"
+      ],
+      "passed": false,
+      "endpoints": {
+        "login": {
+          "p(99)": 10693,
+          "count": 150,
+          "p(50)": 6172,
+          "p(95)": 9680,
+          "error_pct": 0
+        },
+        "health": {
+          "count": 1646,
+          "p(50)": 449,
+          "p(95)": 960,
+          "p(99)": 1369,
+          "error_pct": 0
+        },
+        "chats": {
+          "p(50)": 2562,
+          "p(95)": 3532,
+          "p(99)": 4735,
+          "count": 1646,
+          "error_pct": 0
+        },
+        "chat": {
+          "p(50)": 2779,
+          "p(95)": 3719,
+          "p(99)": 4474,
+          "count": 1646,
+          "error_pct": 0
+        },
+        "create_chat": {
+          "p(99)": 10469,
+          "count": 150,
+          "p(50)": 6462,
+          "p(95)": 9976,
+          "error_pct": 0
+        },
+        "upload": {
+          "p(50)": 33338,
+          "p(95)": 43358,
+          "p(99)": 44971,
+          "count": 150,
+          "error_pct": 0
+        },
+        "job_status": {
+          "p(50)": 2573,
+          "p(95)": 5378,
+          "p(99)": 7880,
+          "count": 509,
+          "error_pct": 0
+        }
+      },
+      "job_total_ms": {
+        "p(50)": 9656,
+        "p(95)": 42019,
+        "p(99)": 52802,
+        "count": 150
+      },
+      "jobs": {
+        "submitted": 150,
+        "done": 150,
+        "failed": 0,
+        "unfinished": 0,
+        "queue_wait_s": {
+          "p50": 2.1,
+          "p95": 34.5,
+          "p99": 47.0
+        }
+      }
+    }
+  ],
+  "highest_passing_users": 75
+}

@@ -2,6 +2,7 @@
 
 from typing import List, Tuple, Dict
 from core.models import ChunkMetadata
+from core.evidence import source_block
 from llm.llm_router import llm as gemma_llm
 
 SYSTEM_RULES = """You are a financial document question-answering assistant.
@@ -9,7 +10,10 @@ Your job is to answer the user's question accurately using ONLY the provided con
 
 INSTRUCTIONS:
 1. Answer the question directly and concisely.
-2. Cite which document type and page number your answer comes from.
+2. Source citations are rendered separately by the application. Do not repeat
+   source citations, page references, Document IDs, filenames or a "Source:"
+   section in the answer body, even when the question asks for citations.
+   You may name a document type when needed to explain a comparison.
 3. If the context doesn't contain enough information to answer, say so clearly.
 
 STRICT RULES FOR ACCURACY:
@@ -32,14 +36,31 @@ STRICT RULES FOR ACCURACY:
 
 7. DO NOT GUESS: If you find multiple similar values and cannot determine
   which one answers the question, say so and list the candidates with
-  their source locations. A wrong answer is worse than no answer.
+  their field labels, people or periods. A wrong answer is worse than no answer.
 
-8. CALCULATIONS (only when the question asks to compute something):
-  - Step 1: List each value and its exact source location.
-  - Step 2: Write the mathematical equation.
-  - Step 3: Compute step by step, showing your work.
-  - Step 4: Double-check by recalculating.
-  - Step 5: State the final answer.
+8. CALCULATIONS (when requested or necessary to explain a comparison or discrepancy):
+  - Verify each input and its source location internally.
+  - Compute and double-check the arithmetic yourself.
+  - Show the relevant inputs, equation and result concisely, without source
+    metadata or a long step-by-step checklist. Do not use LaTeX delimiters.
+
+9. LINKED EVIDENCE: Chunks with the same Document ID are fragments of one
+   document, not independent payments or income sources. Connect facts only
+   when the borrower, employer/account, dates and pay periods support the link.
+   Do not combine one person's earnings with another person's pay frequency,
+   add year-to-date earnings to current pay, or count overlapping rows twice.
+   Before calculating, identify the person and employer/account for EACH
+   Document ID used. An anonymous amount in a different Document ID cannot
+   inherit a name or pay frequency from another document, even if their
+   document types match. If that document's identity is missing, abstain
+   from attributing its amount to the borrower.
+   If a required identity or pay frequency is missing, say what is unknown.
+   A name in a transaction description is not proof of account ownership;
+   an unexplained deposit needs verification, not a claim of contradiction.
+   Do not call a transfer third-party funds, a gift or a loan unless the
+   evidence establishes that classification. Retrieved excerpts are not a
+   complete inventory: say a document is not in the provided context rather
+   than declaring it absent from the entire packet.
 
 """
 
@@ -49,7 +70,9 @@ below for a loan officer, using ONLY the provided context.
 - Name each distinct document in the packet and what it contains.
 - Report key figures (amounts, rates, dates, parties) exactly as they appear;
   do not round, reformat, or estimate.
-- Cite the document type and page for each figure.
+- Source citations are rendered separately by the application. Do not repeat
+  source citations, page references, Document IDs, filenames or a "Source:"
+  section in the answer body, even when the question asks for citations.
 - Do not add information that is not in the context.
 
 """
@@ -60,8 +83,11 @@ LLM_EMPTY_ANSWER = ("The language model did not return an answer. The sources "
                     "rephrase the question.")
 
 
-def build_sources(retrieved_chunks: List[Tuple[ChunkMetadata, float]]) -> List[Dict]:
-    """The source list the UI renders, one entry per retrieved chunk."""
+def build_sources(retrieved_chunks: List[Tuple[ChunkMetadata, float]],
+                  k: int = 6) -> List[Dict]:
+    """The source list the UI renders: the top k search matches only. Linked
+    neighbour chunks (score 0) still reach the prompt but are not shown."""
+    matches = [(c, score) for c, score in retrieved_chunks if score][:k]
     return [
         {
             'filename': c.filename,
@@ -70,7 +96,7 @@ def build_sources(retrieved_chunks: List[Tuple[ChunkMetadata, float]]) -> List[D
             'relevance': f"{score:.2%}",
             'preview': c.text,
         }
-        for c, score in retrieved_chunks
+        for c, score in matches
     ]
 
 
@@ -79,15 +105,7 @@ def build_prompt(query: str, retrieved_chunks: List[Tuple[ChunkMetadata, float]]
     """The exact prompt sent to the model. Shared by the sync and streaming
     paths so the two cannot drift — rules first, context second (see the
     module docstring)."""
-    context_parts = []
-    for c, _ in retrieved_chunks:
-        context_parts.append(
-            f"[Source: {c.filename} | {c.doc_type} | "
-            f"Pages: {c.page_start + 1}-{c.page_end + 1}]"
-        )
-        context_parts.append(c.text)
-        context_parts.append("")
-    context = "\n".join(context_parts)
+    context = "".join(source_block(c) for c, _ in retrieved_chunks)
     rules = SUMMARY_RULES if summarize else SYSTEM_RULES
     return f"""{rules}
 Context:

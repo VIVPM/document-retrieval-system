@@ -976,7 +976,7 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
             filter_type = None if body.filter_type in (None, "All", "") else body.filter_type
             retrieved = store.retrieve_only(
                 search_query, filter_type=filter_type, k=body.num_chunks)
-            return search_query, retrieved, sanitize(build_sources(retrieved))
+            return search_query, retrieved, sanitize(build_sources(retrieved, body.num_chunks))
         finally:
             db.close()
 

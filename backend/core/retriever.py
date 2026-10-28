@@ -1,5 +1,6 @@
 """retriever.py — Hybrid retrieval system using Pinecone sparse-dense index."""
 
+import logging
 import os
 import numpy as np
 from typing import List, Tuple, Optional, Dict, Union
@@ -7,7 +8,10 @@ from pinecone import Pinecone
 from pinecone_text.sparse import BM25Encoder
 
 from core.models import ChunkMetadata, SearchConfig
+from core.evidence import bounded_evidence
 from llm.llm_router import EMBED_DIM
+
+log = logging.getLogger("drs.retriever")
 
 
 class HybridRetriever:
@@ -310,6 +314,41 @@ class HybridRetriever:
         )
 
 
+    def _linked_chunks(self, seeds):
+        """One bounded ID fetch: document identity and nearby fragments, not full text."""
+        wanted = {}
+        for chunk, _ in seeds[:6]:
+            for index in (0, 1):
+                wanted[f"{self.id_prefix}{chunk.doc_id}_chunk_{index}"] = (chunk.doc_id, chunk.doc_type)
+        for offset in (-1, 1, -2, 2):
+            for chunk, _ in seeds[:6]:
+                index = chunk.chunk_index + offset
+                if index >= 0:
+                    wanted[f"{self.id_prefix}{chunk.doc_id}_chunk_{index}"] = (chunk.doc_id, chunk.doc_type)
+        seen = {chunk.chunk_id for chunk, _ in seeds}
+        wanted = {vid: doc_id for vid, doc_id in wanted.items() if vid not in seen}
+        if not wanted:
+            return []
+        try:
+            response = self.pc_index.fetch(ids=list(wanted), namespace=self.namespace, _request_timeout=10)
+            vectors = response.get("vectors", {})
+        except Exception:
+            log.warning("Related evidence fetch failed; retaining search results", exc_info=True)
+            return []
+        linked = []
+        for vid, (doc_id, doc_type) in wanted.items():
+            vector = vectors.get(vid)
+            if vector is None:
+                continue
+            metadata = vector.get("metadata") or {}
+            if (metadata.get("chat_id") != self.chat_id
+                    or metadata.get("doc_id") != doc_id
+                    or metadata.get("doc_type") != doc_type):
+                continue
+            chunk = self._match_to_chunk({"id": vid, "metadata": metadata})
+            linked.append((chunk, 0.0))
+        return linked
+
     def retrieve(self, query: str, k: int = 6,
                  filter_doc_type: Optional[str] = None,
                  return_details: bool = False) -> Union[List[Tuple], Dict]:
@@ -323,7 +362,7 @@ class HybridRetriever:
 
         matches = self._query_pinecone(
             query=query,
-            top_k=k,
+            top_k=min(2 * k, 24),
             filter_doc_type=config.selected_type if config.use_filtered else None
         )
 
@@ -335,7 +374,8 @@ class HybridRetriever:
                 return {'results': [], 'routing_info': config.routing_info, 'query': query}
             return []
 
-        results = results[:k]
+        linked = self._linked_chunks(results[:k])
+        results, context_tokens = bounded_evidence(results + linked)
 
         if not return_details:
             return results
@@ -358,7 +398,10 @@ class HybridRetriever:
             },
             'retrieval_stats': {
                 'total_chunks': config.total_chunks,
-                'final_returned': len(detailed_results)
+                'final_returned': len(detailed_results),
+                'context_tokens': context_tokens,
+                'search_candidates': len(matches),
+                'linked_candidates': len(linked),
             },
             'query': query
         }

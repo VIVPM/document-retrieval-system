@@ -2,6 +2,7 @@
 
 import math
 import os
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -16,7 +17,8 @@ URL = "https://api.typesafe.ai/v1/systemone"
 
 VALID_DOC_TYPES = {
     "Loan Application": "Uniform Residential Loan Application (URLA/Form 1003) or lender loan application requesting loan amount, property, purpose, employment, income, assets and declarations. Not a title-company Statement of Information for a title order.",
-    "Lender Fee Sheet": "Loan Estimate, Closing Disclosure or Fees Worksheet stating loan terms, payments, APR, origination fees and cash to close. Not the borrower's application.",
+    "Loan Estimate": "Document headed Loan Estimate, including its Closing Cost Details continuation, with loan terms, rate lock, projected payments and estimated closing costs. Not a generic fee worksheet or Closing Disclosure.",
+    "Lender Fee Sheet": "Lender fees worksheet, itemized fee sheet or Closing Disclosure. Not a document headed Loan Estimate and not the borrower's application.",
     "Pay Slip": "Earnings statement for a pay period, with gross or net pay, deductions and employee details. Not an annual W-2.",
     "Bank Statement": "Bank or credit-union account statement with period, deposits, withdrawals, balances and account activity.",
     "Tax Document": "W-2, 1099, tax return or property tax bill/statement; annual wages or tax information.",
@@ -65,6 +67,9 @@ def classify_document_type(text: str, max_length: int = 1500) -> str:
     """Choose a document type for one page; provider failures retry the job."""
     if not (text or "").strip():
         return "Other"
+    heading = text.strip().splitlines()[0].strip()
+    if re.fullmatch(r"Loan\s+Estimate(?:\s*[—–:-].*)?", heading, re.IGNORECASE):
+        return "Loan Estimate"
     answer = _ask(text[:max_length], {
         "type": "choice",
         "instructions": "What kind of document is this page? Decide from its title and structure, not incidental references to other documents or amounts.",

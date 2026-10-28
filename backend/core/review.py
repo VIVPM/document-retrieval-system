@@ -75,6 +75,7 @@ SCHEMAS: dict[str, dict] = {
         },
     },
 }
+SCHEMAS["Loan Estimate"] = SCHEMAS["Lender Fee Sheet"]
 COMPARISON_TYPES = ("Loan Application", "Pay Slip", "Bank Statement")
 
 
@@ -141,6 +142,20 @@ def _locate(raw, pages: list[tuple[int, str]]) -> int | None:
     if not r:
         return None
     return next((p for p, t in pages if r in t), None)
+
+
+def _locate_field(name, raw, pages) -> int | None:
+    if name != "undisclosed_funds":
+        return _locate(raw, pages)
+    # A bare NO also matches "Loan No." and unrelated declarations.
+    expected = parse_bool(raw)
+    if expected is None:
+        return None
+    for page, text in pages:
+        match = re.search(r"(?:borrowing any money|obtaining any money from another party).*?\?\s*(yes|no)\b", text)
+        if match and parse_bool(match.group(1)) == expected:
+            return page
+    return None
 
 
 def _payoff_noted(amount_raw, pages) -> bool:
@@ -255,7 +270,7 @@ def fields_from_llm(doc_type: str, doc, missing: dict, complete=None) -> tuple[d
         raw = item.get("value") if isinstance(item, dict) else item
         if raw in (None, "") or isinstance(raw, (list, dict)):
             continue
-        page = _locate(raw, pages)
+        page = _locate_field(name, raw, pages)
         if page is None:
             dropped += 1
             continue
@@ -373,7 +388,8 @@ def run_rules(docs: list[dict]) -> list[dict]:
     slips = [d for d in docs if d["doc_type"] == "Pay Slip"]
     app, bank = first.get("Loan Application"), first.get("Bank Statement")
     slip = slips[-1] if slips else None
-    le, title = first.get("Lender Fee Sheet"), first.get("Preliminary Title Report")
+    le = first.get("Loan Estimate") or first.get("Lender Fee Sheet")
+    title = first.get("Preliminary Title Report")
     checks = []
 
     for t in COMPARISON_TYPES:
@@ -458,9 +474,16 @@ def run_rules(docs: list[dict]) -> list[dict]:
                 if undisclosed is False:
                     note = " Declaration says no undisclosed funds from another party."
                     ev.append(_ev(app, "undisclosed_funds", "Declaration: undisclosed funds"))
+                ev.extend([_ev(slip, "gross_pay", "Gross pay per period"),
+                           _ev(slip, "pay_frequency", "Pay frequency")]
+                          if verified else [_ev(app, "stated_monthly_income", "Stated monthly income")])
                 checks.append(_check("large_deposits", "Large deposits", "review",
-                                     f"{_n(len(big), 'non-payroll deposit')} above {int(LARGE_DEPOSIT_SHARE * 100)}% of "
-                                     f"monthly income ({_money(income)}) — source needs explaining.{note}", ev))
+                                     f"{_n(len(big), 'non-payroll deposit')} above the review threshold: "
+                                     f"{int(LARGE_DEPOSIT_SHARE * 100)}% × {_money(income)}/month = "
+                                     f"{_money(LARGE_DEPOSIT_SHARE * income)}. "
+                                     "Source and ownership need verification; the transaction description "
+                                     "alone does not prove third-party funds or a contradiction."
+                                     + note, ev))
             else:
                 checks.append(_check("large_deposits", "Large deposits", "match",
                                      "No unexplained large deposits.", []))

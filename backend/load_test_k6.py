@@ -109,7 +109,10 @@ def job_stats(prefix: str, since: datetime) -> dict:
             "WHERE a.username LIKE :p AND j.created_at >= :since"),
             {"p": f"{prefix}%", "since": since}).all()
     waits = sorted(float(w) for _, w in rows if w is not None)
-    pick = lambda q: round(waits[min(len(waits) - 1, int(q * len(waits)))], 1) if waits else None
+
+    def pick(q):
+        return round(waits[min(len(waits) - 1, int(q * len(waits)))], 1) if waits else None
+
     return {"submitted": len(rows),
             "done": sum(s == "done" for s, _ in rows),
             "failed": sum(s == "failed" for s, _ in rows),
@@ -153,8 +156,11 @@ def run_level(users: int, args, base: str, prefix: str, pdf_path: Path, tag: str
 
     metrics = json.loads(summary_path.read_text(encoding="utf-8"))["metrics"]
     summary_path.unlink()
-    trend = lambda m: {k: round(v) for k, v in metrics.get(m, {}).get("values", {}).items()
-                       if k in ("p(50)", "p(95)", "p(99)", "count")}
+
+    def trend(m):
+        return {k: round(v) for k, v in metrics.get(m, {}).get("values", {}).items()
+                if k in ("p(50)", "p(95)", "p(99)", "count")}
+
     endpoints = {name: {**trend(f"api_{name}"),
                         "error_pct": round(100 * metrics.get(f"api_{name}_failed", {})
                                            .get("values", {}).get("rate", 0), 2)}

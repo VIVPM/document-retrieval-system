@@ -23,6 +23,7 @@ sqlalchemy>=2.0,<2.1          # 2.1 defaults postgresql:// to psycopg 3; we ship
 psycopg2-binary
 bcrypt
 pyjwt
+cryptography
 slowapi
 
 # Data & Utilities

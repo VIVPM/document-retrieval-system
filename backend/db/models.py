@@ -24,6 +24,18 @@ class Account(Base):
     created_at = Column(DateTime(timezone=True), default=now_ist)
 
 
+class AccountProvider(Base):
+    """Account-scoped, encrypted generation credentials and provider choice."""
+
+    __tablename__ = "drs_account_providers"
+
+    user_id = Column(Integer, primary_key=True)
+    selected = Column(String, nullable=False, default="FREE")
+    gemini_key_enc = Column(Text)
+    cloudflare_token_enc = Column(Text)
+    cloudflare_account_id = Column(String)
+
+
 class LoginFailure(Base):
     """One row per failed login. DB-backed rather than in-memory so the lockout
     holds across API instances and survives the free tier spinning down."""

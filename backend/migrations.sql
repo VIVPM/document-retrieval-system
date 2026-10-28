@@ -141,5 +141,14 @@ CREATE TABLE IF NOT EXISTS drs_review_decisions (
 );
 CREATE INDEX IF NOT EXISTS ix_drs_review_decisions_chat_id ON drs_review_decisions (chat_id);
 
--- Questions asked with the user's own Gemini key don't count against daily credits.
+-- Account-scoped encrypted credentials survive logout; secrets are never returned to clients.
+CREATE TABLE IF NOT EXISTS drs_account_providers (
+    user_id INTEGER PRIMARY KEY,
+    selected VARCHAR NOT NULL DEFAULT 'FREE',
+    gemini_key_enc TEXT,
+    cloudflare_token_enc TEXT,
+    cloudflare_account_id VARCHAR
+);
+
+-- Questions asked with the user's own provider don't count against daily credits.
 ALTER TABLE drs_chat_messages ADD COLUMN IF NOT EXISTS own_key BOOLEAN DEFAULT FALSE;

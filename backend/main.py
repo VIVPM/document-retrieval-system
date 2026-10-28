@@ -48,6 +48,7 @@ from db.database import Base, SessionLocal, engine
 from db.models import (Account, ChatDocument, ChatMessage, ChatSession, IngestJob, ReviewDecision, ensure_columns,
                        LoginFailure, RefreshToken, now_ist)
 import job_queue
+import provider_settings
 from llm.llm_router import (check_user_cloudflare, check_user_key, embed_model,
                             estimate_cost_usd, llm as _llm, set_user_credentials)
 from observability import (flush as trace_flush, init_observability, record_cost,
@@ -611,8 +612,10 @@ def get_credits(current_user: dict = Depends(get_current_user)):
         used = _credits_used_today(db, current_user["user_id"])
     finally:
         db.close()
+    settings = provider_settings.load_settings(current_user["user_id"])
     return {"cap": DAILY_MESSAGE_CAP, "used": used,
-            "remaining": max(0, DAILY_MESSAGE_CAP - used)}
+            "remaining": max(0, DAILY_MESSAGE_CAP - used),
+            "provider": settings["selected"], "own_key": settings["selected"] != "FREE"}
 
 
 class KeyCheckRequest(BaseModel):
@@ -645,11 +648,7 @@ def _own_credentials(request: Request) -> tuple[str | None, str, str]:
     return None, "", ""
 
 
-@app.post("/api/account/check-key")
-@limiter.limit("10/minute")
-def check_key(request: Request, body: KeyCheckRequest,
-              current_user: dict = Depends(get_current_user)):
-    """Validate own credentials without storing them."""
+def _validate_credentials(body: KeyCheckRequest):
     try:
         if body.provider == "CLOUDFLARE":
             if not _CF_ACCOUNT_RE.fullmatch(body.account_id):
@@ -664,6 +663,51 @@ def check_key(request: Request, body: KeyCheckRequest,
     except Exception:
         raise HTTPException(status_code=400, detail=f"{body.provider.title()} rejected those credentials.")
     return {"ok": True}
+
+
+@app.post("/api/account/check-key")
+@limiter.limit("10/minute")
+def check_key(request: Request, body: KeyCheckRequest,
+              current_user: dict = Depends(get_current_user)):
+    """Validate own credentials without storing them."""
+    return _validate_credentials(body)
+
+
+@app.get("/api/account/api-keys")
+def get_api_keys(current_user: dict = Depends(get_current_user)):
+    return provider_settings.public_settings(provider_settings.load_settings(current_user["user_id"]))
+
+
+@app.put("/api/account/api-keys")
+@limiter.limit("10/minute")
+def save_api_keys(request: Request, body: KeyCheckRequest,
+                  current_user: dict = Depends(get_current_user)):
+    _validate_credentials(body)
+    provider_settings.save_credentials(current_user["user_id"], body.provider,
+                                       body.key.strip(), body.account_id)
+    return get_api_keys(current_user)
+
+
+class ProviderRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider: Literal["FREE", "GEMINI", "CLOUDFLARE"]
+
+
+@app.put("/api/account/provider")
+def choose_provider(body: ProviderRequest, current_user: dict = Depends(get_current_user)):
+    try:
+        provider_settings.select_provider(current_user["user_id"], body.provider)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return get_api_keys(current_user)
+
+
+@app.delete("/api/account/api-keys/{provider}")
+def remove_api_keys(provider: Literal["gemini", "cloudflare"],
+                    current_user: dict = Depends(get_current_user)):
+    provider_settings.remove_credentials(current_user["user_id"], provider.upper())
+    return get_api_keys(current_user)
 
 
 @app.get("/api/chats")
@@ -932,6 +976,12 @@ async def send_message(request: Request, chat_id: str, body: MessageRequest,
       error -> a message to show in place of the answer"""
     uid = current_user["user_id"]
     own_provider, own_key, own_account = _own_credentials(request)
+    if own_provider is None:
+        settings = await asyncio.to_thread(provider_settings.load_settings, uid)
+        try:
+            own_provider, own_key, own_account = provider_settings.own_credentials(settings)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
     def _prepare():
         """Own the chat, rehydrate, rewrite the follow-up, retrieve. Returns

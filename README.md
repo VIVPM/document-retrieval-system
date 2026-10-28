@@ -14,14 +14,14 @@ A **loan-file copilot** for home-loan (mortgage) officers: upload a borrower's p
 *   **Pluggable Extraction**: **AWS Textract** (TABLES + FORMS, default) or **PyMuPDF** (local, no-AI, text-layer only) via `EXTRACT_METHOD`. Contextual chunking attaches each chunk's document identity so entity-specific queries stay unambiguous.
 *   **Hybrid Search Engine**: A single **Pinecone** sparse-dense index holding `gemini-embedding-2` embeddings (768-dim) alongside **BM25** sparse vectors, fused by a tunable `alpha` (0.0 = pure keyword → 1.0 = pure semantic).
 *   **Conversational follow-ups**: a follow-up like *"and when does it lock?"* is rewritten as a standalone question before retrieval. When there is no history, the question is used as-is. History is read server-side from Neon.
-*   **Answer Generation**: **gemini-2.5-flash** with thinking capped at 2048 — on an ambiguous multi-candidate question it enumerates candidates with sources instead of guessing. Thinking tokens bill at the output rate, so the cap bounds the tail (dynamic permits 24,576) without touching the ~300-token median.
+*   **Answer Generation**: **gemini-3.5-flash** with medium thinking. Google's API currently routes this model ID to Gemini 3.6 Flash. Answers and conversational query rewriting use this model; field extraction retains the separate flash-lite model. Gemini 3 requests use thinking levels instead of the legacy token budget and omit deprecated sampling settings.
 *   **Two decision paths**: page classification and boundary detection use **TypeSafe Jev** (closed-set choice and yes/no probability). Gemini flash-lite still handles per-document context lines and review field extraction; answers and query rewriting stay on flash.
 *   **Automatic file review**: once a packet is ingested, the application's claims (income, employer, balances, declarations, loan terms) are checked against the pay slips, bank statement, Loan Estimate and title report. Each check shows both sides' values with their pages, in a panel beside the chat (a drawer on narrow screens) so the officer can ask about a flag without leaving it. See [Automatic file review](#-automatic-file-review).
-*   **Use your own provider**: Settings lets a user choose Gemini (API key) or Cloudflare Workers AI (account ID and API token). Credentials are validated before they are kept in the browser tab, sent only with questions, and never stored by the server. Question rewriting and answers use the selected provider without spending daily credits; uploads and retrieval embeddings still use the app's keys. Without own credentials, the app's daily cap applies.
-*   **Flag decisions with an audit trail**: every mismatch or review flag can be **accepted** (a note is required) or **confirmed** as an issue. Decisions are append-only, record who decided and when, and the sidebar counts open flags per borrower.
+*   **Use your own provider**: Settings lets a user choose Gemini (API key) or Cloudflare Workers AI (account ID and API token). Credentials are validated, encrypted with Fernet using a key derived from `JWT_SECRET`, and saved per account in Postgres. The selected provider survives logout/login; Settings shows only the saved key's last four characters. Rotating `JWT_SECRET` requires saving credentials again. Question rewriting and answers use the selected provider without spending daily credits; uploads and retrieval embeddings still use the app's keys. Without own credentials, the app's daily cap applies.
+*   **Flag decisions with an audit trail**: every mismatch or review flag can be **accepted** (a note is required) or **confirmed** as an issue. Decisions are append-only and record who decided and when. The sidebar shows findings separately from reviewed progress; confirming an issue does not mark it fixed.
 *   **Several PDFs per borrower**: upload up to 20 files at once; they are merged in order into one PDF for the chat, then split into logical documents during ingestion.
-*   **Grounded answers**: values are quoted exactly with their document and page, never computed or rounded; a question the file cannot answer gets "not in the documents", not a guess. Summaries use their own rules.
-*   **Semantic Routing**: Automatic query routing to specific document sections via embedding centroids — no extra LLM call.
+*   **Grounded answers**: source values retain their labels, document identity and page citations. Requested calculations and discrepancy explanations show their inputs and arithmetic. The prompt instructs the model not to mix borrowers, employers, pay periods or current/year-to-date earnings; these instructions reduce errors but do not guarantee correctness.
+*   **Bounded document-aware retrieval**: ordinary questions retrieve up to `min(2 × search breadth, 24)` hybrid candidates. One fetch of at most 36 IDs adds opening and nearby chunks from the top six hits' logical documents, with chat/document/type validation. Duplicate evidence is removed and whole chunks are packed into at most **18 chunks / 6,000 cl100k source-context tokens**. This is structural linking, not verified entity relationships. Explicit whole-document summaries retain their separate full-text path.
 
 
 ---
@@ -30,10 +30,10 @@ A **loan-file copilot** for home-loan (mortgage) officers: upload a borrower's p
 
 A loan officer's core check is *stare and compare*: the application holds the borrower's **claims**, the supporting documents are the **evidence**. The review does that comparison for every file, and the ingest **worker** runs it right after the document turns `ready`.
 
-1. **Classify and split** the packet into documents (16 types, including **Loan Application**).
+1. **Classify and split** the packet into documents (17 types, including **Loan Application** and **Loan Estimate**). Explicit Loan Estimate headings retain that type rather than being grouped under Lender Fee Sheet; older indexed chats need reprocessing to update their stored labels.
 2. **Extract a fixed set of fields** per document type: first from Textract's FORMS label/value pairs, then **one flash-lite call per document** for anything missing and for lists (deposits, debits, liabilities, liens, easements).
 3. **Grounding guard**: a model-extracted value is kept only if its exact text is found in that document, and its **page is located in code**, never taken from the model.
-4. **Compare with rules in plain Python** (thresholds at the top of `core/review.py`), not with the LLM.
+4. **Compare with rules in plain Python** (thresholds at the top of `core/review.py`), not with the LLM. Asking about any review flag follows the normal retrieval and LLM answer path; the model performs the answer's arithmetic from the evidence. An unexplained transfer remains a review item, not proof of undisclosed third-party funds or a false declaration.
 
 | Check | Compares |
 |---|---|
@@ -47,13 +47,14 @@ A loan officer's core check is *stare and compare*: the application holds the bo
 | Liens, easements | title report; "payoff required" read from the report's own wording |
 | Packet contents | Loan Application, Pay Slip and Bank Statement are noted when absent; comparisons needing absent documents are skipped, not called failed |
 
-Each check is **mismatch**, **review**, **missing**, **match** or **info**. Documents absent from the packet are informational, not a loan-completeness verdict. The original uploaded/merged PDF is retained separately for an owner-only preview available as soon as upload completes. Swipe left/right or use arrow buttons to view its pages; review evidence opens the cited page. Older chats uploaded before this feature have no original to show. A review that fails is stored as failed and never fails the upload: the document stays searchable. If a worker is killed mid-review, the job's lease brings it back and the review is rebuilt; a review left on `running` with no job able to finish it is marked failed ("re-upload to review") by the worker's periodic check, so the panel never spins forever.
+Each check is **mismatch**, **review**, **missing**, **match** or **info**. Documents absent from the packet are informational, not a loan-completeness verdict. Selected files can be previewed before clicking **Process document**, without saving or ingesting them. The original uploaded/merged PDF is retained separately for an owner-only preview available during processing and afterward. Swipe left/right or use arrow buttons to view its pages; review evidence opens the cited page. Older chats uploaded before this feature have no original to show. A review that fails is stored as failed and never fails the upload: the document stays searchable. If a worker is killed mid-review, the job's lease brings it back and the review is rebuilt; a review left on `running` with no job able to finish it is marked failed ("re-upload to review") by the worker's periodic check, so the panel never spins forever.
 
 **Try it:** `samples/synthetic_borrower/whitfield_loan_packet.pdf` is an 8-page synthetic packet with five logical documents and planted issues. `whitfield_3doc_packet.pdf` is a three-page alternative: loan application, loan estimate, then bank statement. `answer_key.md` covers the 8-page packet's review and 35 test questions. Regenerate both with `python samples/synthetic_borrower/make_samples.py`.
 
 ### Citations and reliability
 
 *   **Page numbers are 1-based everywhere a person or the model sees them.** Pages are stored 0-based; citations, the answer prompt and the eval prompt add 1. Before this, answers cited one page early. Pages are pages of the merged file when several PDFs were uploaded.
+*   **Declaration citations match the question and its answer together**: the undisclosed-funds YES/NO must follow that declaration's wording. A bare `NO` elsewhere (such as `Loan No.`) is not accepted as its source.
 *   **The grounding guard ignores table cell separators**, so a value quoted from a table row (`07/15 | DIRECT DEP … | +$2,845.31`) still matches, and list values the model wraps as `{"value": …}` are unwrapped rather than dropped.
 *   **With PyMuPDF, page-boundary detection reads table rows without their `|` separators**: with them, the model called a pay slip and the next bank statement "the same document" every time.
 *   Provider calls retry 429s, 5xx and timeouts with full-jitter backoff behind a circuit breaker, and the worker stops claiming jobs while a provider is down (`llm/llm_router.py`, `worker.py`).
@@ -232,8 +233,13 @@ Chat and account endpoints require `Authorization: Bearer <token>`; signup, logi
 | `POST` | `/api/chats/{id}/message` | Ask a question. Returns `question_asked` and `question_searched` so a rewritten follow-up is diagnosable |
 | `PATCH` | `/api/chats/{id}` | Rename |
 | `DELETE` | `/api/chats/{id}` | Drops the namespace **and** the rows. Flag decisions are kept (audit trail) |
-| `GET` | `/api/account/credits` | `{cap, used, remaining}` for today; questions using own credentials are not counted |
+| `GET` | `/api/account/credits` | `{cap, used, remaining, provider, own_key}` for today; questions using own credentials are not counted |
+| `GET` | `/api/account/api-keys` | Selected provider and saved credential metadata (last four characters only) |
+| `PUT` | `/api/account/api-keys` | `{provider, key, account_id?}` — validate, encrypt, save and select credentials |
+| `PUT` | `/api/account/provider` | `{provider: "FREE"\|"GEMINI"\|"CLOUDFLARE"}` — select saved credentials or free credits |
+| `DELETE` | `/api/account/api-keys/{provider}` | Remove `gemini` or `cloudflare` credentials; removing the active provider restores free credits |
 | `POST` | `/api/account/check-key` | `{provider: "GEMINI"\|"CLOUDFLARE", key, account_id?}` — validates own credentials; Cloudflare checks the answer model with a small completion |
+| `POST` | `/api/pdf/preview/pages/{page}` | Authenticated selected-file preview: multipart `file`, PNG of a 1-based page with `X-PDF-Pages`; upload size limit applies, no persistence or ingestion |
 | `GET` | `/api/chats/{id}/pdf` | Owner-only original PDF; unavailable for pre-feature uploads |
 | `GET` | `/api/chats/{id}/pdf/pages/{page}` | Owner-only PNG of a 1-based page; includes `X-PDF-Pages` count |
 | `POST` | `/api/chats/{id}/review/decisions` | `{check_key, decision: accepted\|confirmed, note}`. Accept requires a note. **409** if the file has no finished review, **422** for an unknown flag |
@@ -278,6 +284,27 @@ All three retrieval modes over the same corpus and models — raw per-question o
 
 > [!NOTE]
 > Evaluation was performed on a multi-document mortgage packet (21 logical documents across 50 pages). Raw per-question output for all configurations lives in `results/`.
+
+### Load testing (k6)
+
+```bash
+# from backend/, with Render and any other worker on the same database stopped
+python load_test_k6.py --render-suspended --levels 25,50,75,100,150
+```
+
+`load_test_k6.py` starts the API and three ingest workers locally (20 job slots each), creates test accounts, runs `load_test_k6.js` once per level (30s ramp, 180s hold), then deletes the accounts and everything they created. It refuses to start while real jobs are queued. Each virtual user logs in, creates a chat, uploads a PDF, polls until ingestion finishes, then lists chats, opens its chat and checks health every 5–10s. Workers replace ingestion with a 4s wait, so no LLM, embedding or Pinecone calls are made and no questions are asked. Thresholds: under 1% failed requests; p95 under 2s for health, 5s for chats, chat and status, 10s for upload.
+
+Measured 2026-10-28 on a laptop against the remote Neon database with about 0.8 GB free RAM; these are not production capacity figures. Times in seconds, p50 / p95 / p99:
+
+| Users | Requests | Errors | Login | Chats | Upload | Upload → ready | Thresholds |
+|---|---|---|---|---|---|---|---|
+| 25 | 1,526 | 0% | 3.8 / 5.0 / 5.1 | 1.2 / 1.6 / 3.3 | 4.5 / 4.6 / 5.0 | 6.9 / 9.6 / 9.7 | met |
+| 50 | 3,017 | 0% | 4.0 / 6.5 / 6.6 | 1.2 / 1.5 / 2.4 | 4.7 / 6.4 / 7.1 | 8.8 / 11.9 / 13.0 | met |
+| 75 | 4,455 | 0% | 4.5 / 5.7 / 7.1 | 1.2 / 2.3 / 2.6 | 7.0 / 9.4 / 9.9 | 9.9 / 26.8 / 29.0 | met |
+| 100 | 5,566 | 0% | 4.9 / 6.4 / 7.2 | 1.2 / 2.0 / 2.6 | 16.6 / 19.8 / 20.6 | 9.8 / 28.4 / 37.3 | upload p95 |
+| 150 | 5,897 | 0% | 6.2 / 9.7 / 10.7 | 2.6 / 3.5 / 4.7 | 33.3 / 43.4 / 45.0 | 9.7 / 42.0 / 52.8 | upload, status p95 |
+
+All 400 uploads completed. Upload time is the limit above 75 users: each upload writes the PDF to the database twice (job payload and stored original) from a 12-thread pool, and queue waits grow once the 60 job slots fill. Full per-endpoint results are in `backend/k6_results/`.
 
 ---
 
@@ -337,6 +364,9 @@ document-retrieval-system/
 │   ├── worker.py                    # ingest worker — claims and runs queued jobs
 │   ├── job_queue.py                 # the queue: enqueue / claim / finish / reclaim
 │   ├── logging_setup.py             # JSON logs + correlation id
+│   ├── load_test_k6.py              # local k6 runner: accounts, API, stub workers, cleanup
+│   ├── load_test_k6.js              # k6 user flow: login, upload, poll, browse
+│   ├── k6_results/                  # load-test results (JSON)
 │   ├── Dockerfile                   # python:3.12-slim + uvicorn
 │   ├── migrations.sql               # Schema + housekeeping queries
 │   ├── requirements.txt

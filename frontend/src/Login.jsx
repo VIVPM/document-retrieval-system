@@ -35,7 +35,7 @@ export default function Login({ onAuthenticated, onBack, initialMode = 'login' }
   return (
     <div className="auth-page lp-mesh">
       <nav className="lp-nav">
-        <span className="lp-wordmark"><span className="lp-logo">📄</span> DocQA</span>
+        <span className="lp-wordmark"><span className="lp-logo">📄</span> FinDoc</span>
         {onBack && (
           <button type="button" className="btn btn-ghost" onClick={onBack}>← Back</button>
         )}

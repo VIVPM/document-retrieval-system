@@ -796,6 +796,32 @@ def preview_pdf(chat_id: str, current_user: dict = Depends(get_current_user)):
         db.close()
 
 
+@app.post("/api/pdf/preview/pages/{page}")
+@limiter.limit("60/minute")
+def preview_selected_pdf(request: Request, page: int, file: UploadFile = File(...),
+                         current_user: dict = Depends(get_current_user)):
+    """Render a selected PDF without saving it or starting ingestion."""
+    import fitz
+
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are accepted.")
+    data = file.file.read(MAX_UPLOAD_BYTES + 1)
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail=f"Upload is larger than the {MAX_UPLOAD_MB} MB limit.")
+    if not data:
+        raise HTTPException(status_code=400, detail="The PDF is empty.")
+    try:
+        image, count = page_png(data, page)
+    except IndexError:
+        raise HTTPException(status_code=404, detail="Page not found.")
+    except (fitz.FileDataError, RuntimeError, ValueError, ZeroDivisionError):
+        raise HTTPException(status_code=422, detail="PDF preview unavailable.")
+    return Response(image, media_type="image/png", headers={
+        "Cache-Control": "private, no-store", "X-PDF-Pages": str(count),
+        "X-Content-Type-Options": "nosniff",
+    })
+
+
 # Render one page on demand; use object storage for larger packets.
 @app.get("/api/chats/{chat_id}/pdf/pages/{page}")
 def preview_pdf_page(chat_id: str, page: int, current_user: dict = Depends(get_current_user)):

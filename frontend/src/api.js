@@ -13,26 +13,8 @@ for (const k of [TOKEN_KEY, REFRESH_KEY, USER_KEY]) localStorage.removeItem(k)
 
 export const getToken = () => sessionStorage.getItem(TOKEN_KEY)
 export const getUser = () => sessionStorage.getItem(USER_KEY)
-export const getOwnCredentials = () => {
-  try {
-    const saved = sessionStorage.getItem(OWN_KEY)
-    if (saved) {
-      const credentials = JSON.parse(saved)
-      if (credentials?.provider === 'GEMINI' && credentials.key) return credentials
-      if (credentials?.provider === 'CLOUDFLARE' && credentials.key && credentials.account_id) return credentials
-    }
-    const legacy = sessionStorage.getItem(LEGACY_GEMINI_KEY)
-    return legacy ? { provider: 'GEMINI', key: legacy } : null
-  } catch { return null }
-}
-export const setOwnCredentials = (credentials) => {
-  sessionStorage.setItem(OWN_KEY, JSON.stringify(credentials))
-  sessionStorage.removeItem(LEGACY_GEMINI_KEY)
-}
-export const clearOwnCredentials = () => {
-  sessionStorage.removeItem(OWN_KEY)
-  sessionStorage.removeItem(LEGACY_GEMINI_KEY)
-}
+// Provider secrets live encrypted on the account, never in browser storage.
+for (const k of [OWN_KEY, LEGACY_GEMINI_KEY]) sessionStorage.removeItem(k)
 
 // True when there is no access token or it has passed its exp. Reading the JWT
 // exp lets the app notice an expired session while idle, instead of only when
@@ -62,7 +44,8 @@ export function clearSession() {
   sessionStorage.removeItem(TOKEN_KEY)
   sessionStorage.removeItem(USER_KEY)
   sessionStorage.removeItem(REFRESH_KEY)
-  clearOwnCredentials()
+  sessionStorage.removeItem(OWN_KEY)
+  sessionStorage.removeItem(LEGACY_GEMINI_KEY)
 }
 
 // Set by App so an expired session drops straight to the login screen instead
@@ -166,8 +149,13 @@ export async function logout() {
 // Daily message credits: { cap, used, remaining }. 1 credit = one question
 // and its answer.
 export const getCredits = () => request('/api/account/credits')
-export const checkOwnCredentials = (credentials) =>
-  request('/api/account/check-key', { method: 'POST', body: credentials })
+export const getProviderSettings = () => request('/api/account/api-keys')
+export const saveOwnCredentials = (credentials) =>
+  request('/api/account/api-keys', { method: 'PUT', body: credentials })
+export const selectProvider = (provider) =>
+  request('/api/account/provider', { method: 'PUT', body: { provider } })
+export const removeOwnCredentials = (provider) =>
+  request(`/api/account/api-keys/${provider.toLowerCase()}`, { method: 'DELETE' })
 
 // ── Chats ───────────────────────────────────────────────────────────────
 export const listChats = () => request('/api/chats')
@@ -180,6 +168,12 @@ export const deleteChat = (id) => request(`/api/chats/${id}`, { method: 'DELETE'
 export const getPdf = (id) => request(`/api/chats/${id}/pdf`, { blob: true })
 export async function getPdfPage(id, page) {
   const res = await request(`/api/chats/${id}/pdf/pages/${page}`, { raw: true })
+  return { image: await res.blob(), pages: Number(res.headers.get('X-PDF-Pages')) }
+}
+export async function previewSelectedPdfPage(file, page) {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await request(`/api/pdf/preview/pages/${page}`, { method: 'POST', form, raw: true })
   return { image: await res.blob(), pages: Number(res.headers.get('X-PDF-Pages')) }
 }
 export const decideFlag = (id, check_key, decision, note) =>
@@ -197,15 +191,9 @@ export function uploadDocument(id, files) {
 // this reads the SSE body off a fetch() stream by hand. Calls the handlers as
 // events arrive: onMeta(sources+query), onToken(text), onDone(), onError(msg).
 export async function streamMessage(id, payload, { onMeta, onToken, onDone, onError }) {
-  const own = getOwnCredentials()
-  const ownHeaders = own?.provider === 'GEMINI'
-    ? { 'X-Gemini-Key': own.key }
-    : own?.provider === 'CLOUDFLARE'
-      ? { 'X-Cloudflare-Account-ID': own.account_id, 'X-Cloudflare-API-Token': own.key }
-      : {}
   const res = await authFetch(`/api/chats/${id}/message`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...ownHeaders },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })
 

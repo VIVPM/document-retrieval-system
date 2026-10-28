@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import Markdown from 'react-markdown'
 import * as api from './api'
 
 const POLL_MS = 2500
@@ -11,7 +12,7 @@ const STAGES = [
   { key: 'store', label: 'Storing in vector DB', sub: 'Indexing in Pinecone for hybrid search', at: 47 },
 ]
 
-function PdfPreview({ chatId, filename, startPage, onClose }) {
+function PdfPreview({ chatId, file, filename, startPage, onClose }) {
   const [page, setPage] = useState(startPage)
   const [pages, setPages] = useState(0)
   const [pageResult, setPageResult] = useState(null)
@@ -24,22 +25,24 @@ function PdfPreview({ chatId, filename, startPage, onClose }) {
   useEffect(() => () => { if (pdfUrl) URL.revokeObjectURL(pdfUrl) }, [pdfUrl])
   useEffect(() => {
     let active = true
-    api.getPdf(chatId).then((blob) => {
+    const original = file ? Promise.resolve(file) : api.getPdf(chatId)
+    original.then((blob) => {
       const url = URL.createObjectURL(blob)
       if (active) setPdfUrl(url)
       else URL.revokeObjectURL(url)
     }).catch((err) => { if (active) setPdfError(err.message) })
     return () => { active = false }
-  }, [chatId])
+  }, [chatId, file])
   useEffect(() => {
     let active = true
-    api.getPdfPage(chatId, page).then(({ image, pages: count }) => {
+    const imageRequest = file ? api.previewSelectedPdfPage(file, page) : api.getPdfPage(chatId, page)
+    imageRequest.then(({ image, pages: count }) => {
       const url = URL.createObjectURL(image)
       if (active) { setPageResult({ page, url }); setPages(count) }
       else URL.revokeObjectURL(url)
     }).catch((err) => { if (active) setPageResult({ page, error: err.message }) })
     return () => { active = false }
-  }, [chatId, page])
+  }, [chatId, file, page])
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === 'Escape') onClose()
@@ -95,7 +98,7 @@ function ProcessingView({ filename, since, stage, onPreview }) {
     active = 0
     for (let i = 0; i < STAGES.length; i++) if (elapsed >= STAGES[i].at) active = i
   }
-  const pct = Math.min(94, Math.round((elapsed / 52) * 94))
+  const pct = Math.round(((active + 1) / STAGES.length) * 94)
 
   return (
     <div className="proc-wrap">
@@ -135,6 +138,7 @@ function UploadView({ chat, onUploaded, addToast }) {
   const [files, setFiles] = useState([])
   const [dragging, setDragging] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [previewFile, setPreviewFile] = useState(null)
   const inputRef = useRef(null)
 
   const MAX_MB = 3
@@ -197,9 +201,12 @@ function UploadView({ chat, onUploaded, addToast }) {
         <ol className="upload-files">
           {files.map((f, i) => (
             <li key={`${f.name}-${f.size}`}>
-              <span className="upload-file-name">📄 {f.name}</span>
-              <button type="button" onClick={() => removeAt(i)} disabled={busy}
-                aria-label={`Remove ${f.name}`}>✕</button>
+              <div className="upload-file-row">
+                <span className="upload-file-name">📄 {f.name}</span>
+                <button type="button" className="doc-strip-btn" onClick={() => setPreviewFile(f)} disabled={busy}>Preview PDF</button>
+                <button type="button" onClick={() => removeAt(i)} disabled={busy}
+                  aria-label={`Remove ${f.name}`}>✕</button>
+              </div>
             </li>
           ))}
         </ol>
@@ -208,6 +215,7 @@ function UploadView({ chat, onUploaded, addToast }) {
       <button className="btn btn-primary" onClick={start} disabled={!files.length || busy}>
         {busy ? <><span className="spinner" /> Uploading…</> : 'Process document'}
       </button>
+      {previewFile && <PdfPreview file={previewFile} filename={previewFile.name} startPage={1} onClose={() => setPreviewFile(null)} />}
     </div>
   )
 }
@@ -218,7 +226,7 @@ function Sources({ sources }) {
   return (
     <div className="sources">
       <button className="sources-toggle" onClick={() => setOpen(!open)}>
-        {open ? '▾' : '▸'} {sources.length} source{sources.length > 1 ? 's' : ''}
+        {open ? '▾' : '▸'} {sources.length} top match{sources.length > 1 ? 'es' : ''}
       </button>
       {open && (
         <ul className="sources-list">
@@ -373,29 +381,37 @@ function ReviewPanel({ review, onAsk, onPreview, full = false, decisions = {}, h
   )
 }
 
-// Own credentials are checked before they are kept in this tab.
-function OwnKeySection({ hasOwnKey, onOwnKeyChange }) {
+// Only masked metadata comes back from account settings.
+function OwnKeySection({ hasOwnKey, onOwnKeyChange, credits }) {
+  const [settings, setSettings] = useState(null)
   const [provider, setProvider] = useState('GEMINI')
   const [accountId, setAccountId] = useState('')
   const [draft, setDraft] = useState('')
   const [checking, setChecking] = useState(false)
   const [error, setError] = useState(null)
+  const saved = settings?.[provider.toLowerCase()]
+  const active = settings?.selected === provider
 
-  const save = async () => {
-    const key = draft.trim()
-    const account_id = accountId.trim()
-    if (!key || (provider === 'CLOUDFLARE' && !account_id)) return
+  useEffect(() => {
+    let active = true
+    api.getProviderSettings().then((data) => {
+      if (!active) return
+      setSettings(data)
+      setProvider(data.selected === 'CLOUDFLARE' ? 'CLOUDFLARE' : 'GEMINI')
+      setAccountId(data.cloudflare?.account_id || '')
+    }).catch((err) => { if (active) setError(err.message) })
+    return () => { active = false }
+  }, [])
+
+  const update = async (request) => {
     setChecking(true)
     setError(null)
     try {
-      const credentials = provider === 'CLOUDFLARE'
-        ? { provider, key, account_id }
-        : { provider, key }
-      await api.checkOwnCredentials(credentials)
-      api.setOwnCredentials(credentials)
+      const data = await request()
+      setSettings(data)
       setDraft('')
-      setAccountId('')
-      onOwnKeyChange(true)
+      setAccountId(data.cloudflare?.account_id || '')
+      onOwnKeyChange()
     } catch (err) {
       setError(err.message)
     } finally {
@@ -403,58 +419,116 @@ function OwnKeySection({ hasOwnKey, onOwnKeyChange }) {
     }
   }
 
-  const active = api.getOwnCredentials()?.provider
+  const save = () => {
+    const key = draft.trim()
+    const account_id = accountId.trim()
+    if (!key || (provider === 'CLOUDFLARE' && !account_id)) return
+    update(() => api.saveOwnCredentials(provider === 'CLOUDFLARE'
+      ? { provider, key, account_id } : { provider, key }))
+  }
+
   return (
     <section className="settings-section">
-      <h3>Use your own credentials</h3>
-      {hasOwnKey ? (
+      <h3>Credits</h3>
+      <p className="setting-hint">
+        {hasOwnKey
+          ? `Using your ${settings?.selected === 'CLOUDFLARE' ? 'Cloudflare' : 'Gemini'} credentials — no daily message credits.`
+          : `Using daily free credits with the app’s key${credits ? ` — ${credits.remaining} of ${credits.cap} left today` : ''}. Resets at midnight IST.`}
+      </p>
+      <p className="setting-hint">Your credentials are encrypted and saved to your account, including after logout. Uploads and retrieval embeddings still use the app&rsquo;s key.</p>
+      <label className="setting-hint" htmlFor="own-provider">Use your own provider</label>
+      <select id="own-provider" value={provider} disabled={checking}
+              onChange={(e) => { setProvider(e.target.value); setError(null); setDraft(''); setAccountId(settings?.cloudflare?.account_id || '') }}>
+        <option value="GEMINI">Gemini</option>
+        <option value="CLOUDFLARE">Cloudflare Workers AI</option>
+      </select>
+      {saved?.saved && (
         <div className="key-active">
-          <span>✓ Using your own {active === 'CLOUDFLARE' ? 'Cloudflare' : 'Gemini'} credentials. Daily credits don&rsquo;t apply.</span>
-          <button className="btn btn-secondary btn-sm" onClick={() => { api.clearOwnCredentials(); onOwnKeyChange(false) }}>
-            Use app credits
-          </button>
+          <span>Saved credentials ending in ••••{saved.last4}</span>
+          {!active && <button className="btn btn-secondary btn-sm" disabled={checking}
+            onClick={() => update(() => api.selectProvider(provider))}>Use saved credentials</button>}
+          <button className="btn btn-secondary btn-sm" disabled={checking}
+                  onClick={() => update(() => api.removeOwnCredentials(provider))}>Remove</button>
         </div>
-      ) : (
-        <>
-          <p className="setting-hint">
-            Select a provider for questions and answers. Uploads and retrieval embeddings still use the app&rsquo;s key.
-            Your credentials stay in this browser tab and are never stored on our server.
-          </p>
-          <label className="setting-hint" htmlFor="own-provider">Provider</label>
-          <select id="own-provider" value={provider} onChange={(e) => { setProvider(e.target.value); setError(null); setDraft('') }}>
-            <option value="GEMINI">Gemini</option>
-            <option value="CLOUDFLARE">Cloudflare</option>
-          </select>
-          {provider === 'CLOUDFLARE' && (
-            <input type="text" className="key-input" placeholder="Cloudflare account ID"
-                   aria-label="Cloudflare account ID" value={accountId} autoComplete="off" spellCheck={false}
-                   onChange={(e) => setAccountId(e.target.value)} />
-          )}
-          <div className="key-row">
-            <input type="password" className="key-input"
-                   placeholder={provider === 'GEMINI' ? 'Gemini API key' : 'Cloudflare API token'}
-                   aria-label={provider === 'GEMINI' ? 'Gemini API key' : 'Cloudflare API token'}
-                   value={draft} autoComplete="off" spellCheck={false}
-                   onChange={(e) => setDraft(e.target.value)}
-                   onKeyDown={(e) => { if (e.key === 'Enter') save() }} />
-            <button className="btn btn-primary btn-sm" onClick={save}
-                    disabled={checking || !draft.trim() || (provider === 'CLOUDFLARE' && !accountId.trim())}>
-              {checking ? 'Checking…' : 'Save credentials'}
-            </button>
-          </div>
-          {error && <p className="key-error">{error}</p>}
-        </>
       )}
+      {provider === 'GEMINI' ? (
+        <a className="key-link" href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Get a Gemini key</a>
+      ) : (
+        <p className="setting-hint">Get a Workers AI API token and Account ID in your Cloudflare dashboard.</p>
+      )}
+      {provider === 'CLOUDFLARE' && (
+        <input type="text" className="key-input" placeholder="Cloudflare account ID"
+               aria-label="Cloudflare account ID" value={accountId} autoComplete="off" spellCheck={false}
+               disabled={checking} onChange={(e) => setAccountId(e.target.value)} />
+      )}
+      <div className="key-row">
+        <input type="password" className="key-input"
+               placeholder={provider === 'GEMINI' ? 'Gemini API key' : 'Cloudflare API token'}
+               aria-label={provider === 'GEMINI' ? 'Gemini API key' : 'Cloudflare API token'}
+               value={draft} autoComplete="off" spellCheck={false} disabled={checking}
+               onChange={(e) => setDraft(e.target.value)}
+               onKeyDown={(e) => { if (e.key === 'Enter') save() }} />
+        <button className="btn btn-primary btn-sm" onClick={save}
+                disabled={checking || !draft.trim() || (provider === 'CLOUDFLARE' && !accountId.trim())}>
+          {checking ? 'Checking…' : 'Save and use'}
+        </button>
+      </div>
+      {error && <p className="key-error" role="alert">{error}</p>}
     </section>
   )
 }
 
-export default function ChatPanel({ chat, onChatChanged, addToast, hasOwnKey, onOwnKeyChange }) {
+export function SettingsModal({ chat, onClose, hasOwnKey, onOwnKeyChange, credits, docFilter, setDocFilter, numChunks, setNumChunks, alpha, setAlpha }) {
+  const docTypes = ['All', ...(chat?.status === 'ready' ? chat.doc_stats?.document_types || [] : [])]
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <button className="modal-close" aria-label="Close settings" onClick={onClose}>✕</button>
+        <h2 id="settings-title">Settings</h2>
+        <OwnKeySection hasOwnKey={hasOwnKey} onOwnKeyChange={onOwnKeyChange} credits={credits} />
+        {chat?.status === 'ready' && <section className="settings-section">
+          <h3>Search</h3>
+          <div className="settings-strip settings-fields">
+            <label>
+              <span className="setting-label">Document type</span>
+              <select value={docFilter} onChange={(e) => setDocFilter(e.target.value)}>
+                {docTypes.map((t) => <option key={t}>{t}</option>)}
+              </select>
+            </label>
+            <label>
+              <span className="setting-label">Balance: {alpha === 1 ? 'semantic' : alpha === 0 ? 'keyword' : alpha}</span>
+              <input type="range" min={0} max={1} step={0.1} value={alpha}
+                     onChange={(e) => setAlpha(Number(e.target.value))} />
+              <span className="setting-hint">0 = keyword · 1 = semantic</span>
+            </label>
+            <label>
+              <span className="setting-label">Search breadth: {numChunks}</span>
+              <input type="range" min={1} max={10} step={1} value={numChunks}
+                     onChange={(e) => setNumChunks(Number(e.target.value))} />
+              <span className="setting-hint">Top matches shown as sources; nearby context is added within a fixed budget.</span>
+            </label>
+          </div>
+        </section>}
+        <div className="modal-actions">
+          <button className="btn btn-primary" onClick={onClose} autoFocus>Done</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default function ChatPanel({ chat, onChatChanged, addToast, docFilter, numChunks, alpha, credits, hasOwnKey, onCreditsRefresh }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [querying, setQuerying] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [showSettings, setShowSettings] = useState(false)
   const [uploadStartedAt, setUploadStartedAt] = useState(Date.now())
   const [stage, setStage] = useState(null)
   const [review, setReview] = useState(null)
@@ -465,26 +539,15 @@ export default function ChatPanel({ chat, onChatChanged, addToast, hasOwnKey, on
   const openPdf = (page = 1) => setPreviewPage(page)
   const closePdf = () => setPreviewPage(null)
 
-  const [docFilter, setDocFilter] = useState('All')
-  const [numChunks, setNumChunks] = useState(6)
-  const [alpha, setAlpha] = useState(0.5)
-
-  useEffect(() => {
-    if (!showSettings) return
-    const onKey = (e) => { if (e.key === 'Escape') setShowSettings(false) }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [showSettings])
-
   const endRef = useRef(null)
   const chatId = chat.id
+  const outOfCredits = !hasOwnKey && credits?.remaining <= 0
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     closePdf()
     setMessages([])
-    setDocFilter('All')
     setReview(null)
     setDecisions({})
     setHistory([])
@@ -530,7 +593,7 @@ export default function ChatPanel({ chat, onChatChanged, addToast, hasOwnKey, on
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, querying])
 
   const runMessage = useCallback(async (question, extra = {}) => {
-    if (querying) return
+    if (querying || outOfCredits) return
     const aid = `tmp-a-${Date.now()}`
     setMessages((prev) => [
       ...prev,
@@ -557,8 +620,9 @@ export default function ChatPanel({ chat, onChatChanged, addToast, hasOwnKey, on
     } finally {
       setQuerying(false)
       patch((x) => (x.streaming ? { ...x, streaming: false } : x))
+      onCreditsRefresh?.()
     }
-  }, [querying, chatId, docFilter, numChunks, alpha, onChatChanged])
+  }, [querying, outOfCredits, chatId, docFilter, numChunks, alpha, onChatChanged, onCreditsRefresh])
 
   const send = useCallback(() => {
     const q = input.trim()
@@ -597,7 +661,6 @@ export default function ChatPanel({ chat, onChatChanged, addToast, hasOwnKey, on
   }
 
   const stats = chat.doc_stats || {}
-  const docTypes = ['All', ...(stats.document_types || [])]
   const askAbout = (text) => { setInput(text); if (isNarrow()) setShowReview(false) }
   const decide = async (key, decision, note) => {
     try {
@@ -642,12 +705,9 @@ export default function ChatPanel({ chat, onChatChanged, addToast, hasOwnKey, on
           <button className="doc-strip-btn" onClick={() => openPdf()} title="Preview the original PDF">
             📄 Preview PDF
           </button>
-          <button className="doc-strip-btn" onClick={() => { if (isNarrow()) setShowReview(false); summarize() }} disabled={querying}
+          <button className="doc-strip-btn" onClick={() => { if (isNarrow()) setShowReview(false); summarize() }} disabled={querying || outOfCredits}
                   title="Summarize the whole document (reads every page, not just the top matches)">
             📝 Summarize
-          </button>
-          <button className="doc-strip-btn" onClick={() => setShowSettings(true)}>
-            ⚙ Settings
           </button>
         </div>
       </div>
@@ -656,43 +716,6 @@ export default function ChatPanel({ chat, onChatChanged, addToast, hasOwnKey, on
 
       <div className="file-body">
       <div className="chat-col">
-      {showSettings && (
-        <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) setShowSettings(false) }}>
-        <div className="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-          <button className="modal-close" aria-label="Close settings" onClick={() => setShowSettings(false)}>✕</button>
-          <h2 id="settings-title">Settings</h2>
-          <OwnKeySection hasOwnKey={hasOwnKey} onOwnKeyChange={onOwnKeyChange} />
-          <section className="settings-section">
-          <h3>Search</h3>
-          <div className="settings-strip settings-fields">
-          <label>
-            <span className="setting-label">Document type</span>
-            <select value={docFilter} onChange={(e) => setDocFilter(e.target.value)}>
-              {docTypes.map((t) => <option key={t}>{t}</option>)}
-            </select>
-          </label>
-
-          <label>
-            <span className="setting-label">Balance: {alpha === 1 ? 'semantic' : alpha === 0 ? 'keyword' : alpha}</span>
-            <input type="range" min={0} max={1} step={0.1} value={alpha}
-                   onChange={(e) => setAlpha(Number(e.target.value))} />
-            <span className="setting-hint">0 = keyword · 1 = semantic</span>
-          </label>
-
-          <label>
-            <span className="setting-label">Context chunks: {numChunks}</span>
-            <input type="range" min={1} max={10} step={1} value={numChunks}
-                   onChange={(e) => setNumChunks(Number(e.target.value))} />
-          </label>
-          </div>
-          </section>
-          <div className="modal-actions">
-            <button className="btn btn-primary" onClick={() => setShowSettings(false)} autoFocus>Done</button>
-          </div>
-        </div>
-        </div>
-      )}
-
       <div className="chat-messages">
         {loading ? (
           <div className="empty-chat"><span className="spinner spinner-lg" /></div>
@@ -712,9 +735,16 @@ export default function ChatPanel({ chat, onChatChanged, addToast, hasOwnKey, on
                     <span className="spinner" style={{ marginRight: 8 }} /> Searching the document…
                   </span>
                 ) : (
-                  <>{m.content}{m.streaming && <span className="stream-caret" />}</>
+                  <>
+                    {m.role === 'assistant' ? (
+                      <div className="answer-markdown">
+                        <Markdown skipHtml disallowedElements={['img']}>{m.content}</Markdown>
+                      </div>
+                    ) : m.content}
+                    {m.streaming && <span className="stream-caret" />}
+                  </>
                 )}
-                {m.role === 'assistant' && <Sources sources={m.sources} />}
+                {m.role === 'assistant' && !m.streaming && <Sources sources={m.sources} />}
               </div>
             </div>
           ))
@@ -723,15 +753,20 @@ export default function ChatPanel({ chat, onChatChanged, addToast, hasOwnKey, on
       </div>
 
       <div className="chat-input-bar">
+        {outOfCredits && (
+          <div className="credit-notice">
+            You&rsquo;ve used all {credits.cap} of today&rsquo;s message credits. They reset at midnight IST.
+          </div>
+        )}
         <textarea
           rows={1}
-          placeholder="Ask about this loan file…"
+          placeholder={outOfCredits ? 'Daily message limit reached — resets at midnight IST' : 'Ask about this loan file…'}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
-          disabled={querying}
+          disabled={querying || outOfCredits}
         />
-        <button className="send-btn" onClick={send} disabled={!input.trim() || querying}>
+        <button className="send-btn" onClick={send} disabled={!input.trim() || querying || outOfCredits}>
           {querying ? <span className="spinner" /> : '➤'}
         </button>
       </div>

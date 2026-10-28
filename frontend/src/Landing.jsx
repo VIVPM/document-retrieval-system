@@ -58,7 +58,7 @@ export default function Landing({ onSignIn, onGetStarted }) {
   return (
     <div className="lp">
       <nav className="lp-nav">
-        <span className="lp-wordmark"><span className="lp-logo">📄</span> DocQA</span>
+        <span className="lp-wordmark"><span className="lp-logo">📄</span> FinDoc</span>
         <div className="lp-nav-actions">
           <button className="btn btn-ghost" onClick={onSignIn}>Sign in</button>
           <button className="btn btn-primary" onClick={onGetStarted}>Get started</button>
@@ -156,7 +156,7 @@ export default function Landing({ onSignIn, onGetStarted }) {
       </section>
 
       <footer className="lp-footer">
-        <span className="lp-copyright">© {new Date().getFullYear()} DocQA. All rights reserved.</span>
+        <span className="lp-copyright">© {new Date().getFullYear()} FinDoc. All rights reserved.</span>
       </footer>
     </div>
   )

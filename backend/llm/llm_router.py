@@ -26,7 +26,7 @@ if LLM_MODEL not in _PROVIDERS:
 
 GEMINI_API_KEY     = os.getenv("GEMINI_API_KEY", "").strip()
 
-GEMINI_CHAT_MODEL  = os.getenv("GEMINI_CHAT_MODEL", "gemini-2.5-flash")
+GEMINI_CHAT_MODEL  = os.getenv("GEMINI_CHAT_MODEL", "gemini-3.5-flash")
 
 GEMINI_FAST_MODEL  = os.getenv("GEMINI_FAST_MODEL", "gemini-2.5-flash-lite")
 
@@ -192,7 +192,8 @@ def _user_client(key: str):
 
 def check_user_key(key: str) -> None:
     """Raise if Gemini rejects this key. Reads model metadata, so it bills nothing."""
-    _user_client(key).models.get(model=GEMINI_CHAT_MODEL)
+    with _user_client(key) as client:
+        client.models.get(model=GEMINI_CHAT_MODEL)
 
 
 def _with_retries(fn, provider: str, what: str):
@@ -234,6 +235,21 @@ class MockResponse:
         self.usage = usage or {}
 
 
+def _gemini_config(model: str, temperature: float, max_tokens: int,
+                   thinking_budget: int):
+    if model.startswith("gemini-3"):
+        return types.GenerateContentConfig(
+            max_output_tokens=max_tokens,
+            thinking_config=types.ThinkingConfig(
+                thinking_level=types.ThinkingLevel.MINIMAL if thinking_budget == 0 else types.ThinkingLevel.MEDIUM),
+        )
+    return types.GenerateContentConfig(
+        temperature=temperature,
+        max_output_tokens=max_tokens,
+        thinking_config=types.ThinkingConfig(thinking_budget=thinking_budget),
+    )
+
+
 class LLMRouter:
     """Generates completions via whichever provider LLM_MODEL selects."""
 
@@ -264,9 +280,10 @@ class LLMRouter:
                 api_key=GEMINI_API_KEY,
                 http_options=types.HttpOptions(timeout=LLM_TIMEOUT_S * 1000),
             )
-            thinking = ("off" if GEMINI_THINKING_BUDGET == 0
-                        else "dynamic" if GEMINI_THINKING_BUDGET < 0
-                        else f"{GEMINI_THINKING_BUDGET} tokens")
+            thinking = ("minimal" if GEMINI_THINKING_BUDGET == 0 else "medium") if GEMINI_CHAT_MODEL.startswith("gemini-3") else (
+                "off" if GEMINI_THINKING_BUDGET == 0
+                else "dynamic" if GEMINI_THINKING_BUDGET < 0
+                else f"{GEMINI_THINKING_BUDGET} tokens")
             print(f"🔄 {GEMINI_CHAT_MODEL} configured (thinking: {thinking})")
             self.label = GEMINI_CHAT_MODEL
         else:
@@ -342,12 +359,7 @@ class LLMRouter:
         response = (client or self._gemini).models.generate_content(
             model=model,
             contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=temperature,
-                max_output_tokens=max_tokens,
-                thinking_config=types.ThinkingConfig(
-                    thinking_budget=thinking_budget),
-            ),
+            config=_gemini_config(model, temperature, max_tokens, thinking_budget),
         )
         text = (response.text or "").strip()
 
@@ -477,11 +489,7 @@ class LLMRouter:
             for chunk in gemini.models.generate_content_stream(
                 model=model,
                 contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=temp,
-                    max_output_tokens=max_tok,
-                    thinking_config=types.ThinkingConfig(thinking_budget=thinking),
-                ),
+                config=_gemini_config(model, temp, max_tok, thinking),
             ):
                 m = getattr(chunk, "usage_metadata", None)
                 if m is not None:

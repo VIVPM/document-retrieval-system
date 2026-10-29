@@ -1,0 +1,655 @@
+{
+  "reviewed_on": "2026-10-29",
+  "reviewer": "AI assistant; not independently human-verified",
+  "method": "Answer-level review against corrected gold, not a Ragas score threshold. Fully correct requires the requested facts; equivalent formats, appropriate missing-information refusals and harmless extra detail are accepted. Partial answers miss some requested facts. Incorrect_or_unanswered includes refusals on answerable questions, even if caused by retrieval misses.",
+  "limits": "Development-set result on a revised, partially synthetic packet; not an unseen-packet benchmark or a separate full grounding audit. Review decisions are subjective and should be independently checked before broader claims.",
+  "generator_model": "gemini-3.5-flash-lite",
+  "judge_model": "gemini-3.5-flash-lite",
+  "retrieval": {
+    "alpha": 0.5,
+    "chunks": 6,
+    "same_contexts_for_generation_and_judging": true
+  },
+  "files": {
+    "gold": "backend/eval/loan_packet_questions.json",
+    "answers": "results/loan_packet_answers_v3.json",
+    "ragas": "results/loan_packet_ragas_top6_v3_judge35lite.csv"
+  },
+  "sha256": {
+    "gold": "1ca2568f6125eaddf03021d33eafe2238c402af0144d052a6150ebe9153a883d",
+    "answers": "4d0af98d601f6a2f96f7b9f426fcad30fd95808832e59ae50e95e4d13a9ca765",
+    "ragas": "8b2165f25980c07f36cd0b23aeda16574eb8c72244861ea45c6d52712c7a17c3"
+  },
+  "summary": {
+    "total": 120,
+    "fully_correct": 109,
+    "partial": 4,
+    "incorrect_or_unanswered": 7,
+    "answer_accuracy": 0.9083333333333333,
+    "answer_accuracy_percent": 90.83
+  },
+  "ragas_averages": {
+    "answer_correctness": 0.8028937461609897,
+    "context_precision": 0.7580925925421111,
+    "context_recall": 0.925,
+    "faithfulness": 0.9615277777777779
+  },
+  "estimated_cost_usd": {
+    "generation": 0.173948,
+    "judge_final_rows": 0.819767,
+    "judge_failed_C19_first_attempt": 0.007145,
+    "judge_total": 0.826912,
+    "pairing_total": 1.00086,
+    "rates_per_million_tokens": {
+      "input": 0.3,
+      "output_including_thinking": 2.5
+    },
+    "excludes": [
+      "embedding calls",
+      "ingestion",
+      "earlier experimental runs"
+    ]
+  },
+  "decisions": [
+    {
+      "question_id": "E01",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E02",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E03",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E04",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E05",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E06",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E07",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E08",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E09",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E10",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E11",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E12",
+      "verdict": "correct",
+      "reason": "Both base and total gross monthly income are correctly stated as $9,750."
+    },
+    {
+      "question_id": "E13",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E14",
+      "verdict": "incorrect_or_unanswered",
+      "reason": "Does not answer the semi-monthly pay frequency."
+    },
+    {
+      "question_id": "E15",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E16",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E17",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E18",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E19",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E20",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E21",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E22",
+      "verdict": "partial",
+      "reason": "Correct purchase purpose, but conventional loan type is unanswered."
+    },
+    {
+      "question_id": "E23",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E24",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E25",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E26",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E27",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E28",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E29",
+      "verdict": "incorrect_or_unanswered",
+      "reason": "Does not answer the $95,000 down payment."
+    },
+    {
+      "question_id": "E30",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E31",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E32",
+      "verdict": "correct",
+      "reason": "All listed wage boxes correctly show $108,000; extra wage fields do not invalidate the requested value."
+    },
+    {
+      "question_id": "E33",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E34",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E35",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E36",
+      "verdict": "incorrect_or_unanswered",
+      "reason": "Does not identify the current title holders."
+    },
+    {
+      "question_id": "E37",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E38",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E39",
+      "verdict": "correct",
+      "reason": "A mortgage-insurance amount of $0 correctly indicates no mortgage insurance."
+    },
+    {
+      "question_id": "E40",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "M01",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "M02",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "M03",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "M04",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "M05",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "M06",
+      "verdict": "partial",
+      "reason": "Correct loan-cost total and category C; individual category A and B amounts are missing."
+    },
+    {
+      "question_id": "M07",
+      "verdict": "partial",
+      "reason": "Gives the E + F + G + H formula but not the requested components and amounts."
+    },
+    {
+      "question_id": "M08",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "M09",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "M10",
+      "verdict": "correct",
+      "reason": "Correct daily rate, day count and interest rate explain the calculation; the rounded total is not required by the question wording."
+    },
+    {
+      "question_id": "M11",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "M12",
+      "verdict": "correct",
+      "reason": "Both candidates give the same correct $150 recording fee; accepted despite unnecessary ambiguity wording."
+    },
+    {
+      "question_id": "M13",
+      "verdict": "correct",
+      "reason": "Exact duration of 3 years, 6 months and 4 days is consistent with the approximate gold answer."
+    },
+    {
+      "question_id": "M14",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "M15",
+      "verdict": "correct",
+      "reason": "Correct $1,671.69 deductions total; the listed deductions sum to that amount."
+    },
+    {
+      "question_id": "M16",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "M17",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "M18",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "M19",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "M20",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "M21",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "M22",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "M23",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "M24",
+      "verdict": "incorrect_or_unanswered",
+      "reason": "Does not identify the utility easement."
+    },
+    {
+      "question_id": "M25",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "M26",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "M27",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "M28",
+      "verdict": "partial",
+      "reason": "Correct principal paid off, but omits the five-year total paid."
+    },
+    {
+      "question_id": "M29",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "M30",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "M31",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "M32",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "M33",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "M34",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "M35",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "M36",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "M37",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "M38",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "M39",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "M40",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E41",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E42",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E43",
+      "verdict": "correct",
+      "reason": "Both document entries give the correct $445 fee; duplicate formatting is accepted."
+    },
+    {
+      "question_id": "E44",
+      "verdict": "correct",
+      "reason": "Both document entries give the correct $550 fee; duplicate formatting is accepted."
+    },
+    {
+      "question_id": "E45",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E46",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E47",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E48",
+      "verdict": "correct",
+      "reason": "Both entries give the correct $20 fee; accepted for factual amount despite misleading multiple-values wording."
+    },
+    {
+      "question_id": "E49",
+      "verdict": "correct",
+      "reason": "Both document entries give the correct $80 fee; duplicate formatting is accepted."
+    },
+    {
+      "question_id": "E50",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E51",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E52",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E53",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E54",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E55",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E56",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E57",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E58",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "E59",
+      "verdict": "correct",
+      "reason": "Correct effective date; the additional 7:30 a.m. time is supported by the title report."
+    },
+    {
+      "question_id": "E60",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "C01",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "C02",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "C03",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "C04",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "C05",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "C06",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "C07",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "C08",
+      "verdict": "correct",
+      "reason": "Correctly avoids asserting an unestablished buyer HELOC; omission of the blank-form explanation does not change the answer."
+    },
+    {
+      "question_id": "C09",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "C10",
+      "verdict": "incorrect_or_unanswered",
+      "reason": "Lists candidate companies without selecting Coastline Title Company for this file."
+    },
+    {
+      "question_id": "C11",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "C12",
+      "verdict": "correct",
+      "reason": "Correctly says the policy to be issued is unspecified; generic possible coverage does not assert an actual issued policy."
+    },
+    {
+      "question_id": "C13",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "C14",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "C15",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "C16",
+      "verdict": "correct",
+      "reason": "The masked number with withheld explicitly indicates that the actual SSN is unavailable."
+    },
+    {
+      "question_id": "C17",
+      "verdict": "incorrect_or_unanswered",
+      "reason": "Does not answer that subtracting earnest money again would double-count it."
+    },
+    {
+      "question_id": "C18",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "C19",
+      "verdict": "correct",
+      "reason": "Answers the requested facts consistently with gold, including an appropriate refusal where information is not provided."
+    },
+    {
+      "question_id": "C20",
+      "verdict": "incorrect_or_unanswered",
+      "reason": "Does not distinguish John's individual historical W-2 income from household income."
+    }
+  ]
+}

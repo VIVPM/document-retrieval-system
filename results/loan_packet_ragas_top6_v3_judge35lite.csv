@@ -1,0 +1,200 @@
+question_id,answerable,question,expected_answer,answer,answer_correctness,context_precision,context_recall,faithfulness,judge_calls,judge_input_tokens,judge_output_tokens,judge_cost_usd,status,error
+E01,True,Who are the borrower and co-borrower on this application?,The borrower is John Q. Smith and the co-borrower is Mary A. Smith.,"Borrower: John Q. Smith
+Co-Borrower: Mary A. Smith",0.9921059992308845,0.699999999965,1.0,1.0,12,13957,812,0.006217,complete,
+E02,True,What loan amount are they requesting?,"$380,000.","$380,000.00",0.9905048775693923,0.99999999995,1.0,1.0,12,13747,668,0.005794,complete,
+E03,True,What's the purchase price on the subject property?,"$475,000.","$475,000.00",0.9888847860678175,0.9999999999666667,1.0,1.0,12,14404,672,0.006001,complete,
+E04,True,What interest rate is on the Loan Estimate?,4.25%.,4.25%,0.9885709295071028,0.4499999999775,1.0,1.0,12,14048,661,0.005867,complete,
+E05,True,What's the loan term?,30 years.,30 years,0.9826512454801788,0.26666666665333333,1.0,1.0,12,14413,598,0.005819,complete,
+E06,True,What's the monthly principal and interest payment?,"$1,869.37.","$1,869.37",0.9969030474314414,0.9999999999666667,1.0,1.0,12,14004,637,0.005794,complete,
+E07,True,What's the subject property address?,"1254 Main Street, San Diego, CA 92110.","1254 Main Street, San Diego, CA 92110",0.9943762249564774,0.8055555555287036,1.0,1.0,12,14921,766,0.006391,complete,
+E08,True,Where do the borrowers live right now?,"1234 Market St., San Diego, CA 92101.","1234 Market St., San Diego, CA 92101",0.9948449834867312,0.49999999995,1.0,1.0,12,14093,773,0.00616,complete,
+E09,True,Who is John Smith's employer?,Harbor Point Logistics LLC.,Harbor Point Logistics LLC,0.9982499241111892,0.99999999995,1.0,1.0,12,14897,856,0.006609,complete,
+E10,True,What's the borrower's job title?,Operations Manager.,Operations Manager,0.9595358300818922,0.3333333333,1.0,1.0,12,13937,571,0.005609,complete,
+E11,True,When did the borrower start working at Harbor Point Logistics?,04/01/2012.,04/01/2012,0.9822714910139853,0.9999999999,1.0,1.0,12,15830,705,0.006511,complete,
+E12,True,What gross monthly income is listed on the application?,"$9,750.00 per month.","- Gross Monthly Income - Base: $9,750.00
+- TOTAL Gross Monthly Income: $9,750.00",0.7125532828982166,0.9999999999,1.0,1.0,12,13769,851,0.006258,complete,
+E13,True,What's the borrower's annual base salary on the pay stubs?,"$117,000.00.","$117,000.00",0.9967135503554971,0.8666666666377778,1.0,1.0,12,13958,764,0.006097,complete,
+E14,True,How often does the borrower get paid?,Semi-monthly.,The provided context does not contain information about how often the borrower gets paid.,0.15422033097040697,0.0,0.0,1.0,12,13773,630,0.005707,complete,
+E15,True,What's the net pay on the most recent pay stub?,"$3,203.31.","$3,203.31",0.9966738282976426,0.99999999995,1.0,1.0,12,14700,737,0.006253,complete,
+E16,True,"Which bank is the checking account with, and what's the account number?","Pacific Shoreline Community Bank, checking account XXXXXX4471.","Pacific Shoreline Community Bank, account number XXXXXX4471",0.9906393456262603,0.9999999999833333,1.0,1.0,12,13971,801,0.006194,complete,
+E17,True,What value is listed for the checking account on the application?,"$103,087.43.","$103,087.43",0.9972344845040408,0.9999999999,1.0,1.0,12,13927,726,0.005993,complete,
+E18,True,What's the balance and monthly payment on the auto loan?,"$14,500.00 balance and $380.00 monthly payment.","Unpaid balance: $14,500.00
+Monthly payment: $380.00",0.9838206008286364,0.9999999999,1.0,1.0,12,15761,1081,0.007431,complete,
+E19,True,What's the balance and monthly payment on the credit card?,"$3,200.00 balance and $95.00 monthly payment.","The unpaid balance is $3,200.00 and the monthly payment is $95.00.",0.9835608049107634,0.9999999999,1.0,1.0,12,13906,894,0.006407,complete,
+E20,True,How much rent are the borrowers paying now?,"$2,650.00 per month.","$2,650.00/month",0.9879364503487167,0.9999999999,1.0,1.0,12,14028,631,0.005786,complete,
+E21,True,How will the borrowers occupy the property?,As their primary residence.,Primary Residence,0.9595749091132004,0.699999999965,1.0,1.0,12,14619,644,0.005996,complete,
+E22,True,What's the loan purpose and loan type?,Purchase; conventional loan.,"Loan Purpose: Purchase
+Loan Type: The provided context does not contain information about the loan type.",0.5660461720726074,0.0,0.5,0.5,12,15166,815,0.006587,complete,
+E23,True,When was the Loan Estimate issued?,10/05/2015.,10/05/2015,0.9790360843598486,0.9999999999,1.0,1.0,12,13490,707,0.005815,complete,
+E24,True,"Is the rate locked, and until when?","Yes, the rate is locked until 11/20/2015.","Yes, until 11/20/2015.",0.9595206139201703,0.9999999999,1.0,1.0,12,14736,746,0.006286,complete,
+E25,True,What's the APR on this loan?,4.329%.,4.329%,0.7359916733006217,0.9999999999,1.0,1.0,12,14338,724,0.006111,complete,
+E26,True,What's the Total Interest Percentage?,77.39%.,77.39%,0.9934497955077652,0.9999999999,1.0,1.0,12,15070,568,0.005941,complete,
+E27,True,What are the estimated closing costs on the Loan Estimate?,"$5,802.","$5,802",0.996426170286532,0.91666666664375,1.0,1.0,12,13484,642,0.00565,complete,
+E28,True,How much cash do the borrowers need to close according to the Loan Estimate?,"$95,802.","$95,802",0.9975481251610039,0.8874999999778125,1.0,1.0,12,13565,645,0.005682,complete,
+E29,True,How much is the down payment?,"$95,000.",The provided context does not contain information about the down payment.,0.15742793389950932,0.9999999999,0.0,0.0,12,13931,898,0.006424,complete,
+E30,True,How much earnest money did the borrowers put down?,"$5,000.","$5,000.00",0.9810152801914133,0.6388888888675925,1.0,1.0,12,15615,747,0.006552,complete,
+E31,True,What wages are on the 2014 W-2?,"$114,000.00.","$114,000.00",0.9965620622179763,0.3333333333,1.0,1.0,12,14817,824,0.006505,complete,
+E32,True,What wages are on the 2013 W-2?,"$108,000.00.","- Wages, tips, other compensation: $108,000.00
+- Social security wages: $108,000.00
+- Medicare wages and tips: $108,000.00
+- State wages: $108,000.00",0.44529646644350773,0.249999999975,1.0,1.0,12,15131,1516,0.008329,complete,
+E33,True,What was the ending balance on the September 2015 bank statement?,"$103,087.43.","$103,087.43",0.9972344845040408,0.249999999975,1.0,1.0,12,14339,754,0.006187,complete,
+E34,True,What was the beginning balance on the August 2015 bank statement?,"$103,742.39.","$103,742.39",0.9977011521215806,0.19999999998,1.0,1.0,12,14339,747,0.006169,complete,
+E35,True,What's the title order number?,CTC-2015-08812.,CTC-2015-08812,0.9979526075514444,0.3333333333,1.0,1.0,12,17208,719,0.00696,complete,
+E36,True,Who currently holds title to the property?,Robert T. Alvarez and Linda M. Alvarez.,The provided context does not contain enough information to answer who currently holds title to the property.,0.13693255364144985,0.0,0.0,1.0,12,16883,818,0.00711,complete,
+E37,True,What's the APN on the subject property?,443-271-09-00.,443-271-09-00,0.998229323195047,0.9999999999,1.0,1.0,12,14998,775,0.006437,complete,
+E38,True,Does this loan have a prepayment penalty or a balloon payment?,No. There is no prepayment penalty and no balloon payment.,"No, the loan does not have a prepayment penalty and does not have a balloon payment.",0.9874712750482966,0.9999999999,1.0,1.0,12,13927,735,0.006016,complete,
+E39,True,Is there any mortgage insurance on this loan?,No mortgage insurance.,$0,0.8976990806207906,0.9999999999666667,1.0,1.0,12,15946,771,0.006711,complete,
+E40,True,Who is the title officer on the preliminary report?,Dana Whitmore.,Dana Whitmore,0.996962817032104,0.9999999999,1.0,1.0,12,16357,623,0.006465,complete,
+M01,True,"What's the total monthly housing payment on the fees worksheet, and what's in it?","$2,308.95: principal and interest $1,869.37, hazard insurance $39.58 and real estate taxes $400.00.","The total monthly payment is $2,308.95, which includes:
+- Principal & interest: $1,869.37
+- Hazard insurance / month: $39.58
+- Real estate taxes / month: $400.00",0.9873652784019307,0.9999999999,1.0,1.0,12,15465,1393,0.008122,complete,
+M02,True,"How much will the borrowers pay the lender each month, and what do they pay on their own?","$1,869.37 per month to the lender for principal and interest; approximately $440 per month for taxes, insurance and assessments paid separately.","The borrowers will pay the lender an estimated total monthly payment of $1,869.37, and they pay $440 / month for estimated taxes, insurance & assessments (paid separately).",0.6017610349070502,0.8333333332916666,1.0,1.0,12,14544,1117,0.007156,complete,
+M03,True,Is the lender setting up an escrow account for taxes and insurance?,No escrow account is being set up.,"No, the lender is not setting up an escrow account for taxes and insurance. The estimated escrow is $0, and the context states that taxes and insurance are paid separately and are not in escrow.",0.4831162500255115,0.94999999997625,1.0,1.0,12,14918,1008,0.006995,complete,
+M04,True,What's the loan-to-value ratio?,80%.,"Inputs: Loan Amount = $380,000.00, Property Value / Purchase Price = $475,000.00
+Equation: $380,000.00 / $475,000.00
+Result: 80%",0.46808987210903497,0.16666666665,1.0,0.5,12,14461,1256,0.007478,complete,
+M05,True,What percentage are they putting down?,20%.,"Inputs:
+- Down Payment/Funds from Borrower: $95,000
+- Purchase price: $475,000.00
+
+Equation: ($95,000 / $475,000) * 100
+
+Result: 20%",0.672184784405712,0.249999999975,1.0,0.5,12,13959,1267,0.007355,complete,
+M06,True,What are the total loan costs and how do they break down?,"$4,055 total loan costs: A. origination charges $1,070, B. services you cannot shop for $650 and C. services you can shop for $2,335.","Total Loan Costs: $4,055
+
+Breakdown:
+- Services You Can Shop For (C): $2,335, which includes:
+  - Electronic Document Delivery Fee: $50
+  - Home Inspection: $450
+  - Pest Inspection: $50
+  - Title - Closing/Escrow Fee: $860
+  - Title - Courier Fee: $50
+  - Title - Doc Prep Fees: $75
+  - Title - Lender's Title Insurance: $650
+  - Title - Notary Fees: $150
+- The remaining balance of the total loan costs comprises categories A and B (calculated as A + B + C), though individual line items for A and B are not detailed in the provided context.",0.40601492655574467,0.0,0.5,0.9166666666666666,12,15547,2474,0.010849,complete,
+M07,True,What makes up the total other costs?,"$150 in recording fees and $1,597 in prepaids, totalling $1,747.",Total Other Costs are made up of E + F + G + H.,0.15778739630002453,0.0,0.0,1.0,12,14888,1018,0.007011,complete,
+M08,True,"What's included in the $1,070 origination charges?","Administration fee $445, underwriting fee $550 and wire transfer fee $75.","- Administration Fee: $445
+- Underwriting Fee: $550
+- Wire Transfer Fee: $75",0.989878581019335,0.7499999999625,1.0,1.0,12,16579,1162,0.007879,complete,
+M09,True,"Which services can't the borrower shop for, and what do they total?","Appraisal fee $525, credit report $25, flood certification $20 and tax service fee $80, totalling $650.","The services the borrower cannot shop for are:
+- Appraisal Fee: $525
+- Credit Report: $25
+- Flood Certification: $20
+- Tax Service Fee: $80
+
+They total $650.",0.980138685181509,0.4499999999775,1.0,1.0,12,15471,1533,0.008474,complete,
+M10,True,How was the prepaid interest calculated?,"$44.8611 per day for 25 days at 4.25% = $1,121.53 on the worksheet, rounded to $1,122 on the Loan Estimate.",$44.86 per day for 25 days @ 4.25 %,0.6964331975685564,0.9999999999,1.0,1.0,12,14347,1301,0.007557,complete,
+M11,True,How much homeowner's insurance premium is being collected at closing?,$475.,$475,0.9967925901039573,0.7499999999625,1.0,1.0,12,14307,696,0.006032,complete,
+M12,True,What are the estimated recording fees?,$150.,"The context provides two different candidates for estimated recording fees:
+
+* $150 for ""Recording Fees and Other Taxes Transfer Taxes"" on the Loan Estimate
+* $150.00 for ""Mortgage recording charge"" on the Lender Fee Sheet",0.14304983841784005,0.99999999995,1.0,1.0,12,14896,966,0.006884,complete,
+M13,True,How long has the borrower been with the current employer as of the Loan Estimate date?,About 3 years and 6 months.,"Start Date: 04/01/2012
+Loan Estimate Date: 10/05/2015
+
+Calculation: 
+3 years (04/01/2012 to 04/01/2015) + 6 months (04/01/2015 to 10/01/2015) + 4 days (10/01/2015 to 10/05/2015)
+
+Result: 3 years, 6 months, and 4 days",0.17430540545062248,0.0,1.0,1.0,12,14309,1844,0.008903,complete,
+M14,True,What's the year-to-date gross income on the latest pay stub?,"$87,750.00.","$87,750.00",0.9972285017875662,0.9999999999,1.0,1.0,12,15081,785,0.006487,complete,
+M15,True,What are the total deductions on each paycheck?,"$1,671.69 per paycheck.","On each paycheck, the total current deductions are $1,671.69, calculated from the following items:
+
+- Federal Income Tax: $690.00
+- CA State Income Tax: $245.00
+- Social Security: $302.25
+- Medicare: $70.69
+- 401(k) 5%: $243.75
+- Medical / Dental: $120.00",0.37933386160346194,0.99999999995,1.0,1.0,12,15208,1682,0.008767,complete,
+M16,True,How much does the borrower put into the 401(k) each pay period?,$243.75 per pay period.,$243.75,0.9639162984868688,0.99999999995,1.0,1.0,12,14874,783,0.00642,complete,
+M17,True,How much federal income tax was withheld on the 2014 W-2?,"$16,560.00.","$16,560.00",0.9967166101781583,0.49999999995,1.0,1.0,12,15677,840,0.006803,complete,
+M18,True,How much did W-2 wages change from 2013 to 2014?,"An increase of $6,000, from $108,000 to $114,000.","W-2 wages increased by $6,000.00, going from $108,000.00 in 2013 to $114,000.00 in 2014.",0.9518946269543018,0.0,1.0,1.0,12,15278,1357,0.007976,complete,
+M19,True,What were the total deposits and withdrawals in September 2015?,"Total deposits and credits $6,429.44; total withdrawals and debits $9,192.50.","Total Deposits and Credits: $6,429.44
+Total Withdrawals and Debits: $9,192.50",0.991301090570132,0.9999999999,1.0,1.0,12,15665,1045,0.007312,complete,
+M20,True,What were the total deposits and withdrawals in August 2015?,"Total deposits and credits $6,474.92; total withdrawals and debits $4,366.82.","Total Deposits and Credits: $6,474.92
+Total Withdrawals and Debits: $4,366.82",0.9908254324263345,0.49999999995,1.0,1.0,12,15684,1120,0.007505,complete,
+M21,True,"What was the largest withdrawal in September, and what was it for?","$5,000.00 wired to Coastline Title Escrow for the earnest money deposit.","The largest withdrawal in September was -$5,000.00, and it was for WIRE OUT COASTLINE TITLE ESCROW EARNEST MONEY.",0.21067928342869996,0.9999999999,1.0,1.0,12,15549,1091,0.007392,complete,
+M22,True,Whose names are on the checking account?,"John Q. Smith and Mary A. Smith, jointly.",John Q. Smith and Mary A. Smith,0.9714894957237827,0.26666666665333333,1.0,1.0,12,15000,723,0.006307,complete,
+M23,True,What exceptions are listed on Schedule B of the preliminary report?,"Three: (1) 2015-2016 county taxes, a lien not yet due or payable; (2) a public utility easement to San Diego Gas & Electric recorded March 3, 1987, affecting the rear 5 feet; (3) a deed of trust securing an original $268,000 recorded May 14, 2009, beneficiary Example Home Loans, N.A., to be paid off and reconveyed at close of escrow.","1. General and special county taxes for fiscal year 2015-2016, a lien not yet due or payable.
+2. An easement for public utilities in favor of San Diego Gas & Electric Company, recorded March 3, 1987, affecting the rear 5 feet of said land.
+3. A Deed of Trust to secure an indebtedness in the original amount of $268,000.00, recorded May 14, 2009. Trustor: Robert T. Alvarez and Linda M. Alvarez. Beneficiary: Example Home Loans, N.A. Requirement: this Deed of Trust is to be paid off and reconveyed at close of escrow.",0.9863709302690193,0.249999999975,1.0,1.0,12,20689,2275,0.011894,complete,
+M24,True,Is there an easement on the property?,"Yes, a public utility easement in favor of San Diego Gas & Electric affecting the rear 5 feet.",The provided context does not contain enough information to determine whether there is an easement on the property.,0.17633946915283277,0.0,0.0,1.0,12,17432,1075,0.007917,complete,
+M25,True,What has to happen with the seller's existing deed of trust?,It must be paid off and reconveyed at close of escrow.,It is to be paid off and reconveyed at close of escrow.,0.9915613838813424,0.49999999995,1.0,1.0,12,17964,874,0.007574,complete,
+M26,True,Did the title search turn up any liens against the buyers?,No liens against the buyers were found in the title search.,"No, no open deeds of trust or liens were found against the proposed buyers in a general index search.",0.9684322193438939,0.9999999999,1.0,1.0,12,18796,925,0.007951,complete,
+M27,True,"Who is the proposed insured on the preliminary report, and for how much?","XYZ Lender, for a proposed loan amount of $380,000.","XYZ Lender for $380,000.00",0.9842351604278801,0.9999999999,1.0,0.5,12,17469,860,0.007391,complete,
+M28,True,What do the five-year comparison figures show?,"In 5 years the borrowers will have paid $117,339 in principal, interest, mortgage insurance and loan costs, and paid off $34,931 of principal.","$34,931 Principal you will have paid off.",0.6918498500787299,0.9999999999,1.0,1.0,12,13800,878,0.006335,complete,
+M29,True,What are the late payment terms?,"If the payment is more than 15 days late, the lender charges a late fee of 6% of the payment.","If your payment is more than 15 days late, we will charge a late fee of 6% of the payment.",0.980610689500373,0.9999999999,1.0,1.0,12,14166,765,0.006162,complete,
+M30,True,"Can the loan amount, interest rate or monthly principal and interest go up after closing?",No. None of them can increase after closing.,"No, the loan amount, interest rate, and monthly principal and interest cannot increase after closing.",0.7699269755838265,0.9999999999,1.0,1.0,12,14127,891,0.006466,complete,
+M31,True,When do the estimated closing costs on the Loan Estimate expire?,11/20/2015.,11/20/2015,0.9771880099286427,0.9999999999,1.0,1.0,12,13563,681,0.005771,complete,
+M32,True,"How did the borrowers answer the declarations on judgments, bankruptcy and new credit?","No outstanding judgments, no bankruptcy in the past 7 years and no undisclosed new credit applications.","- New credit: NO
+- Outstanding judgments: NO
+- Bankruptcy within the past 7 years: NO",0.9687550915858236,0.9999999999,1.0,1.0,12,14300,988,0.00676,complete,
+M33,True,Are any gift funds being used for this purchase?,No gift funds are declared.,None,0.9080196235043286,0.6999999999766667,1.0,1.0,12,14343,608,0.005823,complete,
+M34,True,Is this an individual or joint credit application?,Joint credit.,Joint credit,0.9929656687210158,0.9999999999,1.0,1.0,12,14875,576,0.005902,complete,
+M35,True,"Why does the fees worksheet show $95,801.53 for funds to close when the Loan Estimate says $95,802?","The Loan Estimate rounds the worksheet's $95,801.53 to whole dollars, giving $95,802, a $0.47 difference.",The Loan Estimate is rounded to whole dollars ($0.47 higher).,0.6012957837552215,0.8333333332916666,1.0,1.0,12,14497,1025,0.006912,complete,
+M36,True,"If an uninsured deed affidavit is needed, who has to notarize it?",A notary who is an employee of the title or escrow company.,A notary who is an employee of the title or escrow company,0.9979949363425442,0.9999999999,1.0,1.0,12,17309,726,0.007008,complete,
+M37,True,Which statute does the certification of trust form reference?,California Probate Code Section 18100.5.,California Probate Code Section 18100.5,0.998381207300345,0.9999999999,1.0,1.0,12,16906,702,0.006827,complete,
+M38,True,"Under the FNF privacy statement, how does a customer request access to or correction of their personal information?","Send a written request with a notarized signature to the Chief Privacy Officer, Fidelity National Financial, Inc., 601 Riverside Avenue, Jacksonville, FL 32204.","To request access to or correction of personal information, all requests must be in writing and must include a notarized signature to establish identity. Requests should be sent to:
+
+Chief Privacy Officer
+Fidelity National Financial, Inc.
+601 Riverside Avenue
+Jacksonville, FL 32204
+
+Where permitted by law, a reasonable fee may be charged to cover the costs incurred in responding to such requests.",0.9794992563704004,0.9999999999,1.0,1.0,12,18247,1434,0.009059,complete,
+M39,True,How much is the Fee Reduction Settlement Program discount?,$20 per eligible transaction.,$20.00,0.9345021623477163,0.8541666666453125,1.0,1.0,12,16560,686,0.006683,complete,
+M40,True,"Under the 10-22-03 CLTA/ALTA Homeowner's policy, what are the deductible and maximum liability for Covered Risk 14?","Deductible of 1% of the policy amount or $2,500, whichever is less; maximum dollar limit of liability $10,000.","Your Deductible Amount: 1% of Policy Amount or $2,500.00 (whichever is less)
+Our Maximum Dollar Limit of Liability: $10,000.00",0.9825184389520656,0.9999999999,1.0,1.0,12,19383,1317,0.009107,complete,
+E41,True,What monthly real estate tax amount is listed on the fees worksheet?,$400.00.,$400.00,0.9930966904210754,0.9999999999,1.0,1.0,12,14899,666,0.006135,complete,
+E42,True,What monthly hazard insurance amount is listed on the fees worksheet?,$39.58.,$39.58,0.9957331391036126,0.8041666666465626,1.0,1.0,12,14872,685,0.006174,complete,
+E43,True,How much is the administration fee?,$445.,"- Loan Estimate: $445
+- Lender Fee Sheet: $445.00",0.5597529587184196,0.99999999995,1.0,1.0,12,14498,797,0.006342,complete,
+E44,True,How much is the underwriting fee?,$550.,"Based on the provided documents, there are two matching entries for the underwriting fee:
+
+- Underwriting Fee on the Loan Estimate: $550
+- Underwriting fee on the Lender Fee Sheet: $550.00",0.5288359427479603,0.99999999995,1.0,1.0,12,14539,838,0.006457,complete,
+E45,True,What's the wire transfer fee on the Loan Estimate?,$75.,$75,0.9966558790093384,0.8333333332916666,1.0,1.0,12,15035,625,0.006073,complete,
+E46,True,What's the appraisal fee on the Loan Estimate?,$525.,$525,0.996750248485982,0.499999999975,1.0,1.0,12,15057,638,0.006112,complete,
+E47,True,What's the credit report fee on the Loan Estimate?,$25.,$25,0.99519200842621,0.99999999995,1.0,1.0,12,14644,623,0.005951,complete,
+E48,True,How much is the flood certification fee?,$20.,"There are multiple values found in the documents:
+- $20 (Field: Flood Certification, Loan Estimate)
+- $20.00 (Field: Flood certification fee, Lender Fee Sheet)",0.530658490789016,0.99999999995,1.0,1.0,12,15546,747,0.006531,complete,
+E49,True,How much is the tax service fee?,$80.,"- Loan Estimate: $80
+- Lender Fee Sheet: $80.00",0.538101303460016,0.8333333332916666,1.0,1.0,12,14954,784,0.006446,complete,
+E50,True,How many days of prepaid interest are listed on the Loan Estimate?,25 days.,25 days,0.9885345503370896,0.9999999999,1.0,1.0,12,13837,645,0.005764,complete,
+E51,True,What's the gross pay for the current pay period on the September 30 pay stub?,"$4,875.00.","$4,875.00",0.994967825224785,0.99999999995,1.0,1.0,12,14303,756,0.006181,complete,
+E52,True,How much federal income tax is deducted for the current pay period on the September 30 pay stub?,$690.00.,$690.00,0.9932929136256519,0.99999999995,1.0,1.0,12,15851,833,0.006838,complete,
+E53,True,How much California state income tax is deducted for the current pay period on the September 30 pay stub?,$245.00.,$245.00,0.9922938794584545,0.99999999995,1.0,1.0,12,15866,856,0.0069,complete,
+E54,True,What's the Social Security deduction for the current pay period on the September 30 pay stub?,$302.25.,$302.25,0.996872615376255,0.99999999995,1.0,1.0,12,15848,818,0.006799,complete,
+E55,True,What's the Medicare deduction for the current pay period on the September 30 pay stub?,$70.69.,$70.69,0.995279060553718,0.99999999995,1.0,1.0,12,15821,862,0.006901,complete,
+E56,True,How much is deducted for medical and dental coverage for the current pay period on the September 30 pay stub?,$120.00.,$120.00,0.9926037938635597,0.99999999995,1.0,1.0,12,14638,817,0.006434,complete,
+E57,True,What's the year-to-date 401(k) deduction on the September 30 pay stub?,"$4,387.50.","$4,387.50",0.9956992687379811,0.9999999999,1.0,1.0,12,15575,920,0.006973,complete,
+E58,True,What percentage is shown for the 401(k) deduction on the pay stub?,5%.,5%,0.9692119427259366,0.99999999995,1.0,1.0,12,14809,693,0.006175,complete,
+E59,True,What's the effective date of the preliminary title report?,09/28/2015.,09/28/2015 at 7:30 a.m.,0.21490154320474794,0.19999999998,1.0,1.0,12,17685,810,0.007331,complete,
+E60,True,Who is the beneficiary of the seller's existing deed of trust on the preliminary report?,"Example Home Loans, N.A.","Example Home Loans, N.A.",1.0,0.9999999999,1.0,1.0,12,17722,771,0.007244,complete,
+C01,False,What's the borrowers' credit score?,The borrowers' credit score is not provided in the packet.,The provided context does not contain information about the borrowers' credit score.,0.9674581979659179,0.9999999999833333,1.0,1.0,12,14960,702,0.006243,complete,
+C02,False,What did the property appraise for?,The appraised value is not provided in the packet.,The provided context does not contain enough information to determine what the property appraised for.,0.7016651149805706,0.9999999999833333,1.0,0.0,12,15334,789,0.006573,complete,
+C03,False,"How much does Mary Smith make, and who does she work for?",Mary Smith's income and employer are not provided in the packet.,The provided context does not contain information about how much Mary Smith makes or who she works for.,0.7163970343222071,0.999999999975,1.0,1.0,12,14167,1001,0.006753,complete,
+C04,True,Has the loan application been signed?,"No, the application is not signed.",Not signed.,0.9581469090922087,0.99999999995,1.0,1.0,12,13552,571,0.005493,complete,
+C05,False,"Who's the loan officer on this file, and what's their NMLS number?",The loan officer's name and NMLS number are not provided in the packet.,The provided context does not contain enough information to identify the loan officer or their NMLS number.,0.7063340548621788,0.9999999999833333,1.0,1.0,12,15110,1012,0.007063,complete,
+C06,False,What's the current payoff on the seller's loan?,The current seller-loan payoff is not provided in the packet.,The provided context does not contain enough information to answer the question about the current payoff on the seller's loan.,0.7174776282928582,0.8766666666491334,1.0,1.0,12,15308,919,0.00689,complete,
+C07,True,Is the property held in a trust? Do we need the certification of trust?,The packet does not establish a trust or a need for certification of trust; title is held by Robert T. Alvarez and Linda M. Alvarez as joint tenants. The trust certification is a blank reference form.,"The provided context does not indicate that the property is held in a trust; title is vested in Robert T. Alvarez and Linda M. Alvarez as joint tenants. The context contains only a blank, unexecuted Certification of Trust form and does not state whether a certification of trust is needed.",0.9846304739311289,0.6666666666333333,1.0,1.0,12,18033,1265,0.008572,complete,
+C08,True,Do the buyers have a HELOC that needs to be closed before funding?,The packet does not identify a buyer HELOC requiring closure; the credit-line closure request is blank.,The provided context does not contain enough information to determine whether the buyers have a HELOC that needs to be closed before funding.,0.20902523590749716,0.0,0.0,1.0,12,13901,898,0.006415,complete,
+C09,False,Is the property in a flood zone?,The property's flood-zone status is not provided in the packet.,The provided context does not contain enough information to determine whether the property is in a flood zone.,0.9648144185069204,0.32499999998375,1.0,1.0,12,15382,788,0.006585,complete,
+C10,True,"Which title company is handling this file: Ticor, Chicago Title or Coastline?",Coastline Title Company.,"The provided context mentions multiple title companies across different documents and does not specify which one is handling this file. The candidates are:
+
+- Coastline Title Company (Preliminary Title Report)
+- Ticor Title Company of California (Affidavit and Discount Notice)
+- Chicago Title Insurance Company (Discount Notice)",0.3926886160925892,0.3333333333,0.0,0.8,12,15795,1262,0.007893,complete,
+C11,True,Do the borrowers qualify for the $20 California settlement discount?,Eligibility for the $20 settlement discount is not established in the packet.,"The provided context does not contain enough information to determine whether the borrowers qualify, as the discount request form is blank and unexecuted.",0.5570322277830076,0.733333333315,1.0,1.0,12,16346,1249,0.008026,complete,
+C12,False,Which title insurance policy form will be issued on this loan?,The title insurance policy form to be issued is not established in the packet.,"The provided context does not specify which title insurance policy form will be issued, stating only that the policy form may be issued to afford either Standard Coverage or Extended Coverage.",0.7053999115252291,0.9999999999833333,1.0,1.0,12,19307,978,0.008237,complete,
+C13,False,Are there any HOA dues on this property?,HOA dues are not stated in the packet.,The provided context does not contain enough information to determine whether there are any HOA dues on this property.,0.203391981703931,0.32499999998375,1.0,1.0,12,15418,704,0.006385,complete,
+C14,True,"Is $2,308.95 the monthly payment the lender will collect?","No. The lender collects $1,869.37 per month; taxes and insurance are paid separately.","No. While the Lender Fee Sheet lists a ""Total monthly payment"" of $2,308.95, it also indicates that ""Escrow collected by lender"" is $0 and that taxes and insurance are paid separately. The Loan Estimate shows the ""Estimated total monthly payment to lender"" as $1,869.37.",0.5827979823749423,0.499999999975,1.0,1.0,12,14665,1645,0.008512,complete,
+C15,True,Had the rate lock already expired when the Loan Estimate was issued?,"No, the rate lock had not expired when the Loan Estimate was issued.","No, the rate lock had not expired when the Loan Estimate was issued. The Loan Estimate was issued on 10/05/2015, and the rate was locked until 11/20/2015.",0.6090655191181775,0.9999999999,1.0,1.0,12,14209,995,0.00675,complete,
+C16,False,What's the borrower's Social Security number?,The borrower's Social Security number is withheld or masked in the packet.,XXX-XX-XXXX (withheld),0.6644149662547714,0.999999999975,1.0,1.0,12,16597,702,0.006734,complete,
+C17,True,"For reserves, do I subtract the $5,000 earnest money from the September ending balance?",No. The earnest-money withdrawal is already reflected in the September ending balance; subtracting it again would double-count it.,The provided context does not contain enough information to determine whether to subtract the earnest money from the September ending balance for reserves.,0.20413770016199118,0.99999999998,1.0,1.0,12,14687,914,0.006691,complete,
+C18,True,Has an uninsured deed affidavit been executed for this property?,No executed affidavit is shown; the affidavit is a blank reference form.,"No, the provided context only contains a blank reference form for an uninsured deed affidavit that is marked as ""NOT EXECUTED"".",0.773810700485152,0.8041666666465626,1.0,0.6666666666666666,12,17455,1010,0.007762,complete,
+C19,True,Does the disaster loan discount apply to this transaction?,The packet does not establish eligibility for the disaster loan discount.,Applicability to this loan not established.,0.684635561789787,0.8333333333055556,1.0,1.0,12,16317,754,0.00678,complete,
+C20,True,"Can I use the $114,000 on the 2014 W-2 as the household income?","No. The $114,000 is John's individual 2014 W-2 income, not documented household income.","The provided context does not contain enough information to determine whether the $114,000 on the 2014 W-2 can be used as household income.",0.22441075337956953,0.4166666666458333,0.0,1.0,12,15198,1221,0.007612,complete,

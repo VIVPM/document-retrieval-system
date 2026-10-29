@@ -265,7 +265,7 @@ A chat that belongs to another user returns **404, not 403** — a 403 would con
 
 ### 120-question evaluation — k=6
 
-Evaluated on a 34-page mixed-format mortgage packet with 22 logical documents and 142 chunks. Generator and Ragas judge: **`gemini-3.5-flash-lite`**. Hybrid retrieval: **α=0.5**, with the same six chunks used for generation and judging, in batches of 25.
+Evaluated on a 34-page mixed-format mortgage packet with 22 logical documents and 142 chunks. Generator and Ragas judge: **`gemini-3.5-flash-lite`**. Hybrid retrieval: **α=0.5**, with the same six chunks used for generation and judging.
 
 | Metric | Result |
 |---|---:|
@@ -277,9 +277,9 @@ Evaluated on a 34-page mixed-format mortgage packet with 22 logical documents an
 | Context recall | 0.925 |
 | Faithfulness | 0.962 |
 
-Accuracy is a per-answer review count; Ragas correctness is a continuous score. These are development-set results on a partially synthetic packet; the app's expanded-evidence retrieval is separate from this six-chunk evaluation.
+Development-set results on a partially synthetic packet.
 
-**Cost:** $0.174 generation + $0.827 judging = **$1.001**, including retry and excluding ingestion and embeddings.
+**Cost:** $0.174 generation + $0.827 judging = **$1.001**.
 
 [Gold dataset](backend/eval/loan_packet_questions.json) · [Responses](results/loan_packet_answers_v3.json) · [Ragas scores](results/loan_packet_ragas_top6_v3_judge35lite.csv) · [Accuracy review](results/loan_packet_answer_review_v3.json)
 

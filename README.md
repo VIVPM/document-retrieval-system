@@ -297,21 +297,21 @@ Latency and cost per query: the same 120 questions asked one at a time through t
 
 ### Where one query's time goes
 
-"Who are the borrower and co-borrower on this application?", run 10 times with `gemini-3.5-flash`. Average of runs 3–10:
+"Who are the borrower and co-borrower on this application?", run 10 times with `gemini-3.5-flash-lite`. Average of runs 3–10:
 
 | Step | Time |
 |---|---:|
-| Neon reads (chat, daily credits, history) | 1.48s |
+| Neon reads (chat, daily credits, history) | 1.44s |
 | Query rewrite (no history, skipped) | 0.00s |
-| Query embedding (Gemini) | 0.69s |
+| Query embedding (Gemini) | 0.53s |
 | BM25 query encoding | 0.00s |
-| Pinecone hybrid search | 0.63s |
-| Linked-chunk fetch (Pinecone) | 1.16s |
+| Pinecone hybrid search | 0.26s |
+| Linked-chunk fetch (Pinecone) | 0.27s |
 | Evidence bounding + prompt | 0.00s |
-| Generation (streamed) | 2.56s |
-| **Total** | **6.52s** |
+| Generation (streamed) | 1.63s |
+| **Total** | **4.16s** |
 
-The first query took 13.7s while the Neon connection opened and the retriever loaded.
+The first query took 11.4s while the Neon connection opened and the retriever loaded.
 
 ### Load testing (k6)
 

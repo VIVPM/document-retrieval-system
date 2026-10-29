@@ -281,6 +281,24 @@ Development-set results on a partially synthetic packet.
 
 [Gold dataset](backend/eval/loan_packet_questions.json) · [Responses](results/loan_packet_answers_v3.json) · [Ragas scores](results/loan_packet_ragas_top6_v3_judge35lite.csv) · [Accuracy review](results/loan_packet_answer_review_v3.json)
 
+### Where one query's time goes
+
+"Who are the borrower and co-borrower on this application?", run 10 times with `gemini-3.5-flash`. Average of runs 3–10:
+
+| Step | Time |
+|---|---:|
+| Neon reads (chat, daily credits, history) | 1.48s |
+| Query rewrite (no history, skipped) | 0.00s |
+| Query embedding (Gemini) | 0.69s |
+| BM25 query encoding | 0.00s |
+| Pinecone hybrid search | 0.63s |
+| Linked-chunk fetch (Pinecone) | 1.16s |
+| Evidence bounding + prompt | 0.00s |
+| Generation (streamed) | 2.56s |
+| **Total** | **6.52s** |
+
+The first query took 13.7s while the Neon connection opened and the retriever loaded.
+
 ### Load testing (k6)
 
 ```bash

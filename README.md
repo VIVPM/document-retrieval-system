@@ -308,7 +308,7 @@ python load_test_k6.py --render-suspended --levels 25,50,75,100,150
 
 `load_test_k6.py` starts the API and three ingest workers locally (20 job slots each), creates test accounts, runs `load_test_k6.js` once per level (30s ramp, 180s hold), then deletes the accounts and everything they created. It refuses to start while real jobs are queued. Each virtual user logs in, creates a chat, uploads a PDF, polls until ingestion finishes, then lists chats, opens its chat and checks health every 5–10s. Workers replace ingestion with a 4s wait, so no LLM, embedding or Pinecone calls are made and no questions are asked. Thresholds: under 1% failed requests; p95 under 2s for health, 5s for chats, chat and status, 10s for upload.
 
-Measured 2026-10-28 on a laptop against the remote Neon database with about 0.8 GB free RAM; these are not production capacity figures. Times in seconds, p50 / p95 / p99:
+Measured on a laptop against the remote Neon database with about 0.8 GB free RAM; these are not production capacity figures. Times in seconds, p50 / p95 / p99:
 
 <table>
   <thead>

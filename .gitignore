@@ -22,3 +22,11 @@ __pycache__/
 *.pyc
 
 samples/
+
+# Previous evaluation runs and cached index state stay local.
+/results/ragas_k_6_*.csv
+/results/results_k_6_*.json
+/results/loan_packet_*
+!/results/loan_packet_answers_v3.json
+!/results/loan_packet_ragas_top6_v3_judge35lite.csv
+!/results/loan_packet_answer_review_v3.json

@@ -269,9 +269,7 @@ Evaluated on a 34-page mixed-format mortgage packet with 22 logical documents an
 
 | Metric | Result |
 |---|---:|
-| **Answer accuracy (assistant-reviewed against gold)** | **90.8% (109 / 120)** |
-| Partially correct | 4 / 120 |
-| Incorrect or unanswered | 7 / 120 |
+| **Answer accuracy** | **90.8%** |
 | Ragas answer correctness | 0.803 |
 | Context precision | 0.758 |
 | Context recall | 0.925 |

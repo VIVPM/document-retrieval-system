@@ -281,6 +281,20 @@ Development-set results on a partially synthetic packet.
 
 [Gold dataset](backend/eval/loan_packet_questions.json) · [Responses](results/loan_packet_answers_v3.json) · [Ragas scores](results/loan_packet_ragas_top6_v3_judge35lite.csv) · [Accuracy review](results/loan_packet_answer_review_v3.json)
 
+Latency and cost per query: the same 120 questions asked one at a time through the app's chat path with `gemini-3.5-flash-lite`, judging excluded.
+
+<table>
+<thead>
+<tr><th colspan="4">Latency (s)</th><th rowspan="2">TTFT mean (s)</th><th colspan="4">Cost per query ($)</th></tr>
+<tr><th>p50</th><th>p95</th><th>p99</th><th>mean</th><th>p50</th><th>p95</th><th>p99</th><th>mean</th></tr>
+</thead>
+<tbody>
+<tr><td>4.4</td><td>7.4</td><td>26.9</td><td>5.5</td><td>5.2</td><td>0.0020</td><td>0.0034</td><td>0.0046</td><td>0.0021</td></tr>
+</tbody>
+</table>
+
+[Latency results](results/query_latency_120.json)
+
 ### Where one query's time goes
 
 "Who are the borrower and co-borrower on this application?", run 10 times with `gemini-3.5-flash`. Average of runs 3–10:

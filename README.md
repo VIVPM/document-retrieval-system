@@ -263,27 +263,25 @@ A chat that belongs to another user returns **404, not 403** — a 403 would con
 
 ## 📈 Performance & Evaluation
 
-The system's performance is validated using the **Ragas** evaluation framework, focusing on faithfulness, relevancy, and retrieval quality.
+### 120-question evaluation — k=6
 
-### 250-question evaluation — k=6 (generator `gemini-2.5-flash-lite`, judge `gemini-3.5-flash-lite`)
+Evaluated on a 34-page mixed-format mortgage packet with 22 logical documents and 142 chunks. Generator and Ragas judge: **`gemini-3.5-flash-lite`**. Hybrid retrieval: **α=0.5**, with the same six chunks used for generation and judging, in batches of 25.
 
-All three retrieval modes over the same corpus and models — raw per-question output in `results/ragas_k_6_{hybrid_new, vector_6, sparse_6}.csv`:
+| Metric | Result |
+|---|---:|
+| **Answer accuracy (assistant-reviewed against gold)** | **90.8% (109 / 120)** |
+| Partially correct | 4 / 120 |
+| Incorrect or unanswered | 7 / 120 |
+| Ragas answer correctness | 0.803 |
+| Context precision | 0.758 |
+| Context recall | 0.925 |
+| Faithfulness | 0.962 |
 
-| Metric | Hybrid (α=0.4) | Vector (α=1) | Sparse (α=0) |
-|---|---|---|---|
-| Answer Correctness | **0.941** | 0.890 | 0.909 |
-| Context Precision | 0.847 | 0.805 | **0.880** |
-| Context Recall | **0.980** | 0.972 | 0.968 |
-| Faithfulness | **0.979** | 0.954 | 0.963 |
-| — | | | |
-| Fully correct (AC = 1) | **222 / 250** | 207 / 250 | 210 / 250 |
-| Partial (0 < AC < 1) | 21 / 250 | 25 / 250 | 27 / 250 |
-| Wrong (AC = 0) | **7 / 250** | 18 / 250 | 13 / 250 |
+Accuracy is a per-answer review count; Ragas correctness is a continuous score. These are development-set results on a partially synthetic packet; the app's expanded-evidence retrieval is separate from this six-chunk evaluation.
 
-**Hybrid wins on Answer Correctness, Context Recall, Faithfulness, and the fully-correct count**, and cuts the wrong-answer bucket to **7/250** — sparse alone leaves 13 wrong, vector alone leaves 18. Sparse edges hybrid only on `context_precision` (0.880 vs 0.847), because BM25 tends to fetch a tighter set of exact-keyword matches; the α=0.4 blend trades a bit of that precision for large gains everywhere else.
+**Cost:** $0.174 generation + $0.827 judging = **$1.001**, including retry and excluding ingestion and embeddings.
 
-> [!NOTE]
-> Evaluation was performed on a multi-document mortgage packet (21 logical documents across 50 pages). Raw per-question output for all configurations lives in `results/`.
+[Gold dataset](backend/eval/loan_packet_questions.json) · [Responses](results/loan_packet_answers_v3.json) · [Ragas scores](results/loan_packet_ragas_top6_v3_judge35lite.csv) · [Accuracy review](results/loan_packet_answer_review_v3.json)
 
 ### Load testing (k6)
 
@@ -296,13 +294,33 @@ python load_test_k6.py --render-suspended --levels 25,50,75,100,150
 
 Measured 2026-10-28 on a laptop against the remote Neon database with about 0.8 GB free RAM; these are not production capacity figures. Times in seconds, p50 / p95 / p99:
 
-| Users | Requests | Errors | Login | Chats | Upload | Upload → ready | Thresholds |
-|---|---|---|---|---|---|---|---|
-| 25 | 1,526 | 0% | 3.8 / 5.0 / 5.1 | 1.2 / 1.6 / 3.3 | 4.5 / 4.6 / 5.0 | 6.9 / 9.6 / 9.7 | met |
-| 50 | 3,017 | 0% | 4.0 / 6.5 / 6.6 | 1.2 / 1.5 / 2.4 | 4.7 / 6.4 / 7.1 | 8.8 / 11.9 / 13.0 | met |
-| 75 | 4,455 | 0% | 4.5 / 5.7 / 7.1 | 1.2 / 2.3 / 2.6 | 7.0 / 9.4 / 9.9 | 9.9 / 26.8 / 29.0 | met |
-| 100 | 5,566 | 0% | 4.9 / 6.4 / 7.2 | 1.2 / 2.0 / 2.6 | 16.6 / 19.8 / 20.6 | 9.8 / 28.4 / 37.3 | upload p95 |
-| 150 | 5,897 | 0% | 6.2 / 9.7 / 10.7 | 2.6 / 3.5 / 4.7 | 33.3 / 43.4 / 45.0 | 9.7 / 42.0 / 52.8 | upload, status p95 |
+<table>
+  <thead>
+    <tr>
+      <th rowspan="2" scope="col">Users</th>
+      <th rowspan="2" scope="col">Requests</th>
+      <th rowspan="2" scope="col">Errors</th>
+      <th colspan="3" scope="colgroup">Login</th>
+      <th colspan="3" scope="colgroup">Chats</th>
+      <th colspan="3" scope="colgroup">Upload</th>
+      <th colspan="3" scope="colgroup">Upload → ready</th>
+      <th rowspan="2" scope="col">Thresholds</th>
+    </tr>
+    <tr>
+      <th scope="col">p50</th><th scope="col">p95</th><th scope="col">p99</th>
+      <th scope="col">p50</th><th scope="col">p95</th><th scope="col">p99</th>
+      <th scope="col">p50</th><th scope="col">p95</th><th scope="col">p99</th>
+      <th scope="col">p50</th><th scope="col">p95</th><th scope="col">p99</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><th scope="row">25</th><td>1,526</td><td>0%</td><td>3.8</td><td>5.0</td><td>5.1</td><td>1.2</td><td>1.6</td><td>3.3</td><td>4.5</td><td>4.6</td><td>5.0</td><td>6.9</td><td>9.6</td><td>9.7</td><td>met</td></tr>
+    <tr><th scope="row">50</th><td>3,017</td><td>0%</td><td>4.0</td><td>6.5</td><td>6.6</td><td>1.2</td><td>1.5</td><td>2.4</td><td>4.7</td><td>6.4</td><td>7.1</td><td>8.8</td><td>11.9</td><td>13.0</td><td>met</td></tr>
+    <tr><th scope="row">75</th><td>4,455</td><td>0%</td><td>4.5</td><td>5.7</td><td>7.1</td><td>1.2</td><td>2.3</td><td>2.6</td><td>7.0</td><td>9.4</td><td>9.9</td><td>9.9</td><td>26.8</td><td>29.0</td><td>met</td></tr>
+    <tr><th scope="row">100</th><td>5,566</td><td>0%</td><td>4.9</td><td>6.4</td><td>7.2</td><td>1.2</td><td>2.0</td><td>2.6</td><td>16.6</td><td>19.8</td><td>20.6</td><td>9.8</td><td>28.4</td><td>37.3</td><td>upload p95</td></tr>
+    <tr><th scope="row">150</th><td>5,897</td><td>0%</td><td>6.2</td><td>9.7</td><td>10.7</td><td>2.6</td><td>3.5</td><td>4.7</td><td>33.3</td><td>43.4</td><td>45.0</td><td>9.7</td><td>42.0</td><td>52.8</td><td>upload, status p95</td></tr>
+  </tbody>
+</table>
 
 All 400 uploads completed. Upload time is the limit above 75 users: each upload writes the PDF to the database twice (job payload and stored original) from a 12-thread pool, and queue waits grow once the 60 job slots fill. Full per-endpoint results are in `backend/k6_results/`.
 
@@ -355,6 +373,9 @@ document-retrieval-system/
 │   ├── llm/
 │   │   └── llm_router.py              # Gemini answers + embeddings
 │   ├── eval/                        # Measurement harnesses
+│   │   ├── loan_packet_questions.json # 120 questions with gold answers
+│   │   ├── loan_packet_generate.py    # Six-context answer generation, batches of 25
+│   │   ├── loan_packet_judge.py       # Four Ragas metrics using the same six contexts
 │   │   ├── model_sweep.py             # Generated questions, no judge (trust this)
 │   │   ├── model_eval.py              # flash vs flash-lite, LLM-judged
 │   │   └── prompt_eval.py             # Prompt-change A/B
@@ -385,7 +406,7 @@ document-retrieval-system/
 ├── docker-compose.yml               # local api + frontend stack
 ├── ruff.toml
 ├── samples/synthetic_borrower/      # Synthetic loan packet + answer key for the review
-├── results/                         # Ragas metrics (k=6 CSVs)
+├── results/                         # Ragas results (k=6)
 └── README.md
 ```
 

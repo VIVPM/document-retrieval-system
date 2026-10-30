@@ -281,7 +281,7 @@ Development-set results on a partially synthetic packet.
 
 [Gold dataset](backend/eval/loan_packet_questions.json) · [Responses](results/loan_packet_answers_v3.json) · [Ragas scores](results/loan_packet_ragas_top6_v3_judge35lite.csv) · [Accuracy review](results/loan_packet_answer_review_v3.json)
 
-Latency and cost per query: the same 120 questions asked one at a time through the app's chat path with `gemini-3.5-flash-lite`, judging excluded.
+Latency and cost per query: 140 questions asked one at a time with `gemini-3.5-flash-lite`, excluding judging, HTTP transit and message saving.
 
 <table>
 <thead>
@@ -289,11 +289,11 @@ Latency and cost per query: the same 120 questions asked one at a time through t
 <tr><th>p50</th><th>p95</th><th>p99</th><th>mean</th><th>p50</th><th>p95</th><th>p99</th><th>mean</th></tr>
 </thead>
 <tbody>
-<tr><td>4.4</td><td>7.4</td><td>26.9</td><td>5.5</td><td>5.2</td><td>0.0020</td><td>0.0034</td><td>0.0046</td><td>0.0021</td></tr>
+<tr><td>4.5</td><td>7.4</td><td>26.9</td><td>5.4</td><td>5.2</td><td>0.0019</td><td>0.0034</td><td>0.0046</td><td>0.0021</td></tr>
 </tbody>
 </table>
 
-[Latency results](results/query_latency_120.json)
+[Latency results (140 questions)](results/query_latency_140.json) · [Safety responses](results/safety_answers_latency_20.json)
 
 ### Where one query's time goes
 

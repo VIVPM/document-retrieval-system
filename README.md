@@ -270,10 +270,10 @@ Evaluated on a 34-page mixed-format mortgage packet with 22 logical documents an
 | Metric | Result |
 |---|---:|
 | **Answer accuracy** | **90.8%** |
-| Ragas answer correctness | 0.803 |
-| Context precision | 0.758 |
-| Context recall | 0.925 |
-| Faithfulness | 0.962 |
+| Ragas answer correctness | 80.3% |
+| Context precision | 75.8% |
+| Context recall | 92.5% |
+| Faithfulness | 96.2% |
 
 Development-set results on a partially synthetic packet.
 

@@ -49,7 +49,7 @@ A loan officer's core check is *stare and compare*: the application holds the bo
 
 Each check is **mismatch**, **review**, **missing**, **match** or **info**. Documents absent from the packet are informational, not a loan-completeness verdict. Selected files can be previewed before clicking **Process document**, without saving or ingesting them. The original uploaded/merged PDF is retained separately for an owner-only preview available during processing and afterward. Swipe left/right or use arrow buttons to view its pages; review evidence opens the cited page. Older chats uploaded before this feature have no original to show. A review that fails is stored as failed and never fails the upload: the document stays searchable. If a worker is killed mid-review, the job's lease brings it back and the review is rebuilt; a review left on `running` with no job able to finish it is marked failed ("re-upload to review") by the worker's periodic check, so the panel never spins forever.
 
-**Try it:** [8-page synthetic packet](samples/synthetic_borrower/whitfield_loan_packet.pdf) (five documents with planted issues) or [3-page packet](samples/synthetic_borrower/whitfield_3doc_packet.pdf) (application, loan estimate, bank statement). The [answer key](samples/synthetic_borrower/answer_key.md) covers the 8-page packet and 35 questions. Regenerate with `python samples/synthetic_borrower/make_samples.py` ([generator](samples/synthetic_borrower/make_samples.py)).
+**Try it:** [34-page evaluation packet](samples/sample_blob_1_mixed_packet.pdf), containing fictional borrower data, blank reference forms and policy text. For software testing only, not lending.
 
 ### Citations and reliability
 
@@ -456,7 +456,7 @@ document-retrieval-system/
 ├── .github/workflows/ci.yml         # lint · build · docker · gated deploy
 ├── docker-compose.yml               # local api + worker + frontend stack
 ├── ruff.toml
-├── samples/synthetic_borrower/      # Synthetic loan packet + answer key for the review
+├── samples/sample_blob_1_mixed_packet.pdf # 34-page evaluation packet
 ├── results/
 │   └── current/                     # Current 140-question quality, safety and latency results
 └── README.md

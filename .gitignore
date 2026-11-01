@@ -21,14 +21,9 @@ backend/k6_results/*.log
 __pycache__/
 *.pyc
 
-# Keep local samples private; publish only the documented synthetic fixtures.
+# Publish only the 34-page evaluation packet; other samples stay local.
 /samples/*
-!/samples/synthetic_borrower/
-/samples/synthetic_borrower/*
-!/samples/synthetic_borrower/whitfield_loan_packet.pdf
-!/samples/synthetic_borrower/whitfield_3doc_packet.pdf
-!/samples/synthetic_borrower/answer_key.md
-!/samples/synthetic_borrower/make_samples.py
+!/samples/sample_blob_1_mixed_packet.pdf
 
 # Historical evaluation and cached index state stay local.
 /results/old/

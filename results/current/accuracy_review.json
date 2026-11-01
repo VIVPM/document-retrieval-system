@@ -12,8 +12,8 @@
   },
   "files": {
     "gold": "backend/eval/loan_packet_questions.json",
-    "answers": "results/loan_packet_answers_v3.json",
-    "ragas": "results/loan_packet_ragas_top6_v3_judge35lite.csv"
+    "answers": "results/current/answers.json",
+    "ragas": "results/current/ragas.csv"
   },
   "sha256": {
     "gold": "1ca2568f6125eaddf03021d33eafe2238c402af0144d052a6150ebe9153a883d",

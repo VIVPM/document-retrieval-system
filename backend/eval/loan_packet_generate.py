@@ -32,8 +32,8 @@ from llm.llm_router import embed_model, estimate_cost_usd, llm
 
 MODEL = os.environ["GEMINI_CHAT_MODEL"]
 QUESTIONS = os.path.join(BACKEND, "eval", "loan_packet_questions.json")
-INDEX_STATE = os.path.join(REPO, "results", "loan_packet_index.json")
-OUT = os.path.join(REPO, "results", "loan_packet_answers_v3.json")
+INDEX_STATE = os.path.join(REPO, "results", "current", "index_state.json")
+OUT = os.path.join(REPO, "results", "current", "answers.json")
 NAMESPACE, CHAT_ID = "drs-eval", "loan-packet-mixed-v1"
 K, ALPHA, BATCH = 6, 0.5, 25
 

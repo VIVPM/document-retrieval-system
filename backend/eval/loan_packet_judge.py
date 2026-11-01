@@ -1,4 +1,4 @@
-"""Score results/loan_packet_answers_v3.json with Ragas (answer correctness, context
+"""Score results/current/answers.json with Ragas (answer correctness, context
 precision, context recall, faithfulness), judged by gemini-3.5-flash-lite, in
 batches of 25 questions. Saves after each batch; a rerun only rescores questions
 that are not complete. Pass question ids to score just those.
@@ -31,8 +31,8 @@ load_dotenv(os.path.join(BACKEND, ".env"))
 JUDGE = "gemini-3.5-flash-lite"
 EMBEDDINGS = "gemini-embedding-001"
 PRICE = {"in": 0.30, "out": 2.50}  # USD per 1M tokens, as llm_router.PRICE_PER_MTOK; output includes thinking
-ANSWERS = os.path.join(REPO, "results", "loan_packet_answers_v3.json")
-OUT = os.path.join(REPO, "results", "loan_packet_ragas_top6_v3_judge35lite.csv")
+ANSWERS = os.path.join(REPO, "results", "current", "answers.json")
+OUT = os.path.join(REPO, "results", "current", "ragas.csv")
 BATCH = 25
 MAX_JUDGE_CALLS = 16  # concurrent judge requests across a batch
 METRICS = ("answer_correctness", "context_precision", "context_recall", "faithfulness")

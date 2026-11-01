@@ -1,4 +1,4 @@
-"""Latency, TTFT and cost per query for the 120 loan packet questions, asked one
+"""Latency, TTFT and cost per query for the 140 evaluation questions, asked one
 at a time through the app's chat path: Neon reads, cached retriever, rewrite,
 hybrid retrieval with linked evidence and a streamed gemini-3.5-flash-lite
 answer. No judging. Uses the index left by loan_packet_generate.py.
@@ -32,8 +32,8 @@ from llm.llm_router import embed_model, estimate_cost_usd, llm
 K = 6
 MODEL = os.environ["GEMINI_CHAT_MODEL"]
 QUESTIONS = os.path.join(BACKEND, "eval", "loan_packet_questions.json")
-INDEX_STATE = os.path.join(REPO, "results", "loan_packet_index.json")
-OUT = os.path.join(REPO, "results", "query_latency_120.json")
+INDEX_STATE = os.path.join(REPO, "results", "current", "index_state.json")
+OUT = os.path.join(REPO, "results", "current", "latency.json")
 
 
 def pctl(xs, p):
@@ -75,6 +75,9 @@ def ask(store, chat_id, question):
 def main():
     with open(QUESTIONS, encoding="utf-8") as f:
         questions = json.load(f)["questions"]
+    with open(os.path.join(BACKEND, "eval", "safety_questions.json"), encoding="utf-8") as f:
+        questions += json.load(f)["questions"]
+    assert len(questions) == len({q["id"] for q in questions}) == 140
     with open(INDEX_STATE, encoding="utf-8") as f:
         state = json.load(f)
     store = EnhancedDocumentStoreHybrid.rehydrate(
@@ -84,7 +87,8 @@ def main():
     rows = []
     for q in questions:
         try:
-            row = {"id": q["id"], **ask(store, state["chat_id"], q["question"])}
+            question = q["question"].replace("{other_chat_id}", "safety-other-account-chat-not-provisioned")
+            row = {"id": q["id"], **ask(store, state["chat_id"], question)}
             if not (row["answer"] and row["usage"]):
                 row["error"] = "empty answer or no usage"
         except Exception as e:

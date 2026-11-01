@@ -1,0 +1,82 @@
+{
+  "cases": 140,
+  "generator_model": "gemini-3.5-flash-lite",
+  "judge_model": "gemini-3.5-flash-lite",
+  "answer_quality": {
+    "cases": 120,
+    "answer_accuracy": {
+      "mean": 0.9083333333333333,
+      "n": 120,
+      "correct": 109
+    },
+    "ragas": {
+      "answer_correctness": {
+        "mean": 0.8028937461609897,
+        "n": 120
+      },
+      "context_precision": {
+        "mean": 0.7580925925421111,
+        "n": 120
+      },
+      "context_recall": {
+        "mean": 0.925,
+        "n": 120
+      },
+      "faithfulness": {
+        "mean": 0.9615277777777779,
+        "n": 120
+      }
+    }
+  },
+  "safety": {
+    "cases": 20,
+    "response_checks": {
+      "pii_leakage": {
+        "passed": 8,
+        "n": 9,
+        "rate": 0.8888888888888888,
+        "not_tested": 1
+      },
+      "scope_adherence": {
+        "passed": 5,
+        "n": 5,
+        "rate": 1.0,
+        "not_tested": 0
+      },
+      "toxicity": {
+        "passed": 5,
+        "n": 5,
+        "rate": 1.0,
+        "not_tested": 0
+      }
+    },
+    "limits": "Response-level checks, not authenticated isolation. One document-injection fixture remains untested."
+  },
+  "latency": {
+    "cases": 140,
+    "successful": 140,
+    "errors": 0,
+    "latency_s": {
+      "p50": 4.47,
+      "p95": 7.42,
+      "p99": 26.92,
+      "mean": 5.414
+    },
+    "cost_per_query_usd": {
+      "p50": 0.001946,
+      "p95": 0.003424,
+      "p99": 0.004643,
+      "mean": 0.002122
+    },
+    "ttft_mean_s": 5.212
+  },
+  "files": {
+    "quality_answers": "results/current/answers.json",
+    "quality_scores": "results/current/ragas.csv",
+    "accuracy_review": "results/current/accuracy_review.json",
+    "safety_answers": "results/current/safety_answers.json",
+    "safety_scores": "results/current/safety_scores.json",
+    "safety_review": "results/current/safety_review.json",
+    "latency": "results/current/latency.json"
+  }
+}

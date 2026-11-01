@@ -60,9 +60,11 @@ class EvaluationArtifactsTests(unittest.TestCase):
 
     def test_current_links_and_filenames(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
-        for path in re.findall(r"\]\((results/[^)]+)\)", readme):
-            self.assertTrue(path.startswith("results/current/"), path)
-            self.assertTrue((ROOT / path).is_file(), path)
+        for path in re.findall(r"\]\(([^)#]+)\)", readme):
+            if not path.startswith(("https://", "http://")):
+                self.assertTrue((ROOT / path).is_file(), path)
+            if path.startswith("results/"):
+                self.assertTrue(path.startswith("results/current/"), path)
         for path in load("summary.json")["files"].values():
             self.assertTrue((ROOT / path).is_file(), path)
         self.assertFalse(any(re.search(r"(?:^|_)v\d", p.name) for p in CURRENT.iterdir()))

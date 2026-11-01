@@ -9,13 +9,13 @@ A **loan-file copilot** for home-loan (mortgage) officers: upload a borrower's p
 ## 🚀 Key Features
 
 *   **Accounts & persistent chats**: JWT auth over bcrypt, DB-backed login lockout, and conversations that survive a restart — including their source citations. A login lasts **as long as the tab is open**: tokens live in `sessionStorage`, so a reload keeps you signed in, closing the tab signs you out, and a new tab asks you to log in.
-*   **Session rehydration**: the in-process retriever is a pure cache. On a miss it rebuilds from Neon + Pinecone in **~11s** instead of re-ingesting the document (**~180s**), by persisting the fitted BM25 encoder and recomputing centroids from the index.
+*   **Session rehydration**: rebuilds the retriever from saved BM25 parameters and chunk count in **~11s**, versus **~180s** for re-ingestion. Lists chat vector IDs if the count is missing.
 *   **Queued ingestion**: upload returns `202` and enqueues a job that a worker runs, with a pollable status — as its own process, or inside the API with `RUN_WORKER_IN_PROCESS=1`. A queued job is a row that outlives the API process, so a deploy or crash does not destroy work in flight.
 *   **Pluggable Extraction**: **AWS Textract** (TABLES + FORMS, default) or **PyMuPDF** (local, no-AI, text-layer only) via `EXTRACT_METHOD`. Contextual chunking attaches each chunk's document identity so entity-specific queries stay unambiguous.
 *   **Hybrid Search Engine**: A single **Pinecone** sparse-dense index holding `gemini-embedding-2` embeddings (768-dim) alongside **BM25** sparse vectors, fused by a tunable `alpha` (0.0 = pure keyword → 1.0 = pure semantic).
 *   **Conversational follow-ups**: a follow-up like *"and when does it lock?"* is rewritten as a standalone question before retrieval. When there is no history, the question is used as-is. History is read server-side from Neon.
-*   **Answer Generation**: **gemini-3.5-flash** with medium thinking. Google's API currently routes this model ID to Gemini 3.6 Flash. Answers and conversational query rewriting use this model; field extraction retains the separate flash-lite model. Gemini 3 requests use thinking levels instead of the legacy token budget and omit deprecated sampling settings.
-*   **Two decision paths**: page classification and boundary detection use **TypeSafe Jev** (closed-set choice and yes/no probability). Gemini flash-lite still handles per-document context lines and review field extraction; answers and query rewriting stay on flash.
+*   **Answer Generation**: `gemini-3.5-flash` for answers and rewriting; `gemini-2.5-flash-lite` for document identities and review fields. Override with `GEMINI_CHAT_MODEL` / `GEMINI_FAST_MODEL`. Gemini 3 uses medium thinking by default.
+*   **Classification**: TypeSafe Jev labels pages and detects document boundaries using closed-set choices and yes/no probabilities.
 *   **Automatic file review**: once a packet is ingested, the application's claims (income, employer, balances, declarations, loan terms) are checked against the pay slips, bank statement, Loan Estimate and title report. Each check shows both sides' values with their pages, in a panel beside the chat (a drawer on narrow screens) so the officer can ask about a flag without leaving it. See [Automatic file review](#-automatic-file-review).
 *   **Use your own provider**: Settings lets a user choose Gemini (API key) or Cloudflare Workers AI (account ID and API token). Credentials are validated, encrypted with Fernet using a key derived from `JWT_SECRET`, and saved per account in Postgres. The selected provider survives logout/login; Settings shows only the saved key's last four characters. Rotating `JWT_SECRET` requires saving credentials again. Question rewriting and answers use the selected provider without spending daily credits; uploads and retrieval embeddings still use the app's keys. Without own credentials, the app's daily cap applies.
 *   **Flag decisions with an audit trail**: every mismatch or review flag can be **accepted** (a note is required) or **confirmed** as an issue. Decisions are append-only and record who decided and when. The sidebar shows findings separately from reviewed progress; confirming an issue does not mark it fixed.
@@ -63,11 +63,7 @@ Each check is **mismatch**, **review**, **missing**, **match** or **info**. Docu
 
 ## 🏗️ Architecture
 
-Six layers, read top to bottom. Each arrow is a hand-off between layers; the
-ingest and retrieval pipelines flow left-to-right within their own band and the
-bands stack one below the other, while the shared services (data, external AI)
-are reached once per layer rather than by every stage, so the flow stays
-legible. Observability is cross-cutting.
+Six layers: client, API, ingestion, storage, retrieval and external services. Observability spans ingestion and queries.
 
 ```mermaid
 %%{init: {"flowchart": {"rankSpacing": 12, "nodeSpacing": 12, "padding": 4}, "themeVariables": {"fontSize": "12px"}}}%%
@@ -86,7 +82,8 @@ graph TD
 
     subgraph INGEST ["3 · Ingest pipeline — worker.py, from the job queue"]
         direction LR
-        Ext["📄 Extract · Textract / PyMuPDF"] --> Split["🏷️ Classify + split · Jev"] --> Chunk["✂️ Chunk · tables atomic · contextual"] --> Emb["🧬 Embed · 768d"] --> Up["📤 BM25 fit + Pinecone upsert"]
+        Ext["📄 Extract · Textract / PyMuPDF"] --> Split["🏷️ Classify + split · Jev"] --> Chunk["✂️ Contextual chunks · large tables split by rows"] --> Emb["🧬 Embed · 768d"] --> Up["📤 BM25 fit + Pinecone upsert"]
+        Up --> Review["🧾 Review · field extraction + grounding + Python rules"]
     end
 
     subgraph DATA ["4 · Data layer — Neon Postgres + Pinecone"]
@@ -96,11 +93,12 @@ graph TD
 
     subgraph QUERY ["5 · Retrieval + answer layer"]
         direction LR
-        RW["📝 Rewrite follow-up → standalone"] --> Hyb["🔍 Hybrid query · α·dense + (1−α)·sparse"] --> Ans["🤖 gemini-2.5-flash · streamed, cited"]
+        RW["📝 Rewrite follow-up → standalone"] --> Hyb["🔍 Hybrid query · α·dense + (1−α)·sparse"] --> Evidence["🔗 Linked chunks · deduplicate · ≤18 chunks / 6,000 tokens"] --> Ans["🤖 Gemini 3.5 Flash / Cloudflare Llama · streamed, cited"]
     end
 
     subgraph EXT ["6 · External AI services"]
         Gem["☁️ Google Gemini · flash / flash-lite / embeddings"]
+        CF["☁️ Cloudflare Workers AI · Llama 3.3 70B"]
         Jev["☁️ TypeSafe Jev · page labels + boundaries"]
         Tex["☁️ AWS Textract · TABLES + FORMS"]
     end
@@ -128,7 +126,9 @@ graph TD
 * **Python 3.10+**: For the FastAPI backend.
 * **Neon (or any Postgres)**: Accounts, chat sessions and messages.
 * **Pinecone**: Serverless index, `dimension=768`, `metric=dotproduct`.
-* **Google AI API key**: `gemini-embedding-2` embeddings **and** `gemini-2.5-flash` answers.
+* **Google AI API key**: `gemini-embedding-2` embeddings, plus default `gemini-3.5-flash` answers and `gemini-2.5-flash-lite` identity lines / field extraction.
+* **TypeSafe API key**: `jev-1.13.0` page classification and document boundaries.
+* **Cloudflare Workers AI** *(optional)*: Llama 3.3 70B (`@cf/meta/llama-3.3-70b-instruct-fp8-fast`) as an alternative completion provider; retrieval embeddings still require Gemini.
 * **AWS account** *(default extraction path)*: AWS Textract API (`AmazonTextractFullAccess` — or scoped to `textract:AnalyzeDocument`). Skip if you set `EXTRACT_METHOD=pymupdf` (local, no AWS calls).
 
 ### 2. Backend Setup
@@ -145,7 +145,7 @@ graph TD
 
 PDF extraction runs on **AWS Textract** (TABLES + FORMS features), billed at **$0.065 per page** — about $3.25 for a 50-page packet. FORMS returns label/value pairs, which the file review uses before asking an LLM.
 
-`EXTRACT_METHOD=pymupdf` reads the PDF's text layer locally, for free. It detects tables with PyMuPDF's `find_tables()` so they stay whole in chunking, but it **cannot read scanned pages** and returns no FORMS pairs. A PDF with no readable text on any page is rejected with a clear message; pages without text are listed in the file header ("No readable text on page 9. Not searched or reviewed.") instead of being indexed blank. Answers come from the Gemini API directly, so no self-hosted LLM server is required.
+`EXTRACT_METHOD=pymupdf` reads the PDF's text layer locally, for free. It detects tables with PyMuPDF's `find_tables()` so tables remain whole unless oversized, in which case they split by rows with repeated headers, but it **cannot read scanned pages** and returns no FORMS pairs. A PDF with no readable text on any page is rejected with a clear message; pages without text are listed in the file header ("No readable text on page 9. Not searched or reviewed.") instead of being indexed blank. Answers come from the Gemini API directly, so no self-hosted LLM server is required.
 
 #### A. AWS
 1.  Create an IAM user with `AmazonTextractFullAccess` (or a scoped policy granting `textract:AnalyzeDocument`).
@@ -194,6 +194,16 @@ Run more than one worker if ingest is the bottleneck: the claim is a conditional
 `UPDATE ... FOR UPDATE SKIP LOCKED`, so a second worker takes different jobs
 rather than duplicating the first one's.
 
+### Local backend tests
+
+From `backend/`, run the grouped unit tests and the two standalone tracing checks:
+
+```bash
+python -X utf8 -m unittest discover -s tests -v
+python -X utf8 -m tests.test_observability
+python -X utf8 -m tests.test_observability_eval
+```
+
 ### 5. Running the Frontend
 1.  Navigate to the frontend directory:
     ```bash
@@ -232,7 +242,7 @@ Chat and account endpoints require `Authorization: Bearer <token>`; signup, logi
 | `GET` | `/api/chats/{id}/status` | Poll while `processing` |
 | `POST` | `/api/chats/{id}/message` | Ask a question. Returns `question_asked` and `question_searched` so a rewritten follow-up is diagnosable |
 | `PATCH` | `/api/chats/{id}` | Rename |
-| `DELETE` | `/api/chats/{id}` | Drops the namespace **and** the rows. Flag decisions are kept (audit trail) |
+| `DELETE` | `/api/chats/{id}` | Deletes this chat's vectors and rows, preserving other chats in the user's namespace. Flag decisions are kept (audit trail) |
 | `GET` | `/api/account/credits` | `{cap, used, remaining, provider, own_key}` for today; questions using own credentials are not counted |
 | `GET` | `/api/account/api-keys` | Selected provider and saved credential metadata (last four characters only) |
 | `PUT` | `/api/account/api-keys` | `{provider, key, account_id?}` — validate, encrypt, save and select credentials |
@@ -398,13 +408,15 @@ document-retrieval-system/
 │   │   ├── document_classifier_gemini.py # Previous Gemini implementation (inactive)
 │   │   ├── query_rewriter.py          # Follow-up → standalone question
 │   │   ├── answer_generator.py        # Grounded answer prompt
+│   │   ├── evidence.py                # Deduplication + whole-chunk evidence budgets
+│   │   ├── pdf_preview.py             # PDF page rendering for owner-only previews
 │   │   ├── review.py                  # Automatic file review: fields, grounding guard, rules
 │   │   └── models.py                  # Core dataclasses
 │   ├── db/                          # Neon / Postgres
 │   │   ├── database.py                # Engine + session factory
 │   │   └── models.py                  # accounts, chat_sessions (+ review), messages, review_decisions
 │   ├── llm/
-│   │   └── llm_router.py              # Gemini answers + embeddings
+│   │   └── llm_router.py              # Gemini / Cloudflare completions + Gemini embeddings
 │   ├── eval/                        # Measurement harnesses
 │   │   ├── loan_packet_questions.json # 120 questions with gold answers
 │   │   ├── loan_packet_generate.py    # Six-context answer generation, batches of 25
@@ -416,6 +428,8 @@ document-retrieval-system/
 │   │   ├── model_sweep.py             # Generated questions, no judge (trust this)
 │   │   ├── model_eval.py              # flash vs flash-lite, LLM-judged
 │   │   └── prompt_eval.py             # Prompt-change A/B
+│   ├── tests/                       # Seven test modules: retrieval, credentials, tracing, eval artifacts, review
+│   ├── provider_settings.py          # Encrypted per-account provider credentials
 │   ├── auth.py                      # JWT + bcrypt + refresh tokens
 │   ├── observability.py             # OpenTelemetry → Langfuse
 │   ├── main.py                      # API entry point
@@ -440,7 +454,7 @@ document-retrieval-system/
 │   ├── Dockerfile                   # Vite build → nginx
 │   └── nginx.conf                   # SPA routing
 ├── .github/workflows/ci.yml         # lint · build · docker · gated deploy
-├── docker-compose.yml               # local api + frontend stack
+├── docker-compose.yml               # local api + worker + frontend stack
 ├── ruff.toml
 ├── samples/synthetic_borrower/      # Synthetic loan packet + answer key for the review
 ├── results/

@@ -263,23 +263,26 @@ A chat that belongs to another user returns **404, not 403** — a 403 would con
 
 ## 📈 Performance & Evaluation
 
-### 120-question evaluation — k=6
+### 140-question evaluation
 
-Evaluated on a 34-page mixed-format mortgage packet with 22 logical documents and 142 chunks. Generator and Ragas judge: **`gemini-3.5-flash-lite`**. Hybrid retrieval: **α=0.5**, with the same six chunks used for generation and judging.
+A 34-page mortgage packet with 22 logical documents and 142 chunks. Generator and judge: **`gemini-3.5-flash-lite`**. Hybrid retrieval: **α=0.5**; context metrics use six recorded evidence chunks per case.
 
-| Metric | Result |
-|---|---:|
-| **Answer accuracy** | **90.8%** |
-| Ragas answer correctness | 80.3% |
-| Context precision | 75.8% |
-| Context recall | 92.5% |
-| Faithfulness | 96.2% |
+| Metric | Cases scored | Correct / passed | Rate | Mean score |
+|---|---:|---:|---:|---:|
+| **Answer accuracy (assistant-reviewed)** | 120 | 109 | **90.8%** | — |
+| Ragas answer correctness | 120 | — | — | 0.803 |
+| Context precision | 120 | — | — | 0.758 |
+| Context recall | 120 | — | — | 0.925 |
+| Faithfulness | 120 | — | — | 0.962 |
+| PII response-boundary adherence | 9 | 8 | 88.9% | — |
+| Scope adherence | 5 | 5 | 100% | — |
+| Toxicity (non-toxic) | 5 | 5 | 100% | — |
 
-Development-set results on a partially synthetic packet.
+Development-set results on a partially synthetic packet. PII checks assess responses, not cross-account isolation; one document-injection case is untested.
 
-**Cost:** $0.174 generation + $0.827 judging = **$1.001**.
+**Answer-quality run cost:** $0.174 generation + $0.827 judging = **$1.001**; safety judging excluded.
 
-[Gold dataset](backend/eval/loan_packet_questions.json) · [Responses](results/loan_packet_answers_v3.json) · [Ragas scores](results/loan_packet_ragas_top6_v3_judge35lite.csv) · [Accuracy review](results/loan_packet_answer_review_v3.json)
+[Gold dataset](backend/eval/loan_packet_questions.json) · [Safety cases](backend/eval/safety_questions.json) · [Responses](results/current/answers.json) · [Safety responses](results/current/safety_answers.json) · [Ragas scores](results/current/ragas.csv) · [Safety judgments](results/current/safety_scores.json) · [Accuracy review](results/current/accuracy_review.json) · [Evaluation summary](results/current/summary.json)
 
 Latency and cost per query: 140 questions asked one at a time with `gemini-3.5-flash-lite`, excluding judging, HTTP transit and message saving.
 
@@ -293,7 +296,7 @@ Latency and cost per query: 140 questions asked one at a time with `gemini-3.5-f
 </tbody>
 </table>
 
-[Latency results (140 questions)](results/query_latency_140.json) · [Safety responses](results/safety_answers_latency_20.json)
+[Latency results (140 questions)](results/current/latency.json)
 
 ### Where one query's time goes
 
@@ -406,6 +409,10 @@ document-retrieval-system/
 │   │   ├── loan_packet_questions.json # 120 questions with gold answers
 │   │   ├── loan_packet_generate.py    # Six-context answer generation, batches of 25
 │   │   ├── loan_packet_judge.py       # Four Ragas metrics using the same six contexts
+│   │   ├── safety_questions.json      # 20 safety cases
+│   │   ├── safety_generate.py         # Six-context safety responses
+│   │   ├── safety_judge.py            # Response safety checks
+│   │   ├── query_latency.py           # 140-question latency and cost
 │   │   ├── model_sweep.py             # Generated questions, no judge (trust this)
 │   │   ├── model_eval.py              # flash vs flash-lite, LLM-judged
 │   │   └── prompt_eval.py             # Prompt-change A/B
@@ -436,7 +443,8 @@ document-retrieval-system/
 ├── docker-compose.yml               # local api + frontend stack
 ├── ruff.toml
 ├── samples/synthetic_borrower/      # Synthetic loan packet + answer key for the review
-├── results/                         # Ragas results (k=6)
+├── results/
+│   └── current/                     # Current 140-question quality, safety and latency results
 └── README.md
 ```
 

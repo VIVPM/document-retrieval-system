@@ -21,9 +21,10 @@ backend/k6_results/*.log
 __pycache__/
 *.pyc
 
-# Publish only the 15-page clean sample; other samples stay local.
+# Publish only the clean sample and mixed evaluation packet.
 /samples/*
 !/samples/sample_blob_1_clean_packet.pdf
+!/samples/sample_blob_1_mixed_packet.pdf
 
 # Historical evaluation and cached index state stay local.
 /results/old/

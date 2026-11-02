@@ -49,7 +49,7 @@ A loan officer's core check is *stare and compare*: the application holds the bo
 
 Each check is **mismatch**, **review**, **missing**, **match** or **info**. Documents absent from the packet are informational, not a loan-completeness verdict. Selected files can be previewed before clicking **Process document**, without saving or ingesting them. The original uploaded/merged PDF is retained separately for an owner-only preview available during processing and afterward. Swipe left/right or use arrow buttons to view its pages; review evidence opens the cited page. Older chats uploaded before this feature have no original to show. A review that fails is stored as failed and never fails the upload: the document stays searchable. If a worker is killed mid-review, the job's lease brings it back and the review is rebuilt; a review left on `running` with no job able to finish it is marked failed ("re-upload to review") by the worker's periodic check, so the panel never spins forever.
 
-**Try it:** [15-page clean sample packet](samples/sample_blob_1_clean_packet.pdf) with fictional borrower data. For software testing only, not lending. The reported evaluation below used a separate 34-page packet.
+**Sample packets:** [15-page clean packet](samples/sample_blob_1_clean_packet.pdf) for the demo; [34-page mixed packet](samples/sample_blob_1_mixed_packet.pdf) for the reported 140-question evaluation, adding blank reference forms and policy text. Fictional borrower data; for software testing only, not lending.
 
 ### Citations and reliability
 
@@ -456,7 +456,7 @@ document-retrieval-system/
 ├── .github/workflows/ci.yml         # lint · build · docker · gated deploy
 ├── docker-compose.yml               # local api + worker + frontend stack
 ├── ruff.toml
-├── samples/sample_blob_1_clean_packet.pdf # 15-page clean sample
+├── samples/                         # 15-page clean sample + 34-page mixed evaluation packet
 ├── results/
 │   └── current/                     # Current 140-question quality, safety and latency results
 └── README.md

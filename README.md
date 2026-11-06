@@ -1,6 +1,6 @@
 # 📄 Advanced Document Retrieval System
 
-A **loan-file copilot** for home-loan (mortgage) officers: upload a borrower's packet, get an automatic review of the application against its supporting documents, record a decision on every flag, and ask anything else with page-cited answers. Under the hood it is a multi-user RAG (Retrieval-Augmented Generation) application for PDF documents. Built with a **React** frontend and a **FastAPI** backend, featuring accounts, persistent per-document conversations, PDF extraction via AWS Textract or PyMuPDF, and hybrid sparse-dense search.
+A **loan-file copilot** for home-loan (mortgage) officers: upload a borrower's packet, get an automatic review of the application against its supporting documents, record a decision on every flag, and ask anything else with page-cited answers. Under the hood it is a multi-user RAG (Retrieval-Augmented Generation) application for PDF documents. Built with a **React** frontend and a **FastAPI** backend, featuring accounts, persistent per-document conversations, PDF extraction via Reducto, AWS Textract or PyMuPDF, and hybrid sparse-dense search.
 
 **One account → many chats → one uploaded document per chat.** Chats share the account's Pinecone namespace; each chat's vectors are identified by its chat id. Neon/Postgres owns identity, ownership and conversation history; Pinecone holds vectors.
 
@@ -11,7 +11,7 @@ A **loan-file copilot** for home-loan (mortgage) officers: upload a borrower's p
 *   **Accounts & persistent chats**: JWT auth over bcrypt, DB-backed login lockout, and conversations that survive a restart — including their source citations. A login lasts **as long as the tab is open**: tokens live in `sessionStorage`, so a reload keeps you signed in, closing the tab signs you out, and a new tab asks you to log in.
 *   **Session rehydration**: rebuilds the retriever from saved BM25 parameters and chunk count in **~11s**, versus **~180s** for re-ingestion. Lists chat vector IDs if the count is missing.
 *   **Queued ingestion**: upload returns `202` and enqueues a job that a worker runs, with a pollable status — as its own process, or inside the API with `RUN_WORKER_IN_PROCESS=1`. A queued job is a row that outlives the API process, so a deploy or crash does not destroy work in flight.
-*   **Pluggable Extraction**: **AWS Textract** (TABLES + FORMS, default), **Reducto r-1 mini** (page-tagged tables and text), or **PyMuPDF** (local, text-layer only) via `EXTRACT_METHOD`. Contextual chunking attaches each chunk's document identity so entity-specific queries stay unambiguous.
+*   **Pluggable Extraction**: **Reducto r-1 mini** (default, page-tagged tables and text), **AWS Textract** (TABLES + FORMS), or **PyMuPDF** (local, text-layer only) via `EXTRACT_METHOD`. Contextual chunking attaches each chunk's document identity so entity-specific queries stay unambiguous.
 *   **Hybrid Search Engine**: A single **Pinecone** sparse-dense index holding `gemini-embedding-2` embeddings (768-dim) alongside **BM25** sparse vectors, fused by a tunable `alpha` (0.0 = pure keyword → 1.0 = pure semantic).
 *   **Conversational follow-ups**: a follow-up like *"and when does it lock?"* is rewritten as a standalone question before retrieval. When there is no history, the question is used as-is. History is read server-side from Neon.
 *   **Answer Generation**: `gemini-3.5-flash` for answers and rewriting; `gemini-2.5-flash-lite` for document identities and review fields. Override with `GEMINI_CHAT_MODEL` / `GEMINI_FAST_MODEL`. Gemini 3 uses medium thinking by default.
@@ -100,6 +100,7 @@ graph TD
         Gem["☁️ Google Gemini · flash / flash-lite / embeddings"]
         CF["☁️ Cloudflare Workers AI · Llama 3.3 70B"]
         Jev["☁️ TypeSafe Jev · page labels + boundaries"]
+        Red["☁️ Reducto · r-1 mini Parse"]
         Tex["☁️ AWS Textract · TABLES + FORMS"]
     end
 
@@ -129,8 +130,8 @@ graph TD
 * **Google AI API key**: `gemini-embedding-2` embeddings, plus default `gemini-3.5-flash` answers and `gemini-2.5-flash-lite` identity lines / field extraction.
 * **TypeSafe API key**: `jev-1.13.0` page classification and document boundaries.
 * **Cloudflare Workers AI** *(optional)*: Llama 3.3 70B (`@cf/meta/llama-3.3-70b-instruct-fp8-fast`) as an alternative completion provider; retrieval embeddings still require Gemini.
-* **AWS account** *(default extraction path)*: AWS Textract API (`AmazonTextractFullAccess` — or scoped to `textract:AnalyzeDocument`). Skip if you set `EXTRACT_METHOD=pymupdf` or `EXTRACT_METHOD=reducto`.
-* **Reducto API key** *(optional)*: set `EXTRACT_METHOD=reducto` and `REDUCTO_API_KEY` to parse with r-1 mini. The adapter turns Reducto tables into row text and label/value pairs; document classification and review still run through the existing pipeline.
+* **Reducto API key** *(default extraction path)*: set `REDUCTO_API_KEY` to parse with r-1 mini. The adapter turns Reducto tables into row text and label/value pairs; document classification and review still run through the existing pipeline.
+* **AWS account** *(optional)*: AWS Textract API (`AmazonTextractFullAccess` — or scoped to `textract:AnalyzeDocument`) when `EXTRACT_METHOD=textract`.
 
 ### 2. Backend Setup
 1.  Navigate to the backend directory:
@@ -142,13 +143,13 @@ graph TD
     pip install -r requirements.txt
     ```
 
-### 3. Extraction Setup (AWS Textract)
+### 3. Extraction Setup
 
-PDF extraction runs on **AWS Textract** (TABLES + FORMS features), billed at **$0.065 per page** — about $3.25 for a 50-page packet. FORMS returns label/value pairs, which the file review uses before asking an LLM.
+PDF extraction defaults to **Reducto r-1 mini**. Set `REDUCTO_API_KEY` in `backend/.env`. Its page-tagged blocks and tables are adapted for the same classification, chunking, and file-review paths. No AWS credentials are used for this path.
+
+`EXTRACT_METHOD=textract` keeps the standalone **AWS Textract** (TABLES + FORMS) path, billed at **$0.065 per page** — about $3.25 for a 50-page packet. FORMS returns label/value pairs, which the file review uses before asking an LLM.
 
 `EXTRACT_METHOD=pymupdf` reads the PDF's text layer locally, for free. It detects tables with PyMuPDF's `find_tables()` so tables remain whole unless oversized, in which case they split by rows with repeated headers, but it **cannot read scanned pages** and returns no FORMS pairs. A PDF with no readable text on any page is rejected with a clear message; pages without text are listed in the file header ("No readable text on page 9. Not searched or reviewed.") instead of being indexed blank. Answers come from the Gemini API directly, so no self-hosted LLM server is required.
-
-`EXTRACT_METHOD=reducto` uploads the PDF to Reducto's r-1 mini Parse API. Its page-tagged blocks and tables are adapted for the same classification, chunking, and file-review paths. Set `REDUCTO_API_KEY` in `backend/.env`; no AWS credentials are used for this path.
 
 #### A. AWS
 1.  Create an IAM user with `AmazonTextractFullAccess` (or a scoped policy granting `textract:AnalyzeDocument`).
@@ -389,7 +390,7 @@ OpenTelemetry over OTLP exports provider-call spans to Langfuse when `LANGFUSE_P
 3. **docker** — build both images (no push), so a broken Dockerfile fails here, not at deploy.
 4. **deploy** — only after all three pass, only on push to `main`: POSTs the Render deploy hooks (`RENDER_DEPLOY_HOOK_*` secrets), skipping gracefully if they're unset.
 
-`docker compose up --build` runs the stack locally: **three** services — `api` and `worker` from the same `backend/Dockerfile` (`python:3.12-slim`, non-root, `/api/health` probe) with different commands, plus `frontend/Dockerfile` (Vite build → nginx). Extraction runs on AWS Textract, so the backend image needs no GPU/GL libraries.
+`docker compose up --build` runs the stack locally: **three** services — `api` and `worker` from the same `backend/Dockerfile` (`python:3.12-slim`, non-root, `/api/health` probe) with different commands, plus `frontend/Dockerfile` (Vite build → nginx). Default extraction runs on Reducto, so the backend image needs no GPU/GL libraries.
 
 **Deploying needs the worker running somewhere.** Either a second service — the same image with `python worker.py` as its command (a Render **Background Worker**, which needs no public URL; it talks to the API only through the database) — or `RUN_WORKER_IN_PROCESS=1` on the API service, so one web service does both. Without either, uploads remain queued until a worker starts.
 
@@ -405,7 +406,9 @@ document-retrieval-system/
 │   ├── core/                        # Processing & retrieval engine
 │   │   ├── document_store.py          # Orchestration + rehydrate()
 │   │   ├── retriever.py               # Hybrid search, routing, namespaces
-│   │   ├── pdf_processor.py           # AWS Textract integration (TABLES + FORMS)
+│   │   ├── pdf_processor.py           # PDF extraction and document splitting
+│   │   ├── reducto_adapter.py         # Default Reducto r-1 mini extraction
+│   │   ├── textract_adapter.py        # Optional AWS TABLES + FORMS extraction
 │   │   ├── chunker.py                 # Structure-aware chunking
 │   │   ├── document_classifier_jev.py # Active doc-type & boundary decisions (TypeSafe Jev)
 │   │   ├── document_classifier_gemini.py # Previous Gemini implementation (inactive)

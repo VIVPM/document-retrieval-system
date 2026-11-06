@@ -144,6 +144,19 @@ def _locate(raw, pages: list[tuple[int, str]]) -> int | None:
     return next((p for p, t in pages if r in t), None)
 
 
+def _locate_list_row(item, amount_raw, pages) -> int | None:
+    """Use the transaction's date and description to disambiguate equal amounts."""
+    amount = _flat(amount_raw)
+    date = _flat(item.get("date"))
+    description = _flat(item.get("description"))
+    if amount and date and description:
+        row = f"{date} {description} {amount}"
+        page = next((p for p, text in pages if row in text), None)
+        if page is not None:
+            return page
+    return _locate(amount_raw, pages)
+
+
 def _locate_field(name, raw, pages) -> int | None:
     if name != "undisclosed_funds":
         return _locate(raw, pages)
@@ -290,7 +303,7 @@ def fields_from_llm(doc_type: str, doc, missing: dict, complete=None) -> tuple[d
             if name == "liens" and amount_raw in (None, ""):
                 continue
             if amount_raw:
-                page = _locate(amount_raw, pages)
+                page = _locate_list_row(it, amount_raw, pages)
                 if page is None:
                     dropped += 1
                     continue

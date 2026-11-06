@@ -11,7 +11,7 @@ A **loan-file copilot** for home-loan (mortgage) officers: upload a borrower's p
 *   **Accounts & persistent chats**: JWT auth over bcrypt, DB-backed login lockout, and conversations that survive a restart — including their source citations. A login lasts **as long as the tab is open**: tokens live in `sessionStorage`, so a reload keeps you signed in, closing the tab signs you out, and a new tab asks you to log in.
 *   **Session rehydration**: rebuilds the retriever from saved BM25 parameters and chunk count in **~11s**, versus **~180s** for re-ingestion. Lists chat vector IDs if the count is missing.
 *   **Queued ingestion**: upload returns `202` and enqueues a job that a worker runs, with a pollable status — as its own process, or inside the API with `RUN_WORKER_IN_PROCESS=1`. A queued job is a row that outlives the API process, so a deploy or crash does not destroy work in flight.
-*   **Pluggable Extraction**: **AWS Textract** (TABLES + FORMS, default) or **PyMuPDF** (local, no-AI, text-layer only) via `EXTRACT_METHOD`. Contextual chunking attaches each chunk's document identity so entity-specific queries stay unambiguous.
+*   **Pluggable Extraction**: **AWS Textract** (TABLES + FORMS, default), **Reducto r-1 mini** (page-tagged tables and text), or **PyMuPDF** (local, text-layer only) via `EXTRACT_METHOD`. Contextual chunking attaches each chunk's document identity so entity-specific queries stay unambiguous.
 *   **Hybrid Search Engine**: A single **Pinecone** sparse-dense index holding `gemini-embedding-2` embeddings (768-dim) alongside **BM25** sparse vectors, fused by a tunable `alpha` (0.0 = pure keyword → 1.0 = pure semantic).
 *   **Conversational follow-ups**: a follow-up like *"and when does it lock?"* is rewritten as a standalone question before retrieval. When there is no history, the question is used as-is. History is read server-side from Neon.
 *   **Answer Generation**: `gemini-3.5-flash` for answers and rewriting; `gemini-2.5-flash-lite` for document identities and review fields. Override with `GEMINI_CHAT_MODEL` / `GEMINI_FAST_MODEL`. Gemini 3 uses medium thinking by default.
@@ -129,7 +129,8 @@ graph TD
 * **Google AI API key**: `gemini-embedding-2` embeddings, plus default `gemini-3.5-flash` answers and `gemini-2.5-flash-lite` identity lines / field extraction.
 * **TypeSafe API key**: `jev-1.13.0` page classification and document boundaries.
 * **Cloudflare Workers AI** *(optional)*: Llama 3.3 70B (`@cf/meta/llama-3.3-70b-instruct-fp8-fast`) as an alternative completion provider; retrieval embeddings still require Gemini.
-* **AWS account** *(default extraction path)*: AWS Textract API (`AmazonTextractFullAccess` — or scoped to `textract:AnalyzeDocument`). Skip if you set `EXTRACT_METHOD=pymupdf` (local, no AWS calls).
+* **AWS account** *(default extraction path)*: AWS Textract API (`AmazonTextractFullAccess` — or scoped to `textract:AnalyzeDocument`). Skip if you set `EXTRACT_METHOD=pymupdf` or `EXTRACT_METHOD=reducto`.
+* **Reducto API key** *(optional)*: set `EXTRACT_METHOD=reducto` and `REDUCTO_API_KEY` to parse with r-1 mini. The adapter turns Reducto tables into row text and label/value pairs; document classification and review still run through the existing pipeline.
 
 ### 2. Backend Setup
 1.  Navigate to the backend directory:
@@ -146,6 +147,8 @@ graph TD
 PDF extraction runs on **AWS Textract** (TABLES + FORMS features), billed at **$0.065 per page** — about $3.25 for a 50-page packet. FORMS returns label/value pairs, which the file review uses before asking an LLM.
 
 `EXTRACT_METHOD=pymupdf` reads the PDF's text layer locally, for free. It detects tables with PyMuPDF's `find_tables()` so tables remain whole unless oversized, in which case they split by rows with repeated headers, but it **cannot read scanned pages** and returns no FORMS pairs. A PDF with no readable text on any page is rejected with a clear message; pages without text are listed in the file header ("No readable text on page 9. Not searched or reviewed.") instead of being indexed blank. Answers come from the Gemini API directly, so no self-hosted LLM server is required.
+
+`EXTRACT_METHOD=reducto` uploads the PDF to Reducto's r-1 mini Parse API. Its page-tagged blocks and tables are adapted for the same classification, chunking, and file-review paths. Set `REDUCTO_API_KEY` in `backend/.env`; no AWS credentials are used for this path.
 
 #### A. AWS
 1.  Create an IAM user with `AmazonTextractFullAccess` (or a scoped policy granting `textract:AnalyzeDocument`).

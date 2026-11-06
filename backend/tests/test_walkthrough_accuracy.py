@@ -81,6 +81,17 @@ class WalkthroughAccuracyTest(unittest.TestCase):
             self.assertTrue(any(e["page"] == 2 and e["value"] == "NO" for e in check["evidence"]))
             self.assertTrue(any(e["page"] == 4 and e["value"] == "Semi-monthly" for e in check["evidence"]))
 
+    def test_identical_payroll_amounts_keep_distinct_page_citations(self):
+        doc = SimpleNamespace(page_start=8, text="", blocks=[
+            SimpleNamespace(page_num=8, content="09/15 | DIRECT DEP PAYROLL | +$3,203.31"),
+            SimpleNamespace(page_num=9, content="09/30 | DIRECT DEP PAYROLL | +$3,203.31")])
+        response = ('{"fields":{},"lists":{"deposits":['
+                    '{"date":"09/15","description":"DIRECT DEP PAYROLL","amount":"+$3,203.31"},'
+                    '{"date":"09/30","description":"DIRECT DEP PAYROLL","amount":"+$3,203.31"}]}}')
+        _, lists, dropped = fields_from_llm("Bank Statement", doc, {}, complete=lambda _: response)
+        self.assertEqual([row["page"] for row in lists["deposits"]], [9, 10])
+        self.assertEqual(dropped, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

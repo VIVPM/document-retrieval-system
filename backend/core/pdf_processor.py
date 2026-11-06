@@ -216,6 +216,9 @@ def extract_and_analyze_pdf(
     try:
         if method == "pymupdf":
             pages_data = _extract_pymupdf(file_path)
+        elif method == "reducto":
+            from core.reducto_adapter import extract_reducto
+            pages_data = extract_reducto(file_path, os.getenv("REDUCTO_API_KEY"))
         elif method == "textract":
             pages_data = _extract_textract(file_path)
         else:
@@ -254,7 +257,7 @@ def extract_and_analyze_pdf(
         if not any(p.text.strip() for p in pages_info):
             raise ValueError(
                 "No text could be read from this PDF. It looks scanned; scanned "
-                "pages need EXTRACT_METHOD=textract, or upload a PDF with a text layer.")
+                "pages need EXTRACT_METHOD=textract or reducto, or upload a PDF with a text layer.")
 
     finally:
         if is_temp and os.path.exists(file_path):

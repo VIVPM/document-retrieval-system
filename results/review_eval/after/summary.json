@@ -1,0 +1,1540 @@
+{
+  "field_extraction_accuracy": {
+    "correct": 57,
+    "denominator": 57
+  },
+  "absent_field_not_invented": {
+    "correct": 3,
+    "denominator": 3
+  },
+  "page_citation_accuracy": {
+    "correct": 57,
+    "denominator": 57
+  },
+  "discrepancy_precision": {
+    "true_positives": 3,
+    "false_positives": 0,
+    "denominator": 3
+  },
+  "discrepancy_recall": {
+    "true_positives": 3,
+    "false_negatives": 0,
+    "denominator": 3
+  },
+  "false_flags_on_missing_document_checks": {
+    "false_flags": 0,
+    "denominator": 3
+  },
+  "missing_document_indicators": {
+    "reported": 3,
+    "denominator": 3
+  },
+  "comparison_status_accuracy": {
+    "correct": 30,
+    "denominator": 30
+  },
+  "missing_comparison_check_coverage": {
+    "explicit_missing_checks": 3,
+    "denominator": 3
+  },
+  "review_latency_seconds": {
+    "per_case": {
+      "01_clean": 3.067,
+      "02_income_mismatch": 1.548,
+      "03_balance_mismatch": 1.722,
+      "04_loan_amount_mismatch": 1.562,
+      "05_missing_pay_slip": 1.354,
+      "06_missing_bank_statement": 1.59
+    }
+  },
+  "known_estimated_api_cost_usd": 0.0307692,
+  "unpriced_api_components": [
+    "Jev classifier usage was not captured"
+  ],
+  "field_predictions": [
+    {
+      "case_id": "01_clean",
+      "check_key": "income",
+      "field_key": "stated_monthly_income",
+      "expected_document_type": "Loan Application",
+      "expected_value": "$8,000.00",
+      "predicted_value": "$8,000.00",
+      "expected_page": 1,
+      "predicted_page": 1,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "01_clean",
+      "check_key": "income",
+      "field_key": "gross_pay",
+      "expected_document_type": "Pay Slip",
+      "expected_value": "$4,000.00",
+      "predicted_value": "$4,000.00",
+      "expected_page": 2,
+      "predicted_page": 2,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "01_clean",
+      "check_key": "employer",
+      "field_key": "employer",
+      "expected_document_type": "Loan Application",
+      "expected_value": "Northstar Lantern Works LLC",
+      "predicted_value": "Northstar Lantern Works LLC",
+      "expected_page": 1,
+      "predicted_page": 1,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "01_clean",
+      "check_key": "employer",
+      "field_key": "employer",
+      "expected_document_type": "Pay Slip",
+      "expected_value": "Northstar Lantern Works LLC",
+      "predicted_value": "Northstar Lantern Works LLC",
+      "expected_page": 2,
+      "predicted_page": 2,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "01_clean",
+      "check_key": "balance",
+      "field_key": "checking_balance",
+      "expected_document_type": "Loan Application",
+      "expected_value": "$18,000.00",
+      "predicted_value": "$18,000.00",
+      "expected_page": 1,
+      "predicted_page": 1,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "01_clean",
+      "check_key": "balance",
+      "field_key": "ending_balance",
+      "expected_document_type": "Bank Statement",
+      "expected_value": "$18,000.00",
+      "predicted_value": "$18,000.00",
+      "expected_page": 3,
+      "predicted_page": 3,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "01_clean",
+      "check_key": "loan_amount",
+      "field_key": "loan_amount",
+      "expected_document_type": "Loan Application",
+      "expected_value": "$320,000.00",
+      "predicted_value": "$320,000.00",
+      "expected_page": 1,
+      "predicted_page": 1,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "01_clean",
+      "check_key": "loan_amount",
+      "field_key": "loan_amount",
+      "expected_document_type": "Loan Estimate",
+      "expected_value": "$320,000.00",
+      "predicted_value": "$320,000.00",
+      "expected_page": 4,
+      "predicted_page": 4,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "01_clean",
+      "check_key": "price",
+      "field_key": "purchase_price",
+      "expected_document_type": "Loan Application",
+      "expected_value": "$400,000.00",
+      "predicted_value": "$400,000.00",
+      "expected_page": 1,
+      "predicted_page": 1,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "01_clean",
+      "check_key": "price",
+      "field_key": "sale_price",
+      "expected_document_type": "Loan Estimate",
+      "expected_value": "$400,000.00",
+      "predicted_value": "$400,000.00",
+      "expected_page": 4,
+      "predicted_page": 4,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "02_income_mismatch",
+      "check_key": "income",
+      "field_key": "stated_monthly_income",
+      "expected_document_type": "Loan Application",
+      "expected_value": "$10,000.00",
+      "predicted_value": "$10,000.00",
+      "expected_page": 1,
+      "predicted_page": 1,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "02_income_mismatch",
+      "check_key": "income",
+      "field_key": "gross_pay",
+      "expected_document_type": "Pay Slip",
+      "expected_value": "$4,000.00",
+      "predicted_value": "$4,000.00",
+      "expected_page": 2,
+      "predicted_page": 2,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "02_income_mismatch",
+      "check_key": "employer",
+      "field_key": "employer",
+      "expected_document_type": "Loan Application",
+      "expected_value": "Blue Harbor Design LLC",
+      "predicted_value": "Blue Harbor Design LLC",
+      "expected_page": 1,
+      "predicted_page": 1,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "02_income_mismatch",
+      "check_key": "employer",
+      "field_key": "employer",
+      "expected_document_type": "Pay Slip",
+      "expected_value": "Blue Harbor Design LLC",
+      "predicted_value": "Blue Harbor Design LLC",
+      "expected_page": 2,
+      "predicted_page": 2,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "02_income_mismatch",
+      "check_key": "balance",
+      "field_key": "checking_balance",
+      "expected_document_type": "Loan Application",
+      "expected_value": "$18,000.00",
+      "predicted_value": "$18,000.00",
+      "expected_page": 1,
+      "predicted_page": 1,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "02_income_mismatch",
+      "check_key": "balance",
+      "field_key": "ending_balance",
+      "expected_document_type": "Bank Statement",
+      "expected_value": "$18,000.00",
+      "predicted_value": "$18,000.00",
+      "expected_page": 3,
+      "predicted_page": 3,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "02_income_mismatch",
+      "check_key": "loan_amount",
+      "field_key": "loan_amount",
+      "expected_document_type": "Loan Application",
+      "expected_value": "$320,000.00",
+      "predicted_value": "$320,000.00",
+      "expected_page": 1,
+      "predicted_page": 1,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "02_income_mismatch",
+      "check_key": "loan_amount",
+      "field_key": "loan_amount",
+      "expected_document_type": "Loan Estimate",
+      "expected_value": "$320,000.00",
+      "predicted_value": "$320,000.00",
+      "expected_page": 4,
+      "predicted_page": 4,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "02_income_mismatch",
+      "check_key": "price",
+      "field_key": "purchase_price",
+      "expected_document_type": "Loan Application",
+      "expected_value": "$400,000.00",
+      "predicted_value": "$400,000.00",
+      "expected_page": 1,
+      "predicted_page": 1,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "02_income_mismatch",
+      "check_key": "price",
+      "field_key": "sale_price",
+      "expected_document_type": "Loan Estimate",
+      "expected_value": "$400,000.00",
+      "predicted_value": "$400,000.00",
+      "expected_page": 4,
+      "predicted_page": 4,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "03_balance_mismatch",
+      "check_key": "income",
+      "field_key": "stated_monthly_income",
+      "expected_document_type": "Loan Application",
+      "expected_value": "$8,000.00",
+      "predicted_value": "$8,000.00",
+      "expected_page": 1,
+      "predicted_page": 1,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "03_balance_mismatch",
+      "check_key": "income",
+      "field_key": "gross_pay",
+      "expected_document_type": "Pay Slip",
+      "expected_value": "$4,000.00",
+      "predicted_value": "$4,000.00",
+      "expected_page": 2,
+      "predicted_page": 2,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "03_balance_mismatch",
+      "check_key": "employer",
+      "field_key": "employer",
+      "expected_document_type": "Loan Application",
+      "expected_value": "Cedar Light Studio LLC",
+      "predicted_value": "Cedar Light Studio LLC",
+      "expected_page": 1,
+      "predicted_page": 1,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "03_balance_mismatch",
+      "check_key": "employer",
+      "field_key": "employer",
+      "expected_document_type": "Pay Slip",
+      "expected_value": "Cedar Light Studio LLC",
+      "predicted_value": "Cedar Light Studio LLC",
+      "expected_page": 2,
+      "predicted_page": 2,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "03_balance_mismatch",
+      "check_key": "balance",
+      "field_key": "checking_balance",
+      "expected_document_type": "Loan Application",
+      "expected_value": "$30,000.00",
+      "predicted_value": "$30,000.00",
+      "expected_page": 1,
+      "predicted_page": 1,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "03_balance_mismatch",
+      "check_key": "balance",
+      "field_key": "ending_balance",
+      "expected_document_type": "Bank Statement",
+      "expected_value": "$18,000.00",
+      "predicted_value": "$18,000.00",
+      "expected_page": 3,
+      "predicted_page": 3,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "03_balance_mismatch",
+      "check_key": "loan_amount",
+      "field_key": "loan_amount",
+      "expected_document_type": "Loan Application",
+      "expected_value": "$320,000.00",
+      "predicted_value": "$320,000.00",
+      "expected_page": 1,
+      "predicted_page": 1,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "03_balance_mismatch",
+      "check_key": "loan_amount",
+      "field_key": "loan_amount",
+      "expected_document_type": "Loan Estimate",
+      "expected_value": "$320,000.00",
+      "predicted_value": "$320,000.00",
+      "expected_page": 4,
+      "predicted_page": 4,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "03_balance_mismatch",
+      "check_key": "price",
+      "field_key": "purchase_price",
+      "expected_document_type": "Loan Application",
+      "expected_value": "$400,000.00",
+      "predicted_value": "$400,000.00",
+      "expected_page": 1,
+      "predicted_page": 1,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "03_balance_mismatch",
+      "check_key": "price",
+      "field_key": "sale_price",
+      "expected_document_type": "Loan Estimate",
+      "expected_value": "$400,000.00",
+      "predicted_value": "$400,000.00",
+      "expected_page": 4,
+      "predicted_page": 4,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "04_loan_amount_mismatch",
+      "check_key": "income",
+      "field_key": "stated_monthly_income",
+      "expected_document_type": "Loan Application",
+      "expected_value": "$8,000.00",
+      "predicted_value": "$8,000.00",
+      "expected_page": 1,
+      "predicted_page": 1,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "04_loan_amount_mismatch",
+      "check_key": "income",
+      "field_key": "gross_pay",
+      "expected_document_type": "Pay Slip",
+      "expected_value": "$4,000.00",
+      "predicted_value": "$4,000.00",
+      "expected_page": 2,
+      "predicted_page": 2,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "04_loan_amount_mismatch",
+      "check_key": "employer",
+      "field_key": "employer",
+      "expected_document_type": "Loan Application",
+      "expected_value": "Pine Bridge Analytics LLC",
+      "predicted_value": "Pine Bridge Analytics LLC",
+      "expected_page": 1,
+      "predicted_page": 1,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "04_loan_amount_mismatch",
+      "check_key": "employer",
+      "field_key": "employer",
+      "expected_document_type": "Pay Slip",
+      "expected_value": "Pine Bridge Analytics LLC",
+      "predicted_value": "Pine Bridge Analytics LLC",
+      "expected_page": 2,
+      "predicted_page": 2,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "04_loan_amount_mismatch",
+      "check_key": "balance",
+      "field_key": "checking_balance",
+      "expected_document_type": "Loan Application",
+      "expected_value": "$18,000.00",
+      "predicted_value": "$18,000.00",
+      "expected_page": 1,
+      "predicted_page": 1,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "04_loan_amount_mismatch",
+      "check_key": "balance",
+      "field_key": "ending_balance",
+      "expected_document_type": "Bank Statement",
+      "expected_value": "$18,000.00",
+      "predicted_value": "$18,000.00",
+      "expected_page": 3,
+      "predicted_page": 3,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "04_loan_amount_mismatch",
+      "check_key": "loan_amount",
+      "field_key": "loan_amount",
+      "expected_document_type": "Loan Application",
+      "expected_value": "$320,000.00",
+      "predicted_value": "$320,000.00",
+      "expected_page": 1,
+      "predicted_page": 1,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "04_loan_amount_mismatch",
+      "check_key": "loan_amount",
+      "field_key": "loan_amount",
+      "expected_document_type": "Loan Estimate",
+      "expected_value": "$305,000.00",
+      "predicted_value": "$305,000.00",
+      "expected_page": 4,
+      "predicted_page": 4,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "04_loan_amount_mismatch",
+      "check_key": "price",
+      "field_key": "purchase_price",
+      "expected_document_type": "Loan Application",
+      "expected_value": "$400,000.00",
+      "predicted_value": "$400,000.00",
+      "expected_page": 1,
+      "predicted_page": 1,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "04_loan_amount_mismatch",
+      "check_key": "price",
+      "field_key": "sale_price",
+      "expected_document_type": "Loan Estimate",
+      "expected_value": "$400,000.00",
+      "predicted_value": "$400,000.00",
+      "expected_page": 4,
+      "predicted_page": 4,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "05_missing_pay_slip",
+      "check_key": "income",
+      "field_key": "stated_monthly_income",
+      "expected_document_type": "Loan Application",
+      "expected_value": "$8,000.00",
+      "predicted_value": "$8,000.00",
+      "expected_page": 1,
+      "predicted_page": 1,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "05_missing_pay_slip",
+      "check_key": "income",
+      "field_key": "gross_pay",
+      "expected_document_type": "Pay Slip",
+      "expected_value": null,
+      "predicted_value": null,
+      "expected_page": null,
+      "predicted_page": null,
+      "predicted_source": null,
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": false
+    },
+    {
+      "case_id": "05_missing_pay_slip",
+      "check_key": "employer",
+      "field_key": "employer",
+      "expected_document_type": "Loan Application",
+      "expected_value": "Silver Maple Labs LLC",
+      "predicted_value": "Silver Maple Labs LLC",
+      "expected_page": 1,
+      "predicted_page": 1,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "05_missing_pay_slip",
+      "check_key": "employer",
+      "field_key": "employer",
+      "expected_document_type": "Pay Slip",
+      "expected_value": null,
+      "predicted_value": null,
+      "expected_page": null,
+      "predicted_page": null,
+      "predicted_source": null,
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": false
+    },
+    {
+      "case_id": "05_missing_pay_slip",
+      "check_key": "balance",
+      "field_key": "checking_balance",
+      "expected_document_type": "Loan Application",
+      "expected_value": "$18,000.00",
+      "predicted_value": "$18,000.00",
+      "expected_page": 1,
+      "predicted_page": 1,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "05_missing_pay_slip",
+      "check_key": "balance",
+      "field_key": "ending_balance",
+      "expected_document_type": "Bank Statement",
+      "expected_value": "$18,000.00",
+      "predicted_value": "$18,000.00",
+      "expected_page": 2,
+      "predicted_page": 2,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "05_missing_pay_slip",
+      "check_key": "loan_amount",
+      "field_key": "loan_amount",
+      "expected_document_type": "Loan Application",
+      "expected_value": "$320,000.00",
+      "predicted_value": "$320,000.00",
+      "expected_page": 1,
+      "predicted_page": 1,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "05_missing_pay_slip",
+      "check_key": "loan_amount",
+      "field_key": "loan_amount",
+      "expected_document_type": "Loan Estimate",
+      "expected_value": "$320,000.00",
+      "predicted_value": "$320,000.00",
+      "expected_page": 3,
+      "predicted_page": 3,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "05_missing_pay_slip",
+      "check_key": "price",
+      "field_key": "purchase_price",
+      "expected_document_type": "Loan Application",
+      "expected_value": "$400,000.00",
+      "predicted_value": "$400,000.00",
+      "expected_page": 1,
+      "predicted_page": 1,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "05_missing_pay_slip",
+      "check_key": "price",
+      "field_key": "sale_price",
+      "expected_document_type": "Loan Estimate",
+      "expected_value": "$400,000.00",
+      "predicted_value": "$400,000.00",
+      "expected_page": 3,
+      "predicted_page": 3,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "06_missing_bank_statement",
+      "check_key": "income",
+      "field_key": "stated_monthly_income",
+      "expected_document_type": "Loan Application",
+      "expected_value": "$8,000.00",
+      "predicted_value": "$8,000.00",
+      "expected_page": 1,
+      "predicted_page": 1,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "06_missing_bank_statement",
+      "check_key": "income",
+      "field_key": "gross_pay",
+      "expected_document_type": "Pay Slip",
+      "expected_value": "$4,000.00",
+      "predicted_value": "$4,000.00",
+      "expected_page": 2,
+      "predicted_page": 2,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "06_missing_bank_statement",
+      "check_key": "employer",
+      "field_key": "employer",
+      "expected_document_type": "Loan Application",
+      "expected_value": "Westbrook Craft LLC",
+      "predicted_value": "Westbrook Craft LLC",
+      "expected_page": 1,
+      "predicted_page": 1,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "06_missing_bank_statement",
+      "check_key": "employer",
+      "field_key": "employer",
+      "expected_document_type": "Pay Slip",
+      "expected_value": "Westbrook Craft LLC",
+      "predicted_value": "Westbrook Craft LLC",
+      "expected_page": 2,
+      "predicted_page": 2,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "06_missing_bank_statement",
+      "check_key": "balance",
+      "field_key": "checking_balance",
+      "expected_document_type": "Loan Application",
+      "expected_value": "$18,000.00",
+      "predicted_value": "$18,000.00",
+      "expected_page": 1,
+      "predicted_page": 1,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "06_missing_bank_statement",
+      "check_key": "balance",
+      "field_key": "ending_balance",
+      "expected_document_type": "Bank Statement",
+      "expected_value": null,
+      "predicted_value": null,
+      "expected_page": null,
+      "predicted_page": null,
+      "predicted_source": null,
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": false
+    },
+    {
+      "case_id": "06_missing_bank_statement",
+      "check_key": "loan_amount",
+      "field_key": "loan_amount",
+      "expected_document_type": "Loan Application",
+      "expected_value": "$320,000.00",
+      "predicted_value": "$320,000.00",
+      "expected_page": 1,
+      "predicted_page": 1,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "06_missing_bank_statement",
+      "check_key": "loan_amount",
+      "field_key": "loan_amount",
+      "expected_document_type": "Loan Estimate",
+      "expected_value": "$320,000.00",
+      "predicted_value": "$320,000.00",
+      "expected_page": 3,
+      "predicted_page": 3,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "06_missing_bank_statement",
+      "check_key": "price",
+      "field_key": "purchase_price",
+      "expected_document_type": "Loan Application",
+      "expected_value": "$400,000.00",
+      "predicted_value": "$400,000.00",
+      "expected_page": 1,
+      "predicted_page": 1,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    },
+    {
+      "case_id": "06_missing_bank_statement",
+      "check_key": "price",
+      "field_key": "sale_price",
+      "expected_document_type": "Loan Estimate",
+      "expected_value": "$400,000.00",
+      "predicted_value": "$400,000.00",
+      "expected_page": 3,
+      "predicted_page": 3,
+      "predicted_source": "llm",
+      "value_correct": true,
+      "page_correct": true,
+      "document_detected": true
+    }
+  ],
+  "check_predictions": [
+    {
+      "case_id": "01_clean",
+      "check_key": "income",
+      "expected_status": "match",
+      "predicted_status": "match",
+      "flag_decision": false,
+      "missing_document_reported": false,
+      "evidence": [
+        {
+          "doc_type": "Loan Application",
+          "label": "Stated monthly income",
+          "value": "$8,000.00",
+          "page": 1
+        },
+        {
+          "doc_type": "Pay Slip",
+          "label": "Gross pay per period",
+          "value": "$4,000.00",
+          "page": 2
+        }
+      ]
+    },
+    {
+      "case_id": "01_clean",
+      "check_key": "employer",
+      "expected_status": "match",
+      "predicted_status": "match",
+      "flag_decision": false,
+      "missing_document_reported": false,
+      "evidence": [
+        {
+          "doc_type": "Loan Application",
+          "label": "Employer (application)",
+          "value": "Northstar Lantern Works LLC",
+          "page": 1
+        },
+        {
+          "doc_type": "Pay Slip",
+          "label": "Employer (pay slip)",
+          "value": "Northstar Lantern Works LLC",
+          "page": 2
+        }
+      ]
+    },
+    {
+      "case_id": "01_clean",
+      "check_key": "balance",
+      "expected_status": "match",
+      "predicted_status": "match",
+      "flag_decision": false,
+      "missing_document_reported": false,
+      "evidence": [
+        {
+          "doc_type": "Loan Application",
+          "label": "Stated balance",
+          "value": "$18,000.00",
+          "page": 1
+        },
+        {
+          "doc_type": "Bank Statement",
+          "label": "Statement ending balance",
+          "value": "$18,000.00",
+          "page": 3
+        }
+      ]
+    },
+    {
+      "case_id": "01_clean",
+      "check_key": "loan_amount",
+      "expected_status": "match",
+      "predicted_status": "match",
+      "flag_decision": false,
+      "missing_document_reported": false,
+      "evidence": [
+        {
+          "doc_type": "Loan Application",
+          "label": "Loan amount (application)",
+          "value": "$320,000.00",
+          "page": 1
+        },
+        {
+          "doc_type": "Loan Estimate",
+          "label": "Loan amount (loan estimate)",
+          "value": "$320,000.00",
+          "page": 4
+        }
+      ]
+    },
+    {
+      "case_id": "01_clean",
+      "check_key": "price",
+      "expected_status": "match",
+      "predicted_status": "match",
+      "flag_decision": false,
+      "missing_document_reported": false,
+      "evidence": [
+        {
+          "doc_type": "Loan Application",
+          "label": "Purchase price (application)",
+          "value": "$400,000.00",
+          "page": 1
+        },
+        {
+          "doc_type": "Loan Estimate",
+          "label": "Purchase price (loan estimate)",
+          "value": "$400,000.00",
+          "page": 4
+        }
+      ]
+    },
+    {
+      "case_id": "02_income_mismatch",
+      "check_key": "income",
+      "expected_status": "mismatch",
+      "predicted_status": "mismatch",
+      "flag_decision": true,
+      "missing_document_reported": false,
+      "evidence": [
+        {
+          "doc_type": "Loan Application",
+          "label": "Stated monthly income",
+          "value": "$10,000.00",
+          "page": 1
+        },
+        {
+          "doc_type": "Pay Slip",
+          "label": "Gross pay per period",
+          "value": "$4,000.00",
+          "page": 2
+        }
+      ]
+    },
+    {
+      "case_id": "02_income_mismatch",
+      "check_key": "employer",
+      "expected_status": "match",
+      "predicted_status": "match",
+      "flag_decision": false,
+      "missing_document_reported": false,
+      "evidence": [
+        {
+          "doc_type": "Loan Application",
+          "label": "Employer (application)",
+          "value": "Blue Harbor Design LLC",
+          "page": 1
+        },
+        {
+          "doc_type": "Pay Slip",
+          "label": "Employer (pay slip)",
+          "value": "Blue Harbor Design LLC",
+          "page": 2
+        }
+      ]
+    },
+    {
+      "case_id": "02_income_mismatch",
+      "check_key": "balance",
+      "expected_status": "match",
+      "predicted_status": "match",
+      "flag_decision": false,
+      "missing_document_reported": false,
+      "evidence": [
+        {
+          "doc_type": "Loan Application",
+          "label": "Stated balance",
+          "value": "$18,000.00",
+          "page": 1
+        },
+        {
+          "doc_type": "Bank Statement",
+          "label": "Statement ending balance",
+          "value": "$18,000.00",
+          "page": 3
+        }
+      ]
+    },
+    {
+      "case_id": "02_income_mismatch",
+      "check_key": "loan_amount",
+      "expected_status": "match",
+      "predicted_status": "match",
+      "flag_decision": false,
+      "missing_document_reported": false,
+      "evidence": [
+        {
+          "doc_type": "Loan Application",
+          "label": "Loan amount (application)",
+          "value": "$320,000.00",
+          "page": 1
+        },
+        {
+          "doc_type": "Loan Estimate",
+          "label": "Loan amount (loan estimate)",
+          "value": "$320,000.00",
+          "page": 4
+        }
+      ]
+    },
+    {
+      "case_id": "02_income_mismatch",
+      "check_key": "price",
+      "expected_status": "match",
+      "predicted_status": "match",
+      "flag_decision": false,
+      "missing_document_reported": false,
+      "evidence": [
+        {
+          "doc_type": "Loan Application",
+          "label": "Purchase price (application)",
+          "value": "$400,000.00",
+          "page": 1
+        },
+        {
+          "doc_type": "Loan Estimate",
+          "label": "Purchase price (loan estimate)",
+          "value": "$400,000.00",
+          "page": 4
+        }
+      ]
+    },
+    {
+      "case_id": "03_balance_mismatch",
+      "check_key": "income",
+      "expected_status": "match",
+      "predicted_status": "match",
+      "flag_decision": false,
+      "missing_document_reported": false,
+      "evidence": [
+        {
+          "doc_type": "Loan Application",
+          "label": "Stated monthly income",
+          "value": "$8,000.00",
+          "page": 1
+        },
+        {
+          "doc_type": "Pay Slip",
+          "label": "Gross pay per period",
+          "value": "$4,000.00",
+          "page": 2
+        }
+      ]
+    },
+    {
+      "case_id": "03_balance_mismatch",
+      "check_key": "employer",
+      "expected_status": "match",
+      "predicted_status": "match",
+      "flag_decision": false,
+      "missing_document_reported": false,
+      "evidence": [
+        {
+          "doc_type": "Loan Application",
+          "label": "Employer (application)",
+          "value": "Cedar Light Studio LLC",
+          "page": 1
+        },
+        {
+          "doc_type": "Pay Slip",
+          "label": "Employer (pay slip)",
+          "value": "Cedar Light Studio LLC",
+          "page": 2
+        }
+      ]
+    },
+    {
+      "case_id": "03_balance_mismatch",
+      "check_key": "balance",
+      "expected_status": "mismatch",
+      "predicted_status": "mismatch",
+      "flag_decision": true,
+      "missing_document_reported": false,
+      "evidence": [
+        {
+          "doc_type": "Loan Application",
+          "label": "Stated balance",
+          "value": "$30,000.00",
+          "page": 1
+        },
+        {
+          "doc_type": "Bank Statement",
+          "label": "Statement ending balance",
+          "value": "$18,000.00",
+          "page": 3
+        }
+      ]
+    },
+    {
+      "case_id": "03_balance_mismatch",
+      "check_key": "loan_amount",
+      "expected_status": "match",
+      "predicted_status": "match",
+      "flag_decision": false,
+      "missing_document_reported": false,
+      "evidence": [
+        {
+          "doc_type": "Loan Application",
+          "label": "Loan amount (application)",
+          "value": "$320,000.00",
+          "page": 1
+        },
+        {
+          "doc_type": "Loan Estimate",
+          "label": "Loan amount (loan estimate)",
+          "value": "$320,000.00",
+          "page": 4
+        }
+      ]
+    },
+    {
+      "case_id": "03_balance_mismatch",
+      "check_key": "price",
+      "expected_status": "match",
+      "predicted_status": "match",
+      "flag_decision": false,
+      "missing_document_reported": false,
+      "evidence": [
+        {
+          "doc_type": "Loan Application",
+          "label": "Purchase price (application)",
+          "value": "$400,000.00",
+          "page": 1
+        },
+        {
+          "doc_type": "Loan Estimate",
+          "label": "Purchase price (loan estimate)",
+          "value": "$400,000.00",
+          "page": 4
+        }
+      ]
+    },
+    {
+      "case_id": "04_loan_amount_mismatch",
+      "check_key": "income",
+      "expected_status": "match",
+      "predicted_status": "match",
+      "flag_decision": false,
+      "missing_document_reported": false,
+      "evidence": [
+        {
+          "doc_type": "Loan Application",
+          "label": "Stated monthly income",
+          "value": "$8,000.00",
+          "page": 1
+        },
+        {
+          "doc_type": "Pay Slip",
+          "label": "Gross pay per period",
+          "value": "$4,000.00",
+          "page": 2
+        }
+      ]
+    },
+    {
+      "case_id": "04_loan_amount_mismatch",
+      "check_key": "employer",
+      "expected_status": "match",
+      "predicted_status": "match",
+      "flag_decision": false,
+      "missing_document_reported": false,
+      "evidence": [
+        {
+          "doc_type": "Loan Application",
+          "label": "Employer (application)",
+          "value": "Pine Bridge Analytics LLC",
+          "page": 1
+        },
+        {
+          "doc_type": "Pay Slip",
+          "label": "Employer (pay slip)",
+          "value": "Pine Bridge Analytics LLC",
+          "page": 2
+        }
+      ]
+    },
+    {
+      "case_id": "04_loan_amount_mismatch",
+      "check_key": "balance",
+      "expected_status": "match",
+      "predicted_status": "match",
+      "flag_decision": false,
+      "missing_document_reported": false,
+      "evidence": [
+        {
+          "doc_type": "Loan Application",
+          "label": "Stated balance",
+          "value": "$18,000.00",
+          "page": 1
+        },
+        {
+          "doc_type": "Bank Statement",
+          "label": "Statement ending balance",
+          "value": "$18,000.00",
+          "page": 3
+        }
+      ]
+    },
+    {
+      "case_id": "04_loan_amount_mismatch",
+      "check_key": "loan_amount",
+      "expected_status": "mismatch",
+      "predicted_status": "mismatch",
+      "flag_decision": true,
+      "missing_document_reported": false,
+      "evidence": [
+        {
+          "doc_type": "Loan Application",
+          "label": "Loan amount (application)",
+          "value": "$320,000.00",
+          "page": 1
+        },
+        {
+          "doc_type": "Loan Estimate",
+          "label": "Loan amount (loan estimate)",
+          "value": "$305,000.00",
+          "page": 4
+        }
+      ]
+    },
+    {
+      "case_id": "04_loan_amount_mismatch",
+      "check_key": "price",
+      "expected_status": "match",
+      "predicted_status": "match",
+      "flag_decision": false,
+      "missing_document_reported": false,
+      "evidence": [
+        {
+          "doc_type": "Loan Application",
+          "label": "Purchase price (application)",
+          "value": "$400,000.00",
+          "page": 1
+        },
+        {
+          "doc_type": "Loan Estimate",
+          "label": "Purchase price (loan estimate)",
+          "value": "$400,000.00",
+          "page": 4
+        }
+      ]
+    },
+    {
+      "case_id": "05_missing_pay_slip",
+      "check_key": "income",
+      "expected_status": "missing_document",
+      "predicted_status": "missing",
+      "flag_decision": false,
+      "missing_document_reported": true,
+      "evidence": [
+        {
+          "doc_type": "Loan Application",
+          "label": "Stated monthly income",
+          "value": "$8,000.00",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "case_id": "05_missing_pay_slip",
+      "check_key": "employer",
+      "expected_status": "missing_document",
+      "predicted_status": "missing",
+      "flag_decision": false,
+      "missing_document_reported": true,
+      "evidence": [
+        {
+          "doc_type": "Loan Application",
+          "label": "Employer (application)",
+          "value": "Silver Maple Labs LLC",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "case_id": "05_missing_pay_slip",
+      "check_key": "balance",
+      "expected_status": "match",
+      "predicted_status": "match",
+      "flag_decision": false,
+      "missing_document_reported": false,
+      "evidence": [
+        {
+          "doc_type": "Loan Application",
+          "label": "Stated balance",
+          "value": "$18,000.00",
+          "page": 1
+        },
+        {
+          "doc_type": "Bank Statement",
+          "label": "Statement ending balance",
+          "value": "$18,000.00",
+          "page": 2
+        }
+      ]
+    },
+    {
+      "case_id": "05_missing_pay_slip",
+      "check_key": "loan_amount",
+      "expected_status": "match",
+      "predicted_status": "match",
+      "flag_decision": false,
+      "missing_document_reported": false,
+      "evidence": [
+        {
+          "doc_type": "Loan Application",
+          "label": "Loan amount (application)",
+          "value": "$320,000.00",
+          "page": 1
+        },
+        {
+          "doc_type": "Loan Estimate",
+          "label": "Loan amount (loan estimate)",
+          "value": "$320,000.00",
+          "page": 3
+        }
+      ]
+    },
+    {
+      "case_id": "05_missing_pay_slip",
+      "check_key": "price",
+      "expected_status": "match",
+      "predicted_status": "match",
+      "flag_decision": false,
+      "missing_document_reported": false,
+      "evidence": [
+        {
+          "doc_type": "Loan Application",
+          "label": "Purchase price (application)",
+          "value": "$400,000.00",
+          "page": 1
+        },
+        {
+          "doc_type": "Loan Estimate",
+          "label": "Purchase price (loan estimate)",
+          "value": "$400,000.00",
+          "page": 3
+        }
+      ]
+    },
+    {
+      "case_id": "06_missing_bank_statement",
+      "check_key": "income",
+      "expected_status": "match",
+      "predicted_status": "match",
+      "flag_decision": false,
+      "missing_document_reported": false,
+      "evidence": [
+        {
+          "doc_type": "Loan Application",
+          "label": "Stated monthly income",
+          "value": "$8,000.00",
+          "page": 1
+        },
+        {
+          "doc_type": "Pay Slip",
+          "label": "Gross pay per period",
+          "value": "$4,000.00",
+          "page": 2
+        }
+      ]
+    },
+    {
+      "case_id": "06_missing_bank_statement",
+      "check_key": "employer",
+      "expected_status": "match",
+      "predicted_status": "match",
+      "flag_decision": false,
+      "missing_document_reported": false,
+      "evidence": [
+        {
+          "doc_type": "Loan Application",
+          "label": "Employer (application)",
+          "value": "Westbrook Craft LLC",
+          "page": 1
+        },
+        {
+          "doc_type": "Pay Slip",
+          "label": "Employer (pay slip)",
+          "value": "Westbrook Craft LLC",
+          "page": 2
+        }
+      ]
+    },
+    {
+      "case_id": "06_missing_bank_statement",
+      "check_key": "balance",
+      "expected_status": "missing_document",
+      "predicted_status": "missing",
+      "flag_decision": false,
+      "missing_document_reported": true,
+      "evidence": [
+        {
+          "doc_type": "Loan Application",
+          "label": "Stated balance",
+          "value": "$18,000.00",
+          "page": 1
+        }
+      ]
+    },
+    {
+      "case_id": "06_missing_bank_statement",
+      "check_key": "loan_amount",
+      "expected_status": "match",
+      "predicted_status": "match",
+      "flag_decision": false,
+      "missing_document_reported": false,
+      "evidence": [
+        {
+          "doc_type": "Loan Application",
+          "label": "Loan amount (application)",
+          "value": "$320,000.00",
+          "page": 1
+        },
+        {
+          "doc_type": "Loan Estimate",
+          "label": "Loan amount (loan estimate)",
+          "value": "$320,000.00",
+          "page": 3
+        }
+      ]
+    },
+    {
+      "case_id": "06_missing_bank_statement",
+      "check_key": "price",
+      "expected_status": "match",
+      "predicted_status": "match",
+      "flag_decision": false,
+      "missing_document_reported": false,
+      "evidence": [
+        {
+          "doc_type": "Loan Application",
+          "label": "Purchase price (application)",
+          "value": "$400,000.00",
+          "page": 1
+        },
+        {
+          "doc_type": "Loan Estimate",
+          "label": "Purchase price (loan estimate)",
+          "value": "$400,000.00",
+          "page": 3
+        }
+      ]
+    }
+  ]
+}

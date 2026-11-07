@@ -1,0 +1,499 @@
+{
+  "case_id": "02_income_mismatch",
+  "packet_file": "02_income_mismatch.pdf",
+  "packet_sha256": "0b98c72420db52854275c10e68dddccbe4a5ee5ba0e7fc40391ed65f4de2ca7e",
+  "config": {
+    "git_commit": "f098fb485f5fa05c05060e1d6254fd2d404a6f21",
+    "review_code_sha256": "30aa58b7f4856a27dc05fb033384709081990bf1eac42d4287fa62d189f2604a",
+    "classifier_code_sha256": "56ddac7101356425ca669efeec0138783c376e0fac9c03c6bfe361dd1b606117",
+    "extractor_code_sha256": "40b386e509277be07a3dd9948c428c4fd1d972385b8223fc9f585b08cd28d04c",
+    "gold_sha256": "54046cbe8b395cc4c669f3c4aec6095735b5ffce2506cc0aa9a8c65414812974",
+    "extract_method": "reducto",
+    "llm_provider": "GEMINI",
+    "review_model": "gemini-2.5-flash-lite",
+    "classifier_model": "jev-1.13.0",
+    "income_tolerance": 0.05,
+    "balance_tolerance": 0.1,
+    "large_deposit_share": 0.25
+  },
+  "ingested_page_count": 5,
+  "logical_documents": [
+    {
+      "doc_type": "Loan Application",
+      "pages": [
+        1,
+        1
+      ]
+    },
+    {
+      "doc_type": "Pay Slip",
+      "pages": [
+        2,
+        2
+      ]
+    },
+    {
+      "doc_type": "Bank Statement",
+      "pages": [
+        3,
+        3
+      ]
+    },
+    {
+      "doc_type": "Loan Estimate",
+      "pages": [
+        4,
+        4
+      ]
+    },
+    {
+      "doc_type": "Preliminary Title Report",
+      "pages": [
+        5,
+        5
+      ]
+    }
+  ],
+  "ingestion_seconds": 7.805,
+  "review_seconds_after_ingestion": 1.501,
+  "classifier_calls": [],
+  "review_llm_calls": [
+    {
+      "usage": {
+        "model": "gemini-2.5-flash-lite",
+        "prompt_tokens": 452,
+        "output_tokens": 123,
+        "thinking_tokens": 0,
+        "cached_tokens": 0
+      },
+      "estimated_cost_usd": 9.44e-05
+    },
+    {
+      "usage": {
+        "model": "gemini-2.5-flash-lite",
+        "prompt_tokens": 341,
+        "output_tokens": 44,
+        "thinking_tokens": 0,
+        "cached_tokens": 0
+      },
+      "estimated_cost_usd": 5.17e-05
+    },
+    {
+      "usage": {
+        "model": "gemini-2.5-flash-lite",
+        "prompt_tokens": 377,
+        "output_tokens": 142,
+        "thinking_tokens": 0,
+        "cached_tokens": 0
+      },
+      "estimated_cost_usd": 9.45e-05
+    },
+    {
+      "usage": {
+        "model": "gemini-2.5-flash-lite",
+        "prompt_tokens": 524,
+        "output_tokens": 146,
+        "thinking_tokens": 0,
+        "cached_tokens": 0
+      },
+      "estimated_cost_usd": 0.00011080000000000001
+    },
+    {
+      "usage": {
+        "model": "gemini-2.5-flash-lite",
+        "prompt_tokens": 415,
+        "output_tokens": 229,
+        "thinking_tokens": 0,
+        "cached_tokens": 0
+      },
+      "estimated_cost_usd": 0.0001331
+    }
+  ],
+  "known_estimated_api_cost_usd": 0.0054845,
+  "unpriced_api_components": [
+    "Jev classifier usage was not captured"
+  ],
+  "review": {
+    "status": "done",
+    "generated_at": "2026-11-07T06:31:35+00:00",
+    "borrower": "Jonah Vale",
+    "summary": {
+      "mismatch": 1,
+      "review": 0,
+      "missing": 0,
+      "match": 6,
+      "info": 0
+    },
+    "checks": [
+      {
+        "id": "income",
+        "label": "Income",
+        "status": "mismatch",
+        "detail": "Stated $10,000.00/month; pay slips support $8,000.00/month \u2014 overstated by $2,000.00/month.",
+        "evidence": [
+          {
+            "doc_type": "Loan Application",
+            "label": "Stated monthly income",
+            "value": "$10,000.00",
+            "page": 1
+          },
+          {
+            "doc_type": "Pay Slip",
+            "label": "Gross pay per period",
+            "value": "$4,000.00",
+            "page": 2
+          }
+        ]
+      },
+      {
+        "id": "employer",
+        "label": "Employer",
+        "status": "match",
+        "detail": "Application: Blue Harbor Design LLC; pay slip: Blue Harbor Design LLC.",
+        "evidence": [
+          {
+            "doc_type": "Loan Application",
+            "label": "Employer (application)",
+            "value": "Blue Harbor Design LLC",
+            "page": 1
+          },
+          {
+            "doc_type": "Pay Slip",
+            "label": "Employer (pay slip)",
+            "value": "Blue Harbor Design LLC",
+            "page": 2
+          }
+        ]
+      },
+      {
+        "id": "balance",
+        "label": "Checking balance",
+        "status": "match",
+        "detail": "Application $18,000.00; statement ends at $18,000.00.",
+        "evidence": [
+          {
+            "doc_type": "Loan Application",
+            "label": "Stated balance",
+            "value": "$18,000.00",
+            "page": 1
+          },
+          {
+            "doc_type": "Bank Statement",
+            "label": "Statement ending balance",
+            "value": "$18,000.00",
+            "page": 3
+          }
+        ]
+      },
+      {
+        "id": "payroll",
+        "label": "Payroll deposits",
+        "status": "match",
+        "detail": "2 deposits match pay-slip net pay $3,100.00.",
+        "evidence": [
+          {
+            "doc_type": "Pay Slip",
+            "label": "Net pay",
+            "value": "$3,100.00",
+            "page": 2
+          },
+          {
+            "doc_type": "Bank Statement",
+            "label": "Blue Harbor Design LLC PAYROLL DEPOSIT",
+            "value": "+$3,100.00",
+            "page": 3
+          },
+          {
+            "doc_type": "Bank Statement",
+            "label": "Blue Harbor Design LLC PAYROLL DEPOSIT",
+            "value": "+$3,100.00",
+            "page": 3
+          }
+        ]
+      },
+      {
+        "id": "large_deposits",
+        "label": "Large deposits",
+        "status": "match",
+        "detail": "No unexplained large deposits.",
+        "evidence": []
+      },
+      {
+        "id": "loan_amount",
+        "label": "Loan amount",
+        "status": "match",
+        "detail": "Application $320,000.00; loan estimate $320,000.00.",
+        "evidence": [
+          {
+            "doc_type": "Loan Application",
+            "label": "Loan amount (application)",
+            "value": "$320,000.00",
+            "page": 1
+          },
+          {
+            "doc_type": "Loan Estimate",
+            "label": "Loan amount (loan estimate)",
+            "value": "$320,000.00",
+            "page": 4
+          }
+        ]
+      },
+      {
+        "id": "price",
+        "label": "Purchase price",
+        "status": "match",
+        "detail": "Application $400,000.00; loan estimate $400,000.00.",
+        "evidence": [
+          {
+            "doc_type": "Loan Application",
+            "label": "Purchase price (application)",
+            "value": "$400,000.00",
+            "page": 1
+          },
+          {
+            "doc_type": "Loan Estimate",
+            "label": "Purchase price (loan estimate)",
+            "value": "$400,000.00",
+            "page": 4
+          }
+        ]
+      }
+    ],
+    "documents": [
+      {
+        "doc_type": "Loan Application",
+        "pages": [
+          1,
+          1
+        ],
+        "fields": {
+          "borrower_name": {
+            "value": "Jonah Vale",
+            "raw": "Jonah Vale",
+            "page": 1,
+            "source": "llm"
+          },
+          "employer": {
+            "value": "Blue Harbor Design LLC",
+            "raw": "Blue Harbor Design LLC",
+            "page": 1,
+            "source": "llm"
+          },
+          "employment_start": {
+            "value": "01/15/2022",
+            "raw": "01/15/2022",
+            "page": 1,
+            "source": "llm"
+          },
+          "stated_monthly_income": {
+            "value": 10000.0,
+            "raw": "$10,000.00",
+            "page": 1,
+            "source": "llm"
+          },
+          "checking_balance": {
+            "value": 18000.0,
+            "raw": "$18,000.00",
+            "page": 1,
+            "source": "llm"
+          },
+          "loan_amount": {
+            "value": 320000.0,
+            "raw": "$320,000.00",
+            "page": 1,
+            "source": "llm"
+          },
+          "purchase_price": {
+            "value": 400000.0,
+            "raw": "$400,000.00",
+            "page": 1,
+            "source": "llm"
+          },
+          "co_borrower": {
+            "value": "None",
+            "raw": "None",
+            "page": 1,
+            "source": "llm"
+          }
+        },
+        "lists": {
+          "liabilities": []
+        },
+        "ungrounded_dropped": 1
+      },
+      {
+        "doc_type": "Pay Slip",
+        "pages": [
+          2,
+          2
+        ],
+        "fields": {
+          "employer": {
+            "value": "Blue Harbor Design LLC",
+            "raw": "Blue Harbor Design LLC",
+            "page": 2,
+            "source": "llm"
+          },
+          "employee_name": {
+            "value": "Jonah Vale",
+            "raw": "Jonah Vale",
+            "page": 2,
+            "source": "llm"
+          },
+          "pay_frequency": {
+            "value": "Semi-monthly",
+            "raw": "Semi-monthly",
+            "page": 2,
+            "source": "llm"
+          },
+          "period_start": {
+            "value": "09/16/2026",
+            "raw": "09/16/2026",
+            "page": 2,
+            "source": "llm"
+          },
+          "period_end": {
+            "value": "09/30/2026",
+            "raw": "09/30/2026",
+            "page": 2,
+            "source": "llm"
+          },
+          "gross_pay": {
+            "value": 4000.0,
+            "raw": "$4,000.00",
+            "page": 2,
+            "source": "llm"
+          },
+          "net_pay": {
+            "value": 3100.0,
+            "raw": "$3,100.00",
+            "page": 2,
+            "source": "llm"
+          },
+          "ytd_gross": {
+            "value": 72000.0,
+            "raw": "$72,000.00",
+            "page": 2,
+            "source": "llm"
+          }
+        },
+        "lists": {},
+        "ungrounded_dropped": 0
+      },
+      {
+        "doc_type": "Bank Statement",
+        "pages": [
+          3,
+          3
+        ],
+        "fields": {
+          "account_holder": {
+            "value": "Jonah Vale",
+            "raw": "Jonah Vale",
+            "page": 3,
+            "source": "llm"
+          },
+          "ending_balance": {
+            "value": 18000.0,
+            "raw": "$18,000.00",
+            "page": 3,
+            "source": "llm"
+          },
+          "beginning_balance": {
+            "value": 11800.0,
+            "raw": "$11,800.00",
+            "page": 3,
+            "source": "llm"
+          }
+        },
+        "lists": {
+          "deposits": [
+            {
+              "date": "09/15/2026",
+              "description": "Blue Harbor Design LLC PAYROLL DEPOSIT",
+              "amount": "+$3,100.00",
+              "page": 3,
+              "amount_value": 3100.0
+            },
+            {
+              "date": "09/30/2026",
+              "description": "Blue Harbor Design LLC PAYROLL DEPOSIT",
+              "amount": "+$3,100.00",
+              "page": 3,
+              "amount_value": 3100.0
+            }
+          ],
+          "debits": []
+        },
+        "ungrounded_dropped": 0
+      },
+      {
+        "doc_type": "Loan Estimate",
+        "pages": [
+          4,
+          4
+        ],
+        "fields": {
+          "loan_amount": {
+            "value": 320000.0,
+            "raw": "$320,000.00",
+            "page": 4,
+            "source": "llm"
+          },
+          "interest_rate": {
+            "value": "6.25%",
+            "raw": "6.25%",
+            "page": 4,
+            "source": "llm"
+          },
+          "sale_price": {
+            "value": 400000.0,
+            "raw": "$400,000.00",
+            "page": 4,
+            "source": "llm"
+          },
+          "monthly_pi": {
+            "value": 1970.0,
+            "raw": "$1,970.00",
+            "page": 4,
+            "source": "llm"
+          },
+          "closing_costs": {
+            "value": 7800.0,
+            "raw": "$7,800.00",
+            "page": 4,
+            "source": "llm"
+          }
+        },
+        "lists": {},
+        "ungrounded_dropped": 0
+      },
+      {
+        "doc_type": "Preliminary Title Report",
+        "pages": [
+          5,
+          5
+        ],
+        "fields": {
+          "vested_owner": {
+            "value": "Fictional Seller LLC",
+            "raw": "Fictional Seller LLC",
+            "page": 5,
+            "source": "llm"
+          }
+        },
+        "lists": {
+          "liens": [],
+          "easements": []
+        },
+        "ungrounded_dropped": 0
+      }
+    ],
+    "errors": []
+  },
+  "estimated_api_cost_breakdown_usd": {
+    "review_llm": 0.0004845,
+    "classifier_jev": null,
+    "reducto_list_price": 0.005
+  }
+}

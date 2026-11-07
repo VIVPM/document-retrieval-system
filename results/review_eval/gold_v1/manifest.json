@@ -1,0 +1,18 @@
+{
+  "status": "reviewer_approved",
+  "review_basis": "User supplied a CSV with approved decisions for all 60 rows; automated checks confirmed values, source pages, schema, and packet hashes.",
+  "source_file": "C:\\Users\\Vivek\\Downloads\\reviewed_review_labels.csv",
+  "source_sha256": "11e3bf231e3cb093465e6eb8674bc69aa1ad9dd2741224b8125bd88618fbae64",
+  "labels_file": "reviewed_review_labels.csv",
+  "labels_sha256": "54046cbe8b395cc4c669f3c4aec6095735b5ffce2506cc0aa9a8c65414812974",
+  "field_rows": 60,
+  "comparison_checks": 30,
+  "packet_hashes": {
+    "01_clean.pdf": "39c2cdf64570984f718416dfecd19a28996dbb1dc3cf23ebe6e6c3913b9048c2",
+    "02_income_mismatch.pdf": "0b98c72420db52854275c10e68dddccbe4a5ee5ba0e7fc40391ed65f4de2ca7e",
+    "03_balance_mismatch.pdf": "5a558dfaf3b94c0844884a5db200fb372e70336cc745b0a156926555ed5a8ab4",
+    "04_loan_amount_mismatch.pdf": "6329b0e61fa91f52dffbdde79f0184cbcf3937014b3f033acc5239f37ee8f16c",
+    "05_missing_pay_slip.pdf": "e6327847221b4cf1babde89fad136e749dc1e7578967a26921230e591da86108",
+    "06_missing_bank_statement.pdf": "d8d7324d8198535c24934e811f2fcc8d3f99bb23feae9b4c555e0168062118ba"
+  }
+}

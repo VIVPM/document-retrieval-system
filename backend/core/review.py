@@ -442,6 +442,13 @@ def run_rules(docs: list[dict]) -> list[dict]:
     else:
         verified = None
         s_emp = _val(slip, "employer")
+        if app is not None and slip is None:
+            checks.append(_check("income", "Income", "missing",
+                                 "Pay Slip not in packet; income cannot be verified.",
+                                 [_ev(app, "stated_monthly_income", "Stated monthly income")]))
+            checks.append(_check("employer", "Employer", "missing",
+                                 "Pay Slip not in packet; employer cannot be verified.",
+                                 [_ev(app, "employer", "Employer (application)")]))
 
     if app is not None and bank is not None:
         a_bal, e_bal = _val(app, "checking_balance"), _val(bank, "ending_balance")
@@ -452,6 +459,10 @@ def run_rules(docs: list[dict]) -> list[dict]:
             ok = abs(a_bal - e_bal) <= BALANCE_TOLERANCE * max(e_bal, 1)
             checks.append(_check("balance", "Checking balance", "match" if ok else "mismatch",
                                  f"Application {_money(a_bal)}; statement ends at {_money(e_bal)}.", ev))
+    elif app is not None and bank is None:
+        checks.append(_check("balance", "Checking balance", "missing",
+                             "Bank Statement not in packet; checking balance cannot be verified.",
+                             [_ev(app, "checking_balance", "Stated balance")]))
 
     net = _val(slip, "net_pay")
     deposits = (bank or {}).get("lists", {}).get("deposits", [])
@@ -702,12 +713,12 @@ if __name__ == "__main__":
 
     got = {c["id"]: c["status"] for c in run_rules(docs[:1])}
     assert got["not_in_packet_pay_slip"] == "info" and got["not_in_packet_bank_statement"] == "info"
-    assert "income" not in got and "employer" not in got and "balance" not in got
+    assert got["income"] == "missing" and got["employer"] == "missing" and got["balance"] == "missing"
     three_docs = [{**docs[0], "fields": {k: v for k, v in docs[0]["fields"].items()
                                         if k not in ("stated_monthly_income", "employer")}}, docs[2], docs[3]]
     got = {c["id"]: c["status"] for c in run_rules(three_docs)}
     assert got["not_in_packet_pay_slip"] == "info"
-    assert "income" not in got and "employer" not in got and "large_deposits" not in got
+    assert got["income"] == "missing" and got["employer"] == "missing" and "large_deposits" not in got
     assert got["balance"] == "match" and got["loan_amount"] == "match"
     table_page = [(5, _flat("07/15 | DIRECT DEP SIERRA RIDGE LOGISTICS PAYROLL | +$2,845.31 | $50,479.00"))]
     assert _locate("07/15 DIRECT DEP SIERRA RIDGE LOGISTICS PAYROLL +$2,845.31", table_page) == 5

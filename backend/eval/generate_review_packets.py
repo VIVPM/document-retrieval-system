@@ -94,7 +94,7 @@ def build(case):
     n = 1
     person = case["borrower"]
     employer = case["employer"]
-    page(pdf, "Loan Application", f"Borrower claims - submitted 10/01/2026",
+    page(pdf, "Loan Application", "Borrower claims - submitted 10/01/2026",
          [("Borrower Name:", person), ("Employer or Business Name:", employer),
           ("Start Date:", "01/15/2022"),
           ("TOTAL Gross Monthly Income:", money(case["app_income"])),
@@ -116,7 +116,7 @@ def build(case):
               ("YTD Gross:", money(case["gross"] * 18))], case["id"], n)
         n += 1
     if case["omit"] != "bank":
-        page(pdf, "Bank Statement", f"Fictional Community Bank - checking account 0099",
+        page(pdf, "Bank Statement", "Fictional Community Bank - checking account 0099",
              [("Account Holder:", person), ("Statement Period:", "09/01/2026 - 09/30/2026"),
               ("Beginning Balance:", money(case["bank_balance"] - 6200)),
               ("Ending Balance:", money(case["bank_balance"])),
@@ -125,7 +125,7 @@ def build(case):
               ("09/30/2026", f"{employer} PAYROLL DEPOSIT +{money(case['net'])}")],
              case["id"], n)
         n += 1
-    page(pdf, "Loan Estimate", f"Fictional Home Lender - issued 10/02/2026",
+    page(pdf, "Loan Estimate", "Fictional Home Lender - issued 10/02/2026",
          [("Borrower:", person), ("Loan Amount:", money(case["estimate_loan"])),
           ("Sale Price:", money(case["price"])),
           ("Interest Rate:", "6.25%"),
